@@ -1,139 +1,86 @@
-import { useEffect, useRef } from "react";
-import { html } from "@codemirror/lang-html";
-import { basicSetup, EditorView } from "codemirror";
-
-const starterDocument = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>index</title>
-    <meta name="fractal:version" content="0.1" />
-    <meta name="fractal:summary" content="Short page summary here." />
-    <meta name="fractal:tags" content="rust, graphs, parsing" />
-    <link rel="stylesheet" href="../.fractal/style.css">
-  </head>
-  <body data-fractal-theme="dark">
-    <main>
-      <h1>index</h1>
-      <p>Fractal project scaffold.</p>
-    </main>
-    <section data-fractal-notes>
-    </section>
-  </body>
-</html>
-`;
+const files = [
+  { name: "index", path: "pages/index.html", active: true },
+  { name: "garden", path: "pages/garden.html", active: false },
+  { name: "subpage", path: "pages/nested/subpage.html", active: false }
+];
 
 function App() {
-  const editorHostRef = useRef<HTMLDivElement>(null);
-  const editorViewRef = useRef<EditorView | null>(null);
-
-  useEffect(() => {
-    if (!editorHostRef.current) {
-      return;
-    }
-
-    const view = new EditorView({
-      doc: starterDocument,
-      extensions: [
-        basicSetup,
-        html(),
-        EditorView.lineWrapping,
-        EditorView.theme({
-          "&": {
-            height: "100%",
-            backgroundColor: "#141410",
-            color: "#ece6d8"
-          },
-          ".cm-scroller": {
-            fontFamily:
-              '"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace'
-          },
-          ".cm-content": {
-            padding: "18px 0",
-            caretColor: "#79d6a3"
-          },
-          ".cm-line": {
-            padding: "0 18px"
-          },
-          ".cm-gutters": {
-            backgroundColor: "#10100d",
-            color: "#817966",
-            borderRight: "1px solid #2f2b22"
-          },
-          ".cm-activeLine": {
-            backgroundColor: "#25251d"
-          },
-          ".cm-activeLineGutter": {
-            backgroundColor: "#25251d"
-          },
-          ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-            backgroundColor: "#3c6147"
-          },
-          "&.cm-focused": {
-            outline: "none"
-          }
-        })
-      ],
-      parent: editorHostRef.current
-    });
-
-    editorViewRef.current = view;
-
-    return () => {
-      view.destroy();
-      editorViewRef.current = null;
-    };
-  }, []);
-
   return (
     <main className="app-shell">
-      <aside className="sidebar" aria-label="Project pages">
+      <aside className="sidebar" aria-label="File explorer">
         <div className="brand">
-          <span className="brand-mark">A</span>
+          <span className="brand-mark" aria-hidden="true" />
           <div>
             <h1>Amanite</h1>
-            <p>Fractal editor</p>
+            <p>test_proj</p>
           </div>
         </div>
 
-        <nav className="page-list" aria-label="Pages">
-          <button className="page-link active" type="button">
-            index.html
+        <div className="explorer-header">
+          <span>Pages</span>
+          <button type="button" aria-label="Create page">
+            +
           </button>
-          <button className="page-link" type="button">
-            nested/subpage.html
-          </button>
+        </div>
+
+        <nav className="file-list" aria-label="Project files">
+          {files.map((file) => (
+            <button
+              className={file.active ? "file-link active" : "file-link"}
+              key={file.path}
+              type="button"
+            >
+              <span className="file-name">{file.name}</span>
+            </button>
+          ))}
         </nav>
       </aside>
 
-      <section className="workspace" aria-label="Editor workspace">
-        <header className="toolbar">
-          <div>
-            <p className="eyebrow">pages/index.html</p>
-            <h2>HTML Source</h2>
-          </div>
-          <div className="actions">
-            <button type="button">Validate</button>
-            <button type="button">Build Index</button>
-          </div>
-        </header>
+      <section className="workspace" aria-label="Editor">
+        <main className="document" aria-label="Editable page">
+          <h1
+            contentEditable
+            suppressContentEditableWarning
+            aria-label="Page title"
+            spellCheck="false"
+          >
+            test_proj
+          </h1>
 
-        <div className="editor-grid">
-          <section className="editor-pane" aria-label="Source editor">
-            <div ref={editorHostRef} className="editor-host" />
-          </section>
+          <div
+            className="page-body"
+            contentEditable
+            suppressContentEditableWarning
+            aria-label="Page content"
+          >
+            <p>
+              Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin
+              velit magna, convallis eget placerat at, efficitur nec ipsum.
+              Praesent gravida eu massa vitae volutpat.
+            </p>
+            <p>
+              Mauris et posuere neque, in lobortis nisi. In congue dapibus
+              dapibus. Proin consectetur, dolor vel placerat eleifend, elit eros
+              mollis dolor, a aliquam elit mauris non ex.
+            </p>
+            <p>
+              Quisque eget nulla eu augue faucibus placerat. Praesent tincidunt,
+              quam in aliquam dapibus, risus nulla porta arcu, at ornare purus
+              urna ac arcu.
+            </p>
+          </div>
 
-          <section className="preview-pane" aria-label="Document preview">
-            <article>
-              <h1>index</h1>
-              <p>Fractal project scaffold.</p>
-            </article>
-            <section className="notes-preview" aria-label="Notes">
-              <h2>Notes</h2>
-              <p>No notes yet.</p>
-            </section>
+          <section className="notes" aria-label="Page notes">
+            <div
+              className="note-entry"
+              contentEditable
+              suppressContentEditableWarning
+              aria-label="New note"
+            >
+              Select text or start writing here to keep a note with this page.
+            </div>
           </section>
-        </div>
+        </main>
       </section>
     </main>
   );

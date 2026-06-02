@@ -1,10 +1,19 @@
 :root {
-  color: #ece6d8;
-  background: #0f100d;
+  --page-background: #19110b;
+  --page-surface: #26180f;
+  --page-text: #f6cb5c;
+  --page-muted: #cca061;
+  --page-border: #402919;
+  --page-accent: #e4ae51;
+  --sidebar-background: #120d09;
+  --sidebar-hover: #21160f;
+
+  color: var(--page-text);
+  background: var(--page-background);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
-  line-height: 1.5;
+  line-height: 1.6;
   text-rendering: optimizeLegibility;
 }
 
@@ -19,202 +28,194 @@ body {
 }
 
 button {
-  border: 1px solid #313845;
-  border-radius: 6px;
-  background: #202017;
-  color: #f3ecde;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   font: inherit;
 }
 
-button:hover {
-  background: #2a2a1f;
-}
-
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   min-height: 100vh;
-  background: #0f100d;
+  background: var(--page-background);
 }
 
 .sidebar {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 22px;
-  border-right: 1px solid #2d2a22;
-  background: #151610;
-  padding: 18px;
+  border-right: 1px solid var(--page-border);
+  background: var(--sidebar-background);
+  color: var(--page-muted);
+  padding: 18px 12px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  padding: 0 6px;
 }
 
 .brand-mark {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border-radius: 8px;
-  background: #7bc89b;
-  color: #0f100d;
-  font-weight: 800;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--page-accent);
+  border-radius: 50%;
+  opacity: 0.75;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  position: absolute;
+  content: "";
+  background: var(--page-accent);
+}
+
+.brand-mark::before {
+  top: 4px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50% 50% 45% 45%;
+}
+
+.brand-mark::after {
+  right: 6px;
+  bottom: 4px;
+  width: 1px;
+  height: 7px;
 }
 
 .brand h1,
-.brand p,
-.toolbar h2,
-.toolbar p {
+.brand p {
   margin: 0;
 }
 
 .brand h1 {
-  font-size: 1rem;
-  line-height: 1.2;
+  color: var(--page-text);
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.15;
 }
 
-.brand p,
-.eyebrow {
-  color: #a49a84;
-  font-size: 0.78rem;
+.brand p {
+  font-size: 0.74rem;
 }
 
-.page-list {
+.explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  color: var(--page-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.explorer-header button {
   display: grid;
-  gap: 8px;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 5px;
 }
 
-.page-link {
+.explorer-header button:hover {
+  background: var(--sidebar-hover);
+  color: var(--page-text);
+}
+
+.file-list {
+  display: grid;
+  gap: 2px;
+}
+
+.file-link {
+  min-width: 0;
   overflow: hidden;
-  width: 100%;
-  padding: 9px 10px;
+  border-radius: 5px;
+  padding: 7px 8px;
+  color: var(--page-muted);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.page-link.active {
-  border-color: #54735f;
-  background: #1d3326;
+.file-link:hover,
+.file-link.active {
+  background: var(--sidebar-hover);
+  color: var(--page-text);
 }
 
 .workspace {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid #2d2a22;
-  background: #151610;
-  padding: 14px 18px;
-}
-
-.toolbar h2 {
-  font-size: 1.05rem;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.actions button {
-  padding: 7px 10px;
-}
-
-.editor-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
-  min-height: 0;
-}
-
-.editor-pane,
-.preview-pane {
-  min-width: 0;
-  min-height: 0;
-}
-
-.editor-pane {
-  border-right: 1px solid #2d2a22;
-}
-
-.editor-host {
-  height: calc(100vh - 68px);
-}
-
-.preview-pane {
+  min-height: 100vh;
   overflow: auto;
-  background: #f5efe5;
-  color: #312319;
-  padding: 40px 32px;
 }
 
-.preview-pane article,
-.notes-preview {
-  width: min(640px, 100%);
+.document {
+  width: min(760px, calc(100% - 32px));
   margin: 0 auto;
+  padding: 56px 0;
 }
 
-.preview-pane h1 {
-  margin: 0 0 18px;
-  font-size: 2.2rem;
+.document h1 {
+  margin: 0 0 24px;
+  color: var(--page-text);
+  font-size: 2.25rem;
   line-height: 1.15;
 }
 
-.preview-pane p {
-  margin: 0;
+.document h1,
+.page-body,
+.note-entry {
+  outline: 0;
 }
 
-.notes-preview {
-  margin-top: 34px;
-  border-top: 1px solid #dbcbb6;
-  padding-top: 18px;
+.document h1:focus,
+.page-body:focus,
+.note-entry:focus {
+  box-shadow: inset 3px 0 0 var(--page-accent);
 }
 
-.notes-preview h2 {
-  margin: 0 0 8px;
-  font-size: 0.9rem;
-  text-transform: uppercase;
+.page-body {
+  color: var(--page-text);
 }
 
-@media (max-width: 860px) {
+.page-body p {
+  margin: 0 0 1rem;
+}
+
+.notes {
+  padding: 16px 0 0;
+}
+
+.note-entry {
+  min-height: 52px;
+  border: 1px solid var(--page-border);
+  border-radius: 8px;
+  background: var(--page-surface);
+  color: var(--page-muted);
+  padding: 12px 16px;
+}
+
+@media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
 
   .sidebar {
     border-right: 0;
-    border-bottom: 1px solid #2d2a22;
+    border-bottom: 1px solid var(--page-border);
   }
 
-  .page-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .editor-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .editor-pane {
-    border-right: 0;
-    border-bottom: 1px solid #2d2a22;
-  }
-
-  .editor-host {
-    height: 52vh;
-  }
-
-  .preview-pane {
-    min-height: 42vh;
+  .file-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
