@@ -28,31 +28,31 @@ On Arch Linux, Tauri commonly needs WebKitGTK and related desktop packages insta
 Install frontend dependencies:
 
 ```sh
-npm install
+pnpm install
 ```
 
 Run the web frontend only:
 
 ```sh
-npm run dev
+pnpm run dev
 ```
 
 Run the desktop app:
 
 ```sh
-npm run tauri:dev
+pnpm run tauri:dev
 ```
 
 Build frontend assets:
 
 ```sh
-npm run build
+pnpm run build
 ```
 
 Build the Tauri app:
 
 ```sh
-npm run tauri:build
+pnpm run tauri:build
 ```
 
 ## Project Layout
