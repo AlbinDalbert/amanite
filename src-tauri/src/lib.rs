@@ -20,6 +20,7 @@ struct FractalProject {
     pages: Vec<FractalPage>,
     active_page_path: String,
     active_page_source: String,
+    active_page_stylesheet: String,
 }
 
 #[derive(Serialize)]
@@ -99,24 +100,25 @@ fn read_project(root: PathBuf) -> Result<FractalProject, String> {
     let root = root
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
-    let name = root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("Fractal project")
-        .to_string();
+    let manifest = fractal::project::load_project_manifest(&root)
+        .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+    let name = manifest.project_name;
     let mut pages = Vec::new();
 
     collect_html_pages(&root, &root, &mut pages)?;
     pages.sort_by(|left, right| left.path.cmp(&right.path));
 
+    let default_page = manifest.default_page;
     let active_page_path = pages
         .iter()
-        .find(|page| page.path == "pages/index.html")
+        .find(|page| page.path == default_page)
         .or_else(|| pages.first())
         .map(|page| page.path.clone())
         .ok_or_else(|| format!("No HTML pages found in {}", root.display()))?;
     let active_page_source = fs::read_to_string(root.join(&active_page_path))
         .map_err(|error| format!("Could not read {active_page_path}: {error}"))?;
+    let active_page_stylesheet = fs::read_to_string(root.join(".fractal").join("style.css"))
+        .map_err(|error| format!("Could not read .fractal/style.css: {error}"))?;
 
     Ok(FractalProject {
         name,
@@ -124,42 +126,38 @@ fn read_project(root: PathBuf) -> Result<FractalProject, String> {
         pages,
         active_page_path,
         active_page_source,
+        active_page_stylesheet,
     })
 }
 
-fn scaffold_project(root: &Path) -> Result<(), String> {
-    let pages_directory = root.join("pages");
-    fs::create_dir_all(&pages_directory)
-        .map_err(|error| format!("Could not create {}: {error}", pages_directory.display()))?;
+fn create_project(root: &Path) -> Result<(), String> {
+    if root.exists() {
+        if root.join("fractal.json").is_file() {
+            return Ok(());
+        }
 
-    let index_path = pages_directory.join("index.html");
-    if !index_path.exists() {
-        fs::write(
-            &index_path,
-            r#"<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Amanite project</title>
-  </head>
-  <body>
-    <h1>Amanite project</h1>
-    <p>This page is loaded from a real local Fractal project file.</p>
-  </body>
-</html>
-"#,
-        )
-        .map_err(|error| format!("Could not write {}: {error}", index_path.display()))?;
+        return Err(format!(
+            "{} already exists but is not a Fractal project. Set AMANITE_PROJECT_ROOT to a new directory or open an existing Fractal project root.",
+            root.display()
+        ));
     }
 
+    let name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Amanite project");
+
+    fractal::project::init_project_at(root, name)
+        .map_err(|error| format!("Could not create Fractal project: {error}"))?;
+    fractal::project::build_index(root)
+        .map_err(|error| format!("Could not build Fractal project index: {error}"))?;
     Ok(())
 }
 
 #[tauri::command]
 fn fractal_create_project(app: AppHandle) -> Result<FractalProject, String> {
     let root = project_root(&app)?;
-    scaffold_project(&root)?;
+    create_project(&root)?;
     read_project(root)
 }
 
@@ -192,6 +190,8 @@ fn fractal_build_index(project_root: String) -> Result<FractalCommandResult, Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    dotenvy::dotenv().ok();
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             fractal_create_project,

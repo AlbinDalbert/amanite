@@ -43,6 +43,30 @@ Run the desktop app:
 pnpm run tauri:dev
 ```
 
+By default, Amanite stores its development project in the app data directory as
+`default-project`. Set `AMANITE_PROJECT_ROOT` when you want the Create/Open
+buttons to use a specific Fractal project directory instead:
+
+```sh
+AMANITE_PROJECT_ROOT="$HOME/fractal-projects/notes" pnpm run tauri:dev
+```
+
+You can also put it in a repo-local `.env` file:
+
+```env
+AMANITE_PROJECT_ROOT=/home/chell/fractal-projects/notes
+```
+
+Use an absolute path in `.env`; `~` is not expanded there.
+
+`AMANITE_PROJECT_ROOT` points at one Fractal project root, not a parent folder
+containing multiple projects. When you click Create new project and that path
+does not exist, Amanite runs Fractal's project initializer there, creating
+`fractal.json`, `.fractal/style.css`, `.fractal/index.json`,
+`.fractal/graph.json`, and `pages/index.html`. When the path already contains a
+Fractal project, Create/Open load it. If the path exists but is not a Fractal
+project, Amanite reports that instead of writing files into it.
+
 Build frontend assets:
 
 ```sh

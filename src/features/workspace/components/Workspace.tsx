@@ -42,7 +42,10 @@ function Workspace({
         />
         <CommandStatus error={error} result={commandResult} />
         <div className="editor-stage" aria-label="Editable Fractal page">
-          <FractalEditor text={project.activePageSource} />
+          <FractalEditor
+            stylesheet={project.activePageStylesheet}
+            text={project.activePageSource}
+          />
         </div>
       </section>
     </main>

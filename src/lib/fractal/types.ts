@@ -20,6 +20,7 @@ export type FractalProject = {
   pages: FractalPage[];
   activePagePath: string;
   activePageSource: string;
+  activePageStylesheet: string;
 };
 
 export type FractalCommandResult = {
