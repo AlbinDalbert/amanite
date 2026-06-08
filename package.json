@@ -12,9 +12,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@codemirror/lang-html": "^6.4.9",
     "@tauri-apps/api": "^2.0.0",
-    "codemirror": "^6.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

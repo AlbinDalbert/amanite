@@ -1,65 +1,33 @@
 import { invoke } from "@tauri-apps/api/core";
-import { mockProject } from "./mockProject";
 import type { FractalClient, FractalCommandResult, FractalProject } from "./types";
-
-type InvokeArgs = Record<string, unknown>;
-
-function cloneMockProject(): FractalProject {
-  return {
-    ...mockProject,
-    theme: { ...mockProject.theme },
-    pages: mockProject.pages.map((page) => ({ ...page }))
-  };
-}
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
 
-async function invokeFractal<T>(
-  command: string,
-  args: InvokeArgs,
-  fallback: () => T
-): Promise<T> {
+async function invokeFractal<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!hasTauriRuntime()) {
-    return fallback();
+    throw new Error("Amanite must be run through Tauri to load local Fractal project files.");
   }
 
-  try {
-    return await invoke<T>(command, args);
-  } catch (error) {
-    console.warn(`Falling back to mock Fractal data after ${command} failed.`, error);
-    return fallback();
-  }
-}
-
-function mockCommand(message: string): FractalCommandResult {
-  return {
-    ok: true,
-    message,
-    details: "Mock response. Wire the matching Tauri command to call the Fractal crate."
-  };
+  return invoke<T>(command, args);
 }
 
 export const fractalClient: FractalClient = {
   createProject() {
-    return invokeFractal("fractal_create_project", {}, cloneMockProject);
+    return invokeFractal<FractalProject>("fractal_create_project");
   },
   openProject() {
-    return invokeFractal("fractal_open_project", {}, cloneMockProject);
+    return invokeFractal<FractalProject>("fractal_open_project");
   },
   validateProject(project) {
-    return invokeFractal(
-      "fractal_validate_project",
-      { projectRoot: project.rootPath },
-      () => mockCommand("Project validation completed.")
-    );
+    return invokeFractal<FractalCommandResult>("fractal_validate_project", {
+      projectRoot: project.rootPath
+    });
   },
   buildIndex(project) {
-    return invokeFractal(
-      "fractal_build_index",
-      { projectRoot: project.rootPath },
-      () => mockCommand("Project index built.")
-    );
+    return invokeFractal<FractalCommandResult>("fractal_build_index", {
+      projectRoot: project.rootPath
+    });
   }
 };
