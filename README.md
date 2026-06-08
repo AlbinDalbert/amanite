@@ -13,7 +13,7 @@ The app is being rebuilt from the original Avalonia/.NET starter into a web-nati
 
 This is an initial scaffold. It includes a Tauri app shell, a React workspace layout, and a CodeMirror HTML editor seeded with a Fractal-style page document.
 
-The Fractal engine is not wired into the UI yet. The intended first integration is to call the existing `fractal` CLI from Tauri commands, keeping the engine boundary explicit while Fractal continues to evolve.
+The Fractal engine is not wired into the UI yet. The frontend talks through `src/lib/fractal`, which keeps Fractal/Tauri integration out of React feature components while the crate API continues to evolve.
 
 ## Requirements
 
@@ -59,7 +59,11 @@ pnpm run tauri:build
 
 ```text
 .
-├── src/                 React frontend
+├── src/
+│   ├── app/             App orchestration and top-level state
+│   ├── components/ui/   Shared UI primitives, including future shadcn output
+│   ├── features/        Feature-owned React components
+│   └── lib/fractal/     Typed frontend adapter for Fractal/Tauri calls
 ├── src-tauri/           Tauri 2 Rust host
 ├── index.html           Vite entry HTML
 ├── package.json         frontend and Tauri CLI scripts
