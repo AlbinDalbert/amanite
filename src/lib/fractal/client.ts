@@ -32,6 +32,20 @@ export const fractalClient: FractalClient = {
       directoryName
     });
   },
+  openPage(project, pagePath) {
+    return invokeFractal<FractalProject>("fractal_open_page", {
+      pagePath,
+      projectRoot: project.rootPath
+    });
+  },
+  savePage(project, update) {
+    return invokeFractal<FractalProject>("fractal_update_page", {
+      bodyHtml: update.bodyHtml,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath,
+      title: update.title
+    });
+  },
   validateProject(project) {
     return invokeFractal<FractalCommandResult>("fractal_validate_project", {
       projectRoot: project.rootPath

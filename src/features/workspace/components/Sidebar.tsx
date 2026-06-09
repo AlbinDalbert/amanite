@@ -1,12 +1,14 @@
 import type { FractalPage } from "@/lib/fractal/types";
+import FileExplorer from "./FileExplorer";
 
 type SidebarProps = {
   activePagePath: string;
   pages: FractalPage[];
   projectName: string;
+  onSelectPage: (pagePath: string) => void;
 };
 
-function Sidebar({ activePagePath, pages, projectName }: SidebarProps) {
+function Sidebar({ activePagePath, pages, projectName, onSelectPage }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="File explorer">
       <div className="brand">
@@ -24,22 +26,12 @@ function Sidebar({ activePagePath, pages, projectName }: SidebarProps) {
         </button>
       </div>
 
-      <nav className="file-list" aria-label="Project files">
-        {pages.map((page) => {
-          const isActive = page.path === activePagePath;
-
-          return (
-            <button
-              aria-current={isActive ? "page" : undefined}
-              className={isActive ? "file-link active" : "file-link"}
-              key={page.path}
-              type="button"
-              title={page.path}
-            >
-              <span className="file-name">{page.name}</span>
-            </button>
-          );
-        })}
+      <nav className="file-explorer" aria-label="Project files">
+        <FileExplorer
+          activePagePath={activePagePath}
+          pages={pages}
+          onSelectPage={onSelectPage}
+        />
       </nav>
     </aside>
   );

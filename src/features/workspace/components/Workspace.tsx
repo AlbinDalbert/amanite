@@ -8,18 +8,28 @@ import WorkspaceToolbar from "./WorkspaceToolbar";
 type WorkspaceProps = {
   commandResult: FractalCommandResult | null;
   error: string | null;
+  hasUnsavedPageChanges: boolean;
   isBusy: boolean;
   project: FractalProject;
   onBuildIndex: () => void;
+  onChangePageBodyHtml: (bodyHtml: string) => void;
+  onChangePageTitle: (title: string) => void;
+  onOpenPage: (pagePath: string) => void;
+  onSavePage: () => void;
   onValidate: () => void;
 };
 
 function Workspace({
   commandResult,
   error,
+  hasUnsavedPageChanges,
   isBusy,
   project,
   onBuildIndex,
+  onChangePageBodyHtml,
+  onChangePageTitle,
+  onOpenPage,
+  onSavePage,
   onValidate
 }: WorkspaceProps) {
   return (
@@ -28,6 +38,7 @@ function Workspace({
         activePagePath={project.activePagePath}
         pages={project.pages}
         projectName={project.name}
+        onSelectPage={onOpenPage}
       />
       <section
         className="workspace"
@@ -43,8 +54,20 @@ function Workspace({
         <CommandStatus error={error} result={commandResult} />
         <div className="editor-stage" aria-label="Editable Fractal page">
           <FractalEditor
-            stylesheet={project.activePageStylesheet}
-            text={project.activePageSource}
+            isBusy={isBusy}
+            isDirty={hasUnsavedPageChanges}
+            bodyHtml={project.activePageBodyHtml}
+            backlinks={project.activePageBacklinks}
+            links={project.activePageLinks}
+            notes={project.activePageNotes}
+            outlinks={project.activePageOutlinks}
+            pagePath={project.activePagePath}
+            summary={project.activePageSummary}
+            tags={project.activePageTags}
+            title={project.activePageTitle}
+            onChangeBodyHtml={onChangePageBodyHtml}
+            onChangeTitle={onChangePageTitle}
+            onSave={onSavePage}
           />
         </div>
       </section>

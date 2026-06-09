@@ -345,26 +345,139 @@ button:disabled {
   color: var(--app-text);
 }
 
-.file-list {
-  display: grid;
-  gap: 2px;
+.file-explorer {
+  min-width: 0;
+  overflow: auto;
 }
 
-.file-link {
+.file-tree-group {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-tree-node {
   min-width: 0;
+}
+
+.explorer-row {
+  --tree-indent: calc(var(--tree-depth) * 14px);
+
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  grid-template-columns: 12px 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   border-radius: 5px;
-  padding: 7px 8px;
   color: var(--app-muted);
+  padding: 4px 8px 4px calc(6px + var(--tree-indent));
   text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-link:hover,
-.file-link.active {
+.explorer-row:hover,
+.explorer-row.active {
   background: var(--sidebar-hover);
   color: var(--app-text);
+}
+
+.explorer-row:focus-visible {
+  outline: 1px solid var(--app-accent);
+  outline-offset: -1px;
+}
+
+.explorer-row.active {
+  box-shadow: inset 2px 0 0 var(--app-accent);
+}
+
+.explorer-twist,
+.explorer-icon {
+  display: block;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.explorer-twist::before {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  content: "";
+  transform-origin: 2px 4px;
+  transition: transform 120ms ease;
+}
+
+.explorer-row.page .explorer-twist::before {
+  content: none;
+}
+
+.explorer-row.expanded .explorer-twist::before {
+  transform: rotate(90deg);
+}
+
+.explorer-icon.folder::before {
+  position: absolute;
+  top: 5px;
+  left: 1px;
+  width: 12px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  content: "";
+}
+
+.explorer-icon.folder::after {
+  position: absolute;
+  top: 3px;
+  left: 2px;
+  width: 6px;
+  height: 3px;
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  content: "";
+}
+
+.explorer-icon.page::before {
+  position: absolute;
+  inset: 1px 3px 1px 2px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  content: "";
+}
+
+.explorer-icon.page::after {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  background: var(--sidebar-background);
+  content: "";
+}
+
+.explorer-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.84rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
 }
 
 .workspace {
@@ -485,15 +598,414 @@ button:disabled {
   display: grid;
   min-height: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--project-background) 82%, #ffffff);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 170px),
+    color-mix(in srgb, var(--project-background) 82%, #f0ede5);
 }
 
 .fractal-editor {
+  display: grid;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  overflow: hidden;
+  background: #d9d5cb;
+}
+
+.rich-document-shell {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 0, rgb(255 255 255 / 45%), transparent 260px),
+    linear-gradient(135deg, #e7e1d5 0%, #d7d2c8 54%, #c9d2cf 100%);
+}
+
+.rich-editor-header {
+  display: grid;
+  min-width: 0;
+  min-height: 52px;
+  grid-template-columns: minmax(130px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid rgb(61 61 54 / 22%);
+  background: rgb(247 244 236 / 88%);
+  color: var(--project-muted);
+  padding: 8px 14px;
+  backdrop-filter: blur(14px);
+}
+
+.rich-editor-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-pane-title {
+  color: #292724;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.editor-state {
+  justify-self: start;
+  overflow: hidden;
+  color: #77736b;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-state.dirty {
+  color: #8e5d11;
+}
+
+.editor-page-path {
+  min-width: 0;
+  overflow: hidden;
+  color: #69645d;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-save-action {
+  min-width: 64px;
+  min-height: 28px;
+  border: 1px solid rgb(44 42 38 / 18%);
+  border-radius: 6px;
+  background: #2d302d;
+  color: #fff8ea;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.editor-save-action.dirty {
+  border-color: #2d302d;
+  background: #9a6a21;
+  color: #fff8ea;
+}
+
+.editor-save-action:hover {
+  border-color: #9a6a21;
+}
+
+.editor-save-action:disabled:hover {
+  border-color: rgb(44 42 38 / 18%);
+}
+
+.rich-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: auto hidden;
+}
+
+.rich-toolbar-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgb(44 42 38 / 12%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 48%);
+  padding: 3px;
+}
+
+.rich-toolbar-button {
+  display: grid;
+  width: 28px;
+  height: 26px;
+  place-items: center;
+  border-radius: 5px;
+  color: #3b3934;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rich-toolbar-button:hover,
+.rich-toolbar-button.active {
+  background: #2f413b;
+  color: #f8f2e7;
+}
+
+.rich-page-canvas {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(24px, 4vw, 56px) clamp(18px, 5vw, 76px) 80px;
+}
+
+.rich-page-canvas > * {
+  width: min(760px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.rich-page-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.rich-tag-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.rich-tag {
+  display: inline-flex;
+  max-width: 150px;
+  min-height: 22px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(53 80 74 / 18%);
+  border-radius: 999px;
+  background: rgb(54 82 76 / 10%);
+  color: #36524c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rich-title-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 74px;
+  resize: none;
   border: 0;
-  border-radius: 0;
-  background: #ffffff;
+  outline: none;
+  background: transparent;
+  color: #24211d;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: clamp(2rem, 4vw, 3.35rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.05;
+  padding: 0;
+}
+
+.rich-title-input::placeholder {
+  color: rgb(36 33 29 / 36%);
+}
+
+.rich-summary {
+  margin-top: 12px;
+  margin-bottom: 30px;
+  color: #68635a;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.rich-body-frame {
+  position: relative;
+  width: 100%;
+  min-height: 420px;
+  margin-top: 26px;
+  border-top: 1px solid rgb(44 42 38 / 13%);
+  padding-top: 26px;
+}
+
+.rich-content-editable {
+  min-height: 380px;
+  outline: none;
+  color: #28251f;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.04rem;
+  line-height: 1.72;
+}
+
+.rich-placeholder {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  pointer-events: none;
+  color: rgb(40 37 31 / 42%);
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.04rem;
+}
+
+.rich-paragraph,
+.rich-heading,
+.rich-quote,
+.rich-list {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.rich-heading {
+  color: #25231f;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  letter-spacing: 0;
+  line-height: 1.16;
+}
+
+.rich-heading-two {
+  margin-top: 2rem;
+  font-size: 1.72rem;
+}
+
+.rich-heading-three {
+  margin-top: 1.5rem;
+  font-size: 1.28rem;
+}
+
+.rich-text-bold {
+  font-weight: 800;
+}
+
+.rich-text-italic {
+  font-style: italic;
+}
+
+.rich-text-underline {
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.rich-text-strike {
+  text-decoration: line-through;
+}
+
+.rich-link {
+  color: #286356;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.rich-quote {
+  border-left: 3px solid #7f8f72;
+  color: #4d4b43;
+  padding-left: 16px;
+}
+
+.rich-list {
+  padding-left: 1.35rem;
+}
+
+.rich-list-item {
+  margin: 0.28rem 0;
+}
+
+.fractal-inspector {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: start;
+  gap: 14px;
+  overflow: auto;
+  border-left: 1px solid rgb(255 255 255 / 8%);
+  background: #151816;
+  color: #d7d1c5;
+  padding: 16px 14px 28px;
+}
+
+.fractal-inspector-card,
+.fractal-inspector-section {
+  min-width: 0;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 3%);
+  padding: 12px;
+}
+
+.fractal-inspector-kicker,
+.fractal-inspector-section h3,
+.fractal-inspector-section p,
+.fractal-inspector-section ul,
+.fractal-stats {
+  margin: 0;
+}
+
+.fractal-inspector-kicker {
+  color: #9ea89b;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.fractal-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.fractal-stats div {
+  display: grid;
+  gap: 1px;
+}
+
+.fractal-stats dt {
+  color: #8f968b;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.fractal-stats dd {
+  margin: 0;
+  color: #f3eadb;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.fractal-inspector-section {
+  display: grid;
+  gap: 10px;
+}
+
+.fractal-inspector-section h3 {
+  color: #f1e8d7;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.fractal-inspector-section p,
+.fractal-inspector-section li {
+  color: #a9aa9f;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.fractal-inspector-section ul {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  list-style: none;
+}
+
+.fractal-inspector-section li {
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 760px) {
@@ -508,10 +1020,6 @@ button:disabled {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--app-border);
-  }
-
-  .file-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .workspace-toolbar {
@@ -529,6 +1037,31 @@ button:disabled {
     bottom: 12px;
     left: 12px;
     max-width: none;
+  }
+
+  .fractal-editor {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(520px, 1fr) auto;
+  }
+
+  .rich-editor-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rich-toolbar {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    order: 3;
+  }
+
+  .fractal-inspector {
+    border-right: 0;
+    border-left: 0;
+    border-top: 1px solid rgb(255 255 255 / 8%);
+  }
+
+  .rich-page-canvas {
+    padding: 24px 18px 58px;
   }
 }
 

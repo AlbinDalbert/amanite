@@ -14,13 +14,44 @@ struct FractalPage {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct FractalNote {
+    id: String,
+    label: String,
+    text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalPageLink {
+    href: String,
+    text: String,
+    scope: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalGraphPageLink {
+    page: String,
+    text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FractalProject {
     name: String,
     root_path: String,
     pages: Vec<FractalPage>,
     active_page_path: String,
     active_page_source: String,
+    active_page_body_html: String,
     active_page_stylesheet: String,
+    active_page_title: String,
+    active_page_summary: Option<String>,
+    active_page_tags: Vec<String>,
+    active_page_notes: Vec<FractalNote>,
+    active_page_links: Vec<FractalPageLink>,
+    active_page_backlinks: Vec<FractalGraphPageLink>,
+    active_page_outlinks: Vec<FractalGraphPageLink>,
 }
 
 #[derive(Serialize)]
@@ -59,61 +90,6 @@ fn projects_root(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map(|path| path.join("projects"))
         .map_err(|error| format!("Could not resolve Amanite project library: {error}"))
-}
-
-fn page_name(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or("untitled")
-        .to_string()
-}
-
-fn relative_slash_path(root: &Path, path: &Path) -> Result<String, String> {
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|error| format!("Could not resolve page path: {error}"))?;
-
-    Ok(relative
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/"))
-}
-
-fn collect_html_pages(
-    root: &Path,
-    directory: &Path,
-    pages: &mut Vec<FractalPage>,
-) -> Result<(), String> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "Could not read project directory {}: {error}",
-                directory.display()
-            ))
-        }
-    };
-
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("Could not read project entry: {error}"))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-
-        if file_type.is_dir() {
-            collect_html_pages(root, &path, pages)?;
-        } else if path.extension().and_then(|extension| extension.to_str()) == Some("html") {
-            pages.push(FractalPage {
-                name: page_name(&path),
-                path: relative_slash_path(root, &path)?,
-            });
-        }
-    }
-
-    Ok(())
 }
 
 fn project_directory_name(project_name: &str) -> Result<String, String> {
@@ -230,27 +206,96 @@ fn list_project_summaries(root: &Path) -> Result<Vec<FractalProjectSummary>, Str
     Ok(projects)
 }
 
+fn normalize_page_reference(page_path: &str) -> String {
+    let mut normalized = page_path
+        .trim()
+        .trim_start_matches("./")
+        .strip_prefix("pages/")
+        .unwrap_or_else(|| page_path.trim().trim_start_matches("./"))
+        .replace('\\', "/");
+
+    if Path::new(&normalized).extension().is_none() {
+        normalized.push_str(".html");
+    }
+
+    normalized
+}
+
+fn list_fractal_pages(root: &Path) -> Result<Vec<FractalPage>, String> {
+    let mut pages = fractal::project::list_editor_pages(root)
+        .map_err(|error| format!("Could not list Fractal editor pages: {error}"))?
+        .into_iter()
+        .map(|page| FractalPage {
+            name: page.title,
+            path: page.path,
+        })
+        .collect::<Vec<_>>();
+
+    pages.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(pages)
+}
+
+fn validated_page_path(
+    pages: &[FractalPage],
+    page_path: &str,
+    root: &Path,
+) -> Result<String, String> {
+    let page_path = normalize_page_reference(page_path);
+
+    pages
+        .iter()
+        .find(|page| page.path == page_path)
+        .map(|page| page.path.clone())
+        .ok_or_else(|| {
+            format!(
+                "No HTML page named {page_path} was found in {}",
+                root.display()
+            )
+        })
+}
+
+fn selected_page_path(
+    pages: &[FractalPage],
+    default_page: &str,
+    requested_page_path: Option<&str>,
+    root: &Path,
+) -> Result<String, String> {
+    if let Some(page_path) = requested_page_path {
+        return validated_page_path(pages, page_path, root);
+    }
+
+    let default_page = normalize_page_reference(default_page);
+
+    pages
+        .iter()
+        .find(|page| page.path == default_page)
+        .or_else(|| pages.first())
+        .map(|page| page.path.clone())
+        .ok_or_else(|| format!("No HTML pages found in {}", root.display()))
+}
+
 fn read_project(root: PathBuf) -> Result<FractalProject, String> {
+    read_project_with_active_page(root, None)
+}
+
+fn read_project_with_active_page(
+    root: PathBuf,
+    requested_page_path: Option<&str>,
+) -> Result<FractalProject, String> {
     let root = root
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
     let manifest = fractal::project::load_project_manifest(&root)
         .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
     let name = manifest.project_name;
-    let mut pages = Vec::new();
-
-    collect_html_pages(&root, &root, &mut pages)?;
-    pages.sort_by(|left, right| left.path.cmp(&right.path));
-
     let default_page = manifest.default_page;
-    let active_page_path = pages
-        .iter()
-        .find(|page| page.path == default_page)
-        .or_else(|| pages.first())
-        .map(|page| page.path.clone())
-        .ok_or_else(|| format!("No HTML pages found in {}", root.display()))?;
-    let active_page_source = fs::read_to_string(root.join(&active_page_path))
-        .map_err(|error| format!("Could not read {active_page_path}: {error}"))?;
+    let pages = list_fractal_pages(&root)?;
+
+    let active_page_path = selected_page_path(&pages, &default_page, requested_page_path, &root)?;
+    let active_page_detail = fractal::project::editor_page_detail(&root, &active_page_path)
+        .map_err(|error| {
+            format!("Could not load Fractal editor page {active_page_path}: {error}")
+        })?;
     let active_page_stylesheet = fs::read_to_string(root.join(".fractal").join("style.css"))
         .map_err(|error| format!("Could not read .fractal/style.css: {error}"))?;
 
@@ -258,10 +303,95 @@ fn read_project(root: PathBuf) -> Result<FractalProject, String> {
         name,
         root_path: root.to_string_lossy().to_string(),
         pages,
-        active_page_path,
-        active_page_source,
+        active_page_path: active_page_detail.metadata.path,
+        active_page_source: active_page_detail.source.html,
+        active_page_body_html: active_page_detail.body_html,
         active_page_stylesheet,
+        active_page_title: active_page_detail.metadata.title,
+        active_page_summary: active_page_detail.metadata.summary,
+        active_page_tags: active_page_detail.metadata.tags,
+        active_page_notes: active_page_detail
+            .notes
+            .into_iter()
+            .map(|note| FractalNote {
+                id: note.id,
+                label: note.label,
+                text: note.text,
+            })
+            .collect(),
+        active_page_links: active_page_detail
+            .links
+            .into_iter()
+            .map(|link| FractalPageLink {
+                href: link.href,
+                text: link.text,
+                scope: link.scope,
+            })
+            .collect(),
+        active_page_backlinks: active_page_detail
+            .backlinks
+            .into_iter()
+            .map(|link| FractalGraphPageLink {
+                page: link.page,
+                text: link.text,
+            })
+            .collect(),
+        active_page_outlinks: active_page_detail
+            .outlinks
+            .into_iter()
+            .map(|link| FractalGraphPageLink {
+                page: link.page,
+                text: link.text,
+            })
+            .collect(),
     })
+}
+
+fn write_project_page(
+    root: PathBuf,
+    page_path: &str,
+    source: &str,
+) -> Result<FractalProject, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::load_project_manifest(&root)
+        .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+
+    let pages = list_fractal_pages(&root)?;
+
+    let active_page_path = validated_page_path(&pages, page_path, &root)?;
+
+    fractal::project::write_page_source(&root, &active_page_path, source)
+        .map_err(|error| format!("Could not save {active_page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
+}
+
+fn update_project_page(
+    root: PathBuf,
+    page_path: &str,
+    title: &str,
+    body_html: &str,
+) -> Result<FractalProject, String> {
+    let active_page_path = normalize_page_reference(page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::update_editor_page(
+        &root,
+        page_path,
+        fractal::project::EditorPageUpdate {
+            title: Some(title.to_string()),
+            body_html: Some(body_html.to_string()),
+            ..fractal::project::EditorPageUpdate::default()
+        },
+    )
+    .map_err(|error| format!("Could not update Fractal page {page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
 }
 
 fn create_project_in_library(root: &Path, project_name: &str) -> Result<FractalProject, String> {
@@ -314,6 +444,30 @@ fn fractal_open_project(app: AppHandle, directory_name: String) -> Result<Fracta
 }
 
 #[tauri::command]
+fn fractal_open_page(project_root: String, page_path: String) -> Result<FractalProject, String> {
+    read_project_with_active_page(PathBuf::from(project_root), Some(&page_path))
+}
+
+#[tauri::command]
+fn fractal_save_page(
+    project_root: String,
+    page_path: String,
+    source: String,
+) -> Result<FractalProject, String> {
+    write_project_page(PathBuf::from(project_root), &page_path, &source)
+}
+
+#[tauri::command]
+fn fractal_update_page(
+    project_root: String,
+    page_path: String,
+    title: String,
+    body_html: String,
+) -> Result<FractalProject, String> {
+    update_project_page(PathBuf::from(project_root), &page_path, &title, &body_html)
+}
+
+#[tauri::command]
 fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult, String> {
     let root = PathBuf::from(project_root);
     fractal::project::validate_project(&root, false)
@@ -350,6 +504,9 @@ pub fn run() {
             fractal_list_projects,
             fractal_create_project,
             fractal_open_project,
+            fractal_open_page,
+            fractal_save_page,
+            fractal_update_page,
             fractal_validate_project,
             fractal_build_index
         ])
@@ -409,7 +566,11 @@ mod tests {
             create_project_in_library(&library, "Field Notes").expect("create Fractal project");
 
         assert_eq!(project.name, "Field Notes");
-        assert_eq!(project.active_page_path, "pages/index.html");
+        assert_eq!(project.active_page_path, "index.html");
+        assert_eq!(project.active_page_title, "Field Notes");
+        assert!(project
+            .active_page_body_html
+            .contains("Fractal project scaffold."));
         assert!(project_root.join("fractal.json").is_file());
         assert!(project_root.join(".fractal/style.css").is_file());
         assert!(project_root.join(".fractal/index.json").is_file());
@@ -421,6 +582,93 @@ mod tests {
                 .project_name,
             "Field Notes"
         );
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn read_project_with_active_page_reads_selected_html_page() {
+        let library = temp_library("open-page");
+        let project_root = library.join("field-notes");
+        let nested_page = project_root.join("pages/notes/day.html");
+        let nested_source = "<main><h1>Day notes</h1></main>";
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fs::create_dir_all(nested_page.parent().expect("nested page directory"))
+            .expect("create nested page directory");
+        fs::write(&nested_page, nested_source).expect("write nested page");
+
+        let project = read_project_with_active_page(project_root, Some("pages/notes/day.html"))
+            .expect("open selected page");
+
+        assert_eq!(project.active_page_path, "notes/day.html");
+        assert_eq!(project.active_page_source, nested_source);
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn read_project_with_active_page_rejects_unknown_page_path() {
+        let library = temp_library("unknown-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+
+        assert!(
+            read_project_with_active_page(project_root.clone(), Some("../outside.html")).is_err()
+        );
+        assert!(read_project_with_active_page(project_root, Some("pages/missing.html")).is_err());
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn write_project_page_saves_selected_html_page() {
+        let library = temp_library("save-page");
+        let project_root = library.join("field-notes");
+        let next_source = "<main><h1>Saved notes</h1></main>";
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+
+        let project = write_project_page(project_root.clone(), "pages/index.html", next_source)
+            .expect("save selected page");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert_eq!(project.active_page_source, next_source);
+        assert_eq!(
+            fs::read_to_string(project_root.join("pages/index.html")).expect("read saved page"),
+            next_source
+        );
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn update_project_page_saves_body_and_title_through_fractal_editor_api() {
+        let library = temp_library("update-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+
+        let project = update_project_page(
+            project_root.clone(),
+            "index.html",
+            "Rewritten Notes",
+            "<p>Saved from the rich editor.</p>",
+        )
+        .expect("update page");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert_eq!(project.active_page_title, "Rewritten Notes");
+        assert!(project
+            .active_page_body_html
+            .contains("Saved from the rich editor."));
+
+        let source =
+            fs::read_to_string(project_root.join("pages/index.html")).expect("read updated page");
+        assert!(source.contains("<title>Rewritten Notes</title>"));
+        assert!(source.contains("<h1>Rewritten Notes</h1>"));
+        assert!(source.contains("Saved from the rich editor."));
 
         fs::remove_dir_all(&library).expect("cleanup temp project library");
     }

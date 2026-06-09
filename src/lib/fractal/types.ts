@@ -13,6 +13,23 @@ export type FractalPage = {
   path: string;
 };
 
+export type FractalNote = {
+  id: string;
+  label: string;
+  text: string;
+};
+
+export type FractalPageLink = {
+  href: string;
+  text: string;
+  scope: string;
+};
+
+export type FractalGraphPageLink = {
+  page: string;
+  text: string;
+};
+
 export type FractalProject = {
   name: string;
   rootPath: string;
@@ -20,7 +37,15 @@ export type FractalProject = {
   pages: FractalPage[];
   activePagePath: string;
   activePageSource: string;
+  activePageBodyHtml: string;
   activePageStylesheet: string;
+  activePageTitle: string;
+  activePageSummary: string | null;
+  activePageTags: string[];
+  activePageNotes: FractalNote[];
+  activePageLinks: FractalPageLink[];
+  activePageBacklinks: FractalGraphPageLink[];
+  activePageOutlinks: FractalGraphPageLink[];
 };
 
 export type FractalProjectSummary = {
@@ -40,10 +65,17 @@ export type FractalCommandResult = {
   details?: string;
 };
 
+export type FractalPageUpdate = {
+  title: string;
+  bodyHtml: string;
+};
+
 export type FractalClient = {
   listProjects: () => Promise<FractalProjectCatalog>;
   createProject: (projectName: string) => Promise<FractalProject>;
   openProject: (directoryName: string) => Promise<FractalProject>;
+  openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
+  savePage: (project: FractalProject, update: FractalPageUpdate) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   buildIndex: (project: FractalProject) => Promise<FractalCommandResult>;
 };
