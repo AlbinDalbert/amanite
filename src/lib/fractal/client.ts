@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalProject } from "./types";
+import type {
+  FractalClient,
+  FractalCommandResult,
+  FractalProject,
+  FractalProjectCatalog
+} from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -14,11 +19,18 @@ async function invokeFractal<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const fractalClient: FractalClient = {
-  createProject() {
-    return invokeFractal<FractalProject>("fractal_create_project");
+  listProjects() {
+    return invokeFractal<FractalProjectCatalog>("fractal_list_projects");
   },
-  openProject() {
-    return invokeFractal<FractalProject>("fractal_open_project");
+  createProject(projectName) {
+    return invokeFractal<FractalProject>("fractal_create_project", {
+      projectName
+    });
+  },
+  openProject(directoryName) {
+    return invokeFractal<FractalProject>("fractal_open_project", {
+      directoryName
+    });
   },
   validateProject(project) {
     return invokeFractal<FractalCommandResult>("fractal_validate_project", {

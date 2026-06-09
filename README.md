@@ -11,9 +11,9 @@ The app is being rebuilt from the original Avalonia/.NET starter into a web-nati
 
 ## Current Status
 
-This is an initial scaffold. It includes a Tauri app shell, a React workspace layout, and a CodeMirror HTML editor seeded with a Fractal-style page document.
+This is an initial scaffold. It includes a Tauri app shell, a React workspace layout, and a CodeMirror HTML editor loaded from real Fractal project files.
 
-The Fractal engine is not wired into the UI yet. The frontend talks through `src/lib/fractal`, which keeps Fractal/Tauri integration out of React feature components while the crate API continues to evolve.
+The create/open project flow is backed by the Fractal Rust crate. The frontend talks through `src/lib/fractal`, which keeps Fractal/Tauri integration out of React feature components while the crate API continues to evolve.
 
 ## Requirements
 
@@ -43,29 +43,29 @@ Run the desktop app:
 pnpm run tauri:dev
 ```
 
-By default, Amanite stores its development project in the app data directory as
-`default-project`. Set `AMANITE_PROJECT_ROOT` when you want the Create/Open
-buttons to use a specific Fractal project directory instead:
+By default, Amanite stores its development projects in the app data directory
+under `projects`. Set `AMANITE_PROJECT_ROOT` when you want Create/Open to use a
+specific project library directory instead:
 
 ```sh
-AMANITE_PROJECT_ROOT="$HOME/fractal-projects/notes" pnpm run tauri:dev
+AMANITE_PROJECT_ROOT="$HOME/fractal-projects" pnpm run tauri:dev
 ```
 
 You can also put it in a repo-local `.env` file:
 
 ```env
-AMANITE_PROJECT_ROOT=/home/chell/fractal-projects/notes
+AMANITE_PROJECT_ROOT=/home/chell/fractal-projects
 ```
 
 Use an absolute path in `.env`; `~` is not expanded there.
 
-`AMANITE_PROJECT_ROOT` points at one Fractal project root, not a parent folder
-containing multiple projects. When you click Create new project and that path
-does not exist, Amanite runs Fractal's project initializer there, creating
-`fractal.json`, `.fractal/style.css`, `.fractal/index.json`,
-`.fractal/graph.json`, and `pages/index.html`. When the path already contains a
-Fractal project, Create/Open load it. If the path exists but is not a Fractal
-project, Amanite reports that instead of writing files into it.
+`AMANITE_PROJECT_ROOT` points at a parent folder containing Amanite-created or
+existing Fractal projects. When you create a project, Amanite asks for a display
+name, derives a safe child directory name from it, and runs Fractal's project
+initializer in that child directory. A new project contains `fractal.json`,
+`.fractal/style.css`, `.fractal/index.json`, `.fractal/graph.json`, and
+`pages/index.html`. Open lists valid Fractal project directories found directly
+under `AMANITE_PROJECT_ROOT`.
 
 Build frontend assets:
 
@@ -96,7 +96,6 @@ pnpm run tauri:build
 
 ## Near-Term Plan
 
-- Add project open/create flows.
 - Load Fractal pages from `pages/`.
 - Read `.fractal/index.json` for navigation.
 - Add Tauri commands that call the `fractal` CLI.

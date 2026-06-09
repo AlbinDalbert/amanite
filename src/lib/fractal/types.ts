@@ -15,12 +15,23 @@ export type FractalPage = {
 
 export type FractalProject = {
   name: string;
-  rootPath?: string;
+  rootPath: string;
   theme?: FractalTheme;
   pages: FractalPage[];
   activePagePath: string;
   activePageSource: string;
   activePageStylesheet: string;
+};
+
+export type FractalProjectSummary = {
+  name: string;
+  rootPath: string;
+  directoryName: string;
+};
+
+export type FractalProjectCatalog = {
+  rootPath: string;
+  projects: FractalProjectSummary[];
 };
 
 export type FractalCommandResult = {
@@ -30,8 +41,9 @@ export type FractalCommandResult = {
 };
 
 export type FractalClient = {
-  createProject: () => Promise<FractalProject>;
-  openProject: () => Promise<FractalProject>;
+  listProjects: () => Promise<FractalProjectCatalog>;
+  createProject: (projectName: string) => Promise<FractalProject>;
+  openProject: (directoryName: string) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   buildIndex: (project: FractalProject) => Promise<FractalCommandResult>;
 };
