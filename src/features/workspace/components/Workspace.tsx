@@ -14,7 +14,10 @@ type WorkspaceProps = {
   onBuildIndex: () => void;
   onChangePageBodyHtml: (bodyHtml: string) => void;
   onChangePageTitle: (title: string) => void;
+  onCreatePage: (pagePath: string) => void;
+  onDeletePage: (pagePath: string) => void;
   onOpenPage: (pagePath: string) => void;
+  onRenamePage: (pagePath: string, nextPagePath: string) => void;
   onSavePage: () => void;
   onValidate: () => void;
 };
@@ -28,7 +31,10 @@ function Workspace({
   onBuildIndex,
   onChangePageBodyHtml,
   onChangePageTitle,
+  onCreatePage,
+  onDeletePage,
   onOpenPage,
+  onRenamePage,
   onSavePage,
   onValidate
 }: WorkspaceProps) {
@@ -36,21 +42,23 @@ function Workspace({
     <main className="app-shell">
       <Sidebar
         activePagePath={project.activePagePath}
+        canDeletePage={project.pages.length > 1}
+        isBusy={isBusy}
         pages={project.pages}
         projectName={project.name}
+        onBuildIndex={onBuildIndex}
+        onCreatePage={onCreatePage}
+        onDeletePage={onDeletePage}
+        onRenamePage={onRenamePage}
         onSelectPage={onOpenPage}
+        onValidate={onValidate}
       />
       <section
         className="workspace"
         style={project.theme as CSSProperties | undefined}
         aria-label="Fractal workspace"
       >
-        <WorkspaceToolbar
-          isBusy={isBusy}
-          projectName={project.name}
-          onBuildIndex={onBuildIndex}
-          onValidate={onValidate}
-        />
+        <WorkspaceToolbar projectName={project.name} />
         <CommandStatus error={error} result={commandResult} />
         <div className="editor-stage" aria-label="Editable Fractal page">
           <FractalEditor

@@ -76,6 +76,13 @@ export type FractalClient = {
   openProject: (directoryName: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   savePage: (project: FractalProject, update: FractalPageUpdate) => Promise<FractalProject>;
+  createPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
+  renamePage: (
+    project: FractalProject,
+    pagePath: string,
+    nextPagePath: string
+  ) => Promise<FractalProject>;
+  deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   buildIndex: (project: FractalProject) => Promise<FractalCommandResult>;
 };

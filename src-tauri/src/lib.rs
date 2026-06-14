@@ -394,6 +394,77 @@ fn update_project_page(
     read_project_with_active_page(root, Some(&active_page_path))
 }
 
+fn create_project_page(root: PathBuf, page_path: &str) -> Result<FractalProject, String> {
+    let active_page_path = normalize_page_reference(page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::new_page(&root, page_path)
+        .map_err(|error| format!("Could not create Fractal page {page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
+}
+
+fn rename_project_page(
+    root: PathBuf,
+    page_path: &str,
+    next_page_path: &str,
+    active_page_path: &str,
+) -> Result<FractalProject, String> {
+    let next_page_path = next_page_path.trim();
+    if next_page_path.is_empty() {
+        return Err("Choose a new page path before renaming.".to_string());
+    }
+
+    let source_page_path = normalize_page_reference(page_path);
+    let next_active_page_path = normalize_page_reference(next_page_path);
+    let active_page_after_rename = if normalize_page_reference(active_page_path) == source_page_path
+    {
+        next_active_page_path.as_str()
+    } else {
+        active_page_path
+    };
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::rename_page(
+        &root,
+        page_path,
+        fractal::project::PageRename {
+            path: Some(PathBuf::from(next_page_path)),
+            title: None,
+        },
+    )
+    .map_err(|error| {
+        format!("Could not rename Fractal page {page_path} to {next_page_path}: {error}")
+    })?;
+
+    read_project_with_active_page(root, Some(active_page_after_rename))
+}
+
+fn delete_project_page(
+    root: PathBuf,
+    page_path: &str,
+    active_page_path: &str,
+) -> Result<FractalProject, String> {
+    let source_page_path = normalize_page_reference(page_path);
+    let active_page_path = normalize_page_reference(active_page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::delete_page(&root, page_path)
+        .map_err(|error| format!("Could not delete Fractal page {page_path}: {error}"))?;
+
+    if source_page_path == active_page_path {
+        read_project(root)
+    } else {
+        read_project_with_active_page(root, Some(&active_page_path))
+    }
+}
+
 fn create_project_in_library(root: &Path, project_name: &str) -> Result<FractalProject, String> {
     let project_name = project_name.trim();
     let directory_name = project_directory_name(project_name)?;
@@ -468,6 +539,35 @@ fn fractal_update_page(
 }
 
 #[tauri::command]
+fn fractal_create_page(project_root: String, page_path: String) -> Result<FractalProject, String> {
+    create_project_page(PathBuf::from(project_root), &page_path)
+}
+
+#[tauri::command]
+fn fractal_rename_page(
+    project_root: String,
+    page_path: String,
+    next_page_path: String,
+    active_page_path: String,
+) -> Result<FractalProject, String> {
+    rename_project_page(
+        PathBuf::from(project_root),
+        &page_path,
+        &next_page_path,
+        &active_page_path,
+    )
+}
+
+#[tauri::command]
+fn fractal_delete_page(
+    project_root: String,
+    page_path: String,
+    active_page_path: String,
+) -> Result<FractalProject, String> {
+    delete_project_page(PathBuf::from(project_root), &page_path, &active_page_path)
+}
+
+#[tauri::command]
 fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult, String> {
     let root = PathBuf::from(project_root);
     fractal::project::validate_project(&root, false)
@@ -507,6 +607,9 @@ pub fn run() {
             fractal_open_page,
             fractal_save_page,
             fractal_update_page,
+            fractal_create_page,
+            fractal_rename_page,
+            fractal_delete_page,
             fractal_validate_project,
             fractal_build_index
         ])
@@ -669,6 +772,89 @@ mod tests {
         assert!(source.contains("<title>Rewritten Notes</title>"));
         assert!(source.contains("<h1>Rewritten Notes</h1>"));
         assert!(source.contains("Saved from the rich editor."));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn create_project_page_creates_page_and_opens_it() {
+        let library = temp_library("create-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::project::build_index(&project_root).expect("build index");
+
+        let project =
+            create_project_page(project_root.clone(), "notes/day").expect("create project page");
+
+        assert_eq!(project.active_page_path, "notes/day.html");
+        assert_eq!(project.active_page_title, "day");
+        assert!(project_root.join("pages/notes/day.html").is_file());
+        assert!(project
+            .pages
+            .iter()
+            .any(|page| page.path == "notes/day.html"));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn delete_project_page_removes_active_page_and_opens_remaining_page() {
+        let library = temp_library("delete-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::project::new_page(&project_root, "notes/day").expect("create page");
+
+        let project = delete_project_page(project_root.clone(), "notes/day.html", "notes/day.html")
+            .expect("delete project page");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert!(!project_root.join("pages/notes/day.html").exists());
+        assert!(!project
+            .pages
+            .iter()
+            .any(|page| page.path == "notes/day.html"));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn delete_project_page_preserves_active_page_when_deleting_inactive_page() {
+        let library = temp_library("delete-inactive-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::project::new_page(&project_root, "notes/day").expect("create page");
+
+        let project = delete_project_page(project_root.clone(), "notes/day.html", "index.html")
+            .expect("delete inactive project page");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert!(!project_root.join("pages/notes/day.html").exists());
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn rename_project_page_moves_page_and_opens_new_path_when_active() {
+        let library = temp_library("rename-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::project::new_page(&project_root, "notes/day").expect("create page");
+
+        let project = rename_project_page(
+            project_root.clone(),
+            "notes/day.html",
+            "notes/archive/day",
+            "notes/day.html",
+        )
+        .expect("rename project page");
+
+        assert_eq!(project.active_page_path, "notes/archive/day.html");
+        assert!(!project_root.join("pages/notes/day.html").exists());
+        assert!(project_root.join("pages/notes/archive/day.html").is_file());
 
         fs::remove_dir_all(&library).expect("cleanup temp project library");
     }

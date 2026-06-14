@@ -140,6 +140,114 @@ function App() {
     }
   }
 
+  async function createProjectPage(pagePath: string) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    const trimmedPagePath = pagePath.trim();
+    if (trimmedPagePath.length === 0) {
+      return;
+    }
+
+    if (
+      hasUnsavedPageChanges &&
+      !window.confirm("Discard unsaved changes and create a new page?")
+    ) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const nextProject = await fractalClient.createPage(activeProject, trimmedPagePath);
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Page created.",
+        details: nextProject.activePagePath
+      });
+    } catch (createError) {
+      setError(getErrorMessage(createError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function renameProjectPage(pagePath: string, nextPagePath: string) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    const trimmedNextPagePath = nextPagePath.trim();
+    if (trimmedNextPagePath.length === 0 || trimmedNextPagePath === pagePath) {
+      return;
+    }
+
+    if (
+      hasUnsavedPageChanges &&
+      !window.confirm("Discard unsaved changes and rename this page?")
+    ) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const nextProject = await fractalClient.renamePage(
+        activeProject,
+        pagePath,
+        trimmedNextPagePath
+      );
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Page renamed.",
+        details: `${pagePath} -> ${trimmedNextPagePath}`
+      });
+    } catch (renameError) {
+      setError(getErrorMessage(renameError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function deleteProjectPage(pagePath: string) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    const prompt = hasUnsavedPageChanges
+      ? `Delete ${pagePath}? Unsaved changes will be discarded.`
+      : `Delete ${pagePath}?`;
+
+    if (!window.confirm(prompt)) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const nextProject = await fractalClient.deletePage(activeProject, pagePath);
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Page deleted.",
+        details: pagePath
+      });
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   useEffect(() => {
     void refreshProjectCatalog();
   }, []);
@@ -171,7 +279,10 @@ function App() {
       onBuildIndex={() => runProjectCommand(fractalClient.buildIndex)}
       onChangePageBodyHtml={updateActivePageBodyHtml}
       onChangePageTitle={updateActivePageTitle}
+      onCreatePage={createProjectPage}
+      onDeletePage={deleteProjectPage}
       onOpenPage={openProjectPage}
+      onRenamePage={renameProjectPage}
       onSavePage={saveActivePage}
       onValidate={() => runProjectCommand(fractalClient.validateProject)}
     />
