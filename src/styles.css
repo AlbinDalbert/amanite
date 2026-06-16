@@ -1,37 +1,65 @@
 :root {
-  --app-background: #0b0c0b;
-  --app-panel: #121311;
-  --app-panel-strong: #181913;
-  --app-text: #e9e3d7;
-  --app-muted: #aaa193;
-  --app-subtle: #70695f;
-  --app-border: #302d27;
-  --app-border-strong: #494238;
-  --app-accent: #d7a84f;
-  --app-accent-strong: #f0c368;
-  --app-danger: #e07b6e;
+  --font-display: "Barlow Condensed", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-document: "Cormorant Garamond", Georgia, serif;
 
-  --sidebar-background: #080908;
-  --sidebar-hover: #181a17;
+  --bg: #0d0d0d;
+  --bg-deep: #050505;
+  --surface: #131313;
+  --surface-2: #1a1a1a;
+  --surface-3: #242424;
+  --border: #2f2f2f;
+  --border-strong: #4a4a4a;
 
-  --project-background: #10100e;
-  --project-surface: #171712;
-  --project-text: #eee8dc;
-  --project-muted: #aaa193;
-  --project-border: #383329;
-  --project-accent: #d7a84f;
+  --text: #e5e2e1;
+  --text-strong: #faf8f6;
+  --muted: #8c8c92;
+  --dim: #505055;
 
-  --font-ui:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-editor: "Exo 2", ui-sans-serif, system-ui, sans-serif;
+  --signal: #e8a830;
+  --signal-strong: #ffd46d;
+  --signal-deep: #7a5818;
+  --signal-soft: rgba(232, 168, 48, 0.12);
+  --signal-glow: rgba(232, 168, 48, 0.22);
+
+  --success: #58c27d;
+  --danger: #aa3228;
+
+  --app-background: var(--bg);
+  --app-panel: var(--surface);
+  --app-panel-strong: var(--surface-2);
+  --app-text: var(--text);
+  --app-muted: var(--muted);
+  --app-subtle: var(--dim);
+  --app-border: var(--border);
+  --app-border-strong: var(--border-strong);
+  --app-accent: var(--signal);
+  --app-accent-strong: var(--signal-strong);
+  --app-danger: var(--danger);
+
+  --sidebar-background: #080808;
+  --sidebar-hover: color-mix(in srgb, var(--signal) 8%, var(--surface-3));
+
+  --project-background: var(--bg);
+  --project-surface: var(--surface);
+  --project-text: var(--text);
+  --project-muted: var(--muted);
+  --project-border: var(--border);
+  --project-accent: var(--signal);
+
+  --document-text: var(--project-text);
+  --document-muted: color-mix(in srgb, var(--project-muted) 86%, var(--project-text));
+  --document-line: color-mix(in srgb, var(--project-border) 82%, transparent);
 
   color: var(--app-text);
   background: var(--app-background);
   color-scheme: dark;
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-synthesis: none;
   line-height: 1.55;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -39,19 +67,27 @@
 }
 
 html {
-  background: var(--app-background);
+  background: var(--bg-deep);
 }
 
 body {
-  margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--app-background);
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 82% 6%, rgba(232, 168, 48, 0.14), transparent 28rem),
+    radial-gradient(circle at 12% 92%, rgba(232, 168, 48, 0.06), transparent 30rem),
+    linear-gradient(180deg, var(--bg), var(--bg-deep));
+}
+
+#root {
+  min-height: 100vh;
 }
 
 ::selection {
-  background: rgb(215 168 79 / 28%);
-  color: var(--app-text);
+  background: var(--signal-soft);
+  color: var(--text-strong);
 }
 
 button,
@@ -63,6 +99,7 @@ textarea {
 
 button {
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -70,7 +107,23 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.58;
+  opacity: 0.55;
+}
+
+input,
+textarea,
+select {
+  border-radius: 0;
+}
+
+:focus-visible {
+  outline: 1px solid var(--signal);
+  outline-offset: 2px;
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
 }
 
 select option {
@@ -83,18 +136,38 @@ select option:checked {
   color: #211604;
 }
 
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid var(--bg-deep);
+  background: var(--border-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--signal) 58%, var(--border-strong));
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
-  min-height: 100vh;
-  background: var(--app-background);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent;
 }
 
 .start-screen {
   display: grid;
   min-height: 100vh;
   place-items: center;
-  background: var(--app-background);
+  overflow: auto;
   padding: 24px;
 }
 
@@ -107,14 +180,18 @@ select option:checked {
 .start-brand,
 .brand {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
 }
 
 .start-brand {
   color: var(--app-muted);
-  font-size: 0.88rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .start-brand p,
@@ -125,22 +202,59 @@ select option:checked {
   margin: 0;
 }
 
+.brand-mark {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 75%, transparent);
+  border-radius: 50%;
+  opacity: 0.9;
+  box-shadow: 0 0 18px rgba(232, 168, 48, 0.1);
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  position: absolute;
+  content: "";
+  background: var(--app-accent);
+}
+
+.brand-mark::before {
+  top: 5px;
+  left: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50% 50% 45% 45%;
+}
+
+.brand-mark::after {
+  right: 7px;
+  bottom: 5px;
+  width: 1px;
+  height: 8px;
+}
+
 .start-copy {
   display: grid;
+  max-width: 580px;
   gap: 12px;
-  max-width: 560px;
 }
 
 .start-copy h1 {
   color: var(--app-text);
-  font-size: clamp(1.9rem, 4vw, 2.45rem);
-  line-height: 1.08;
+  font-family: var(--font-display);
+  font-size: clamp(2.45rem, 6vw, 4.4rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 0.92;
+  text-transform: uppercase;
 }
 
 .start-copy p {
   color: var(--app-muted);
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .library-path,
@@ -148,7 +262,8 @@ select option:checked {
 .empty-projects {
   margin: 0;
   color: var(--app-subtle);
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   line-height: 1.45;
 }
 
@@ -185,9 +300,10 @@ select option:checked {
 .section-heading h2 {
   margin: 0;
   color: var(--app-text);
-  font-size: 0.78rem;
-  font-weight: 750;
-  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   line-height: 1.2;
   text-transform: uppercase;
 }
@@ -197,9 +313,10 @@ select option:checked {
   gap: 8px;
   min-width: 0;
   color: var(--app-muted);
-  font-size: 0.74rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -216,10 +333,10 @@ select option:checked {
   min-width: 0;
   min-height: 44px;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   outline: none;
-  background: #111210;
+  background: #10100f;
   color: var(--app-text);
+  font-family: var(--font-body);
   font-size: 0.92rem;
   font-weight: 650;
   letter-spacing: 0;
@@ -230,7 +347,7 @@ select option:checked {
 .project-field input:focus,
 .project-field select:focus {
   border-color: color-mix(in srgb, var(--app-accent) 70%, var(--app-border));
-  box-shadow: 0 0 0 3px rgb(215 168 79 / 10%);
+  box-shadow: 0 0 0 3px rgb(232 168 48 / 10%);
 }
 
 .project-field input::placeholder {
@@ -243,8 +360,7 @@ select option:checked {
   max-height: 156px;
   overflow: auto;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
-  background: #111210;
+  background: #10100f;
 }
 
 .project-option {
@@ -252,7 +368,7 @@ select option:checked {
   min-height: 42px;
   align-content: center;
   gap: 2px;
-  border-radius: 0;
+  border-left: 2px solid transparent;
   color: var(--app-muted);
   letter-spacing: 0;
   padding: 7px 12px;
@@ -277,17 +393,18 @@ select option:checked {
 
 .project-option small {
   color: var(--app-subtle);
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
   font-weight: 650;
 }
 
 .project-option:hover,
 .project-option.selected {
-  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  background: var(--signal-soft);
 }
 
 .project-option.selected {
-  box-shadow: inset 2px 0 0 var(--app-accent);
+  border-left-color: var(--app-accent);
 }
 
 .project-option:focus-visible {
@@ -299,32 +416,17 @@ select option:checked {
 .start-actions button {
   min-height: 44px;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   padding: 10px 14px;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.project-field-row > button {
-  text-align: center;
-}
-
-.start-actions {
-  display: grid;
-  gap: 10px;
-}
-
-.start-actions button {
-  text-align: left;
-}
-
-.start-actions button:disabled:hover {
-  border-color: var(--app-border);
-  color: inherit;
-}
-
 .primary-action {
-  border-color: color-mix(in srgb, var(--app-accent) 64%, var(--app-border));
+  border-color: color-mix(in srgb, var(--app-accent) 70%, var(--app-border));
   background: var(--app-accent);
   color: #211604;
 }
@@ -346,12 +448,14 @@ select option:checked {
 .ghost-action {
   min-height: 30px;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   background: transparent;
   color: var(--app-muted);
   padding: 4px 9px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .ghost-action:hover {
@@ -362,10 +466,11 @@ select option:checked {
 .sidebar {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 22px;
   border-right: 1px solid var(--app-border);
-  background: var(--sidebar-background);
+  background: color-mix(in srgb, var(--sidebar-background) 94%, transparent);
   color: var(--app-muted);
   padding: 18px 12px;
 }
@@ -374,47 +479,25 @@ select option:checked {
   padding: 0 6px;
 }
 
-.brand-mark {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--app-accent);
-  border-radius: 50%;
-  opacity: 0.78;
-}
-
-.brand-mark::before,
-.brand-mark::after {
-  position: absolute;
-  content: "";
-  background: var(--app-accent);
-}
-
-.brand-mark::before {
-  top: 4px;
-  left: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50% 50% 45% 45%;
-}
-
-.brand-mark::after {
-  right: 6px;
-  bottom: 4px;
-  width: 1px;
-  height: 7px;
-}
-
 .brand h1 {
   color: var(--app-text);
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1.15;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .brand p {
+  max-width: 155px;
+  overflow: hidden;
   color: var(--app-muted);
-  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .explorer-header {
@@ -423,9 +506,10 @@ select option:checked {
   justify-content: space-between;
   padding: 0 6px;
   color: var(--app-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -434,16 +518,17 @@ select option:checked {
   width: 22px;
   height: 22px;
   place-items: center;
-  border-radius: 2px;
+  color: var(--app-accent);
 }
 
 .explorer-header button:hover {
   background: var(--sidebar-hover);
-  color: var(--app-text);
+  color: var(--app-accent-strong);
 }
 
 .file-explorer {
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -454,7 +539,6 @@ select option:checked {
   width: 216px;
   gap: 2px;
   border: 1px solid var(--app-border-strong);
-  border-radius: 2px;
   background: #121311;
   color: var(--app-text);
   padding: 6px;
@@ -465,11 +549,14 @@ select option:checked {
   min-width: 0;
   overflow: hidden;
   color: var(--app-subtle);
-  font-size: 0.72rem;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   line-height: 1.2;
   padding: 6px 8px 5px;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -478,7 +565,6 @@ select option:checked {
   width: 100%;
   min-height: 30px;
   align-items: center;
-  border-radius: 2px;
   color: var(--app-muted);
   padding: 5px 8px;
   text-align: left;
@@ -540,7 +626,7 @@ select option:checked {
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  border-radius: 2px;
+  border-left: 2px solid transparent;
   color: var(--app-muted);
   padding: 4px 8px 4px calc(6px + var(--tree-indent));
   text-align: left;
@@ -559,7 +645,8 @@ select option:checked {
 }
 
 .explorer-row.active {
-  box-shadow: inset 2px 0 0 var(--app-accent);
+  border-left-color: var(--app-accent);
+  color: var(--app-accent-strong);
 }
 
 .explorer-twist,
@@ -601,7 +688,6 @@ select option:checked {
   width: 12px;
   height: 8px;
   border: 1px solid currentColor;
-  border-radius: 2px;
   background: color-mix(in srgb, currentColor 12%, transparent);
   content: "";
 }
@@ -614,7 +700,6 @@ select option:checked {
   height: 3px;
   border: 1px solid currentColor;
   border-bottom: 0;
-  border-radius: 2px 2px 0 0;
   background: color-mix(in srgb, currentColor 12%, transparent);
   content: "";
 }
@@ -623,7 +708,6 @@ select option:checked {
   position: absolute;
   inset: 1px 3px 1px 2px;
   border: 1px solid currentColor;
-  border-radius: 2px;
   content: "";
 }
 
@@ -642,7 +726,8 @@ select option:checked {
 .explorer-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.84rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   line-height: 1.2;
   text-overflow: ellipsis;
 }
@@ -662,7 +747,6 @@ select option:checked {
   width: min(460px, 100%);
   gap: 18px;
   border: 1px solid var(--app-border-strong);
-  border-radius: 2px;
   background: #10110f;
   color: var(--app-text);
   padding: 22px;
@@ -682,15 +766,21 @@ select option:checked {
 
 .dialog-header h2 {
   color: var(--app-text);
-  font-size: 1.2rem;
-  line-height: 1.15;
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.dialog-kicker {
+.dialog-kicker,
+.status-kicker {
   color: var(--app-accent);
-  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
   font-weight: 800;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -698,9 +788,10 @@ select option:checked {
   display: grid;
   gap: 8px;
   color: var(--app-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -708,10 +799,10 @@ select option:checked {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   outline: none;
   background: var(--app-background);
   color: var(--app-text);
+  font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 650;
   letter-spacing: 0;
@@ -721,7 +812,7 @@ select option:checked {
 
 .dialog-field input:focus {
   border-color: color-mix(in srgb, var(--app-accent) 70%, var(--app-border));
-  box-shadow: 0 0 0 3px rgb(215 168 79 / 10%);
+  box-shadow: 0 0 0 3px rgb(232 168 48 / 10%);
 }
 
 .dialog-note {
@@ -752,18 +843,21 @@ select option:checked {
   min-width: 0;
   min-height: 100vh;
   overflow: hidden;
-  background: var(--project-background);
+  background:
+    radial-gradient(circle at 78% 0%, color-mix(in srgb, var(--project-accent) 9%, transparent), transparent 28rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--project-background) 88%, #000), var(--bg-deep));
 }
 
 .workspace-toolbar {
   display: flex;
   min-width: 0;
+  min-height: 48px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--app-border);
-  background: var(--app-panel);
-  padding: 12px 18px;
+  background: color-mix(in srgb, var(--app-panel) 88%, transparent);
+  padding: 10px 18px;
 }
 
 .workspace-toolbar h2,
@@ -773,16 +867,20 @@ select option:checked {
 
 .workspace-toolbar h2 {
   color: var(--app-text);
-  font-size: 0.96rem;
-  font-weight: 700;
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .toolbar-kicker {
   color: var(--app-subtle);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   line-height: 1.2;
   text-transform: uppercase;
 }
@@ -797,7 +895,6 @@ select option:checked {
 .toolbar-actions button {
   min-height: 30px;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   background: var(--app-panel-strong);
   color: var(--app-text);
   padding: 5px 10px;
@@ -805,21 +902,10 @@ select option:checked {
   font-weight: 650;
 }
 
-.toolbar-actions button:hover {
-  border-color: color-mix(in srgb, var(--app-accent) 60%, var(--app-border));
-  color: var(--app-accent-strong);
-}
-
-.toolbar-actions button:disabled:hover {
-  border-color: var(--app-border);
-  color: var(--app-text);
-}
-
 .status-message {
   display: block;
   margin: 0;
   border: 1px solid var(--app-border);
-  border-radius: 2px;
   appearance: none;
   background: var(--app-panel);
   color: var(--app-muted);
@@ -834,7 +920,7 @@ select option:checked {
 .workspace > .status-message {
   position: absolute;
   z-index: 2;
-  top: 76px;
+  top: 64px;
   right: 18px;
   max-width: min(460px, calc(100% - 36px));
   background: var(--project-surface);
@@ -850,15 +936,12 @@ select option:checked {
 .status-message small {
   margin-top: 2px;
   color: var(--app-subtle);
-  font-size: 0.76rem;
-}
-
-.workspace > .status-message small {
-  color: var(--project-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
 }
 
 .status-message.success {
-  border-color: color-mix(in srgb, var(--project-accent) 35%, var(--project-border));
+  border-color: color-mix(in srgb, var(--success) 42%, var(--project-border));
 }
 
 .status-message.error {
@@ -870,7 +953,6 @@ select option:checked {
   display: grid;
   min-height: 0;
   overflow: hidden;
-  background: var(--project-background);
 }
 
 .fractal-editor {
@@ -881,7 +963,6 @@ select option:checked {
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-  background: var(--project-background);
   color: var(--project-text);
 }
 
@@ -896,7 +977,6 @@ select option:checked {
   min-height: 0;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  background: var(--project-background);
 }
 
 .rich-editor-header {
@@ -909,79 +989,25 @@ select option:checked {
   min-width: 0;
   transform: translateX(-50%);
   border: 1px solid color-mix(in srgb, var(--project-border) 82%, transparent);
-  border-radius: 2px;
   background: color-mix(in srgb, var(--project-surface) 88%, #000);
   color: var(--project-muted);
   padding: 4px;
-  box-shadow: 0 16px 42px rgb(0 0 0 / 28%);
+  box-shadow: 0 16px 42px rgb(0 0 0 / 26%);
 }
 
-.rich-editor-status {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.editor-pane-title {
-  color: var(--project-text);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.editor-state {
-  justify-self: start;
-  overflow: hidden;
-  color: var(--project-muted);
-  font-size: 0.76rem;
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.editor-state.dirty {
-  color: var(--project-accent);
-}
-
-.editor-page-path {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--project-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rich-editor-actions {
-  display: flex;
-  min-width: max-content;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.editor-save-action,
 .editor-inspector-toggle {
   min-width: 64px;
   min-height: 28px;
   border: 1px solid var(--project-border);
-  border-radius: 2px;
   background: color-mix(in srgb, var(--project-surface) 86%, #000);
-  color: var(--project-text);
-  padding: 4px 10px;
-  font-size: 0.78rem;
-  font-weight: 750;
-  line-height: 1.2;
-}
-
-.editor-inspector-toggle {
   color: var(--project-muted);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .editor-inspector-toggle.floating {
@@ -994,29 +1020,13 @@ select option:checked {
 }
 
 .editor-inspector-toggle.active {
-  border-color: color-mix(in srgb, var(--project-accent) 42%, var(--project-border));
+  border-color: color-mix(in srgb, var(--project-accent) 50%, var(--project-border));
   color: var(--project-accent);
 }
 
-.editor-save-action.dirty {
-  border-color: color-mix(in srgb, var(--project-accent) 58%, var(--project-border));
-  background: var(--project-accent);
-  color: #211604;
-}
-
-.editor-save-action:hover,
 .editor-inspector-toggle:hover {
   border-color: var(--project-accent);
   color: var(--project-accent);
-}
-
-.editor-save-action.dirty:hover {
-  color: #211604;
-}
-
-.editor-save-action:disabled:hover {
-  border-color: var(--project-border);
-  color: var(--project-text);
 }
 
 .rich-toolbar {
@@ -1035,8 +1045,6 @@ select option:checked {
   gap: 2px;
   border: 0;
   border-right: 1px solid color-mix(in srgb, var(--project-border) 78%, transparent);
-  border-radius: 0;
-  background: transparent;
   padding: 0 5px 0 0;
 }
 
@@ -1050,9 +1058,9 @@ select option:checked {
   width: 28px;
   height: 26px;
   place-items: center;
-  border-radius: 2px;
   color: var(--project-muted);
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
   font-weight: 800;
   line-height: 1;
 }
@@ -1068,13 +1076,12 @@ select option:checked {
   min-height: 0;
   overflow: auto;
   scroll-padding-top: 86px;
-  background: var(--project-background);
   padding: clamp(78px, 7vw, 108px) clamp(24px, 7vw, 96px) 92px;
 }
 
 .rich-page-column {
   display: grid;
-  width: min(780px, 100%);
+  width: min(790px, 100%);
   margin-right: auto;
   margin-left: auto;
 }
@@ -1086,28 +1093,42 @@ select option:checked {
   margin-bottom: 28px;
 }
 
+.editor-page-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--document-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .rich-title-input {
   width: 100%;
   min-width: 0;
-  min-height: 74px;
+  min-height: 82px;
   resize: none;
   border: 0;
   outline: none;
   overflow: hidden;
   background: transparent;
-  color: var(--project-text);
-  font-family: var(--font-editor);
-  font-size: clamp(2rem, 4vw, 3.35rem);
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.08;
+  color: var(--document-text);
+  font-family: var(--font-document);
+  font-size: clamp(2.6rem, 5.4vw, 4.6rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 0.96;
   padding: 0;
 }
 
 .rich-title-input::placeholder,
 .rich-summary-input::placeholder,
 .rich-tag-input::placeholder {
-  color: color-mix(in srgb, var(--project-text) 35%, transparent);
+  color: color-mix(in srgb, var(--document-text) 35%, transparent);
 }
 
 .rich-metadata-editor {
@@ -1126,17 +1147,17 @@ select option:checked {
   outline: none;
   overflow: hidden;
   background: transparent;
-  color: var(--project-muted);
-  font-family: var(--font-editor);
-  font-size: 1rem;
-  font-weight: 400;
+  color: var(--document-muted);
+  font-family: var(--font-document);
+  font-size: 1.18rem;
+  font-weight: 500;
   letter-spacing: 0;
-  line-height: 1.65;
+  line-height: 1.55;
   padding: 0;
 }
 
 .rich-summary-input:focus {
-  color: var(--project-text);
+  color: var(--document-text);
 }
 
 .rich-tag-row {
@@ -1155,14 +1176,16 @@ select option:checked {
   gap: 6px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--project-accent) 34%, var(--project-border));
-  border-radius: 2px;
   background: color-mix(in srgb, var(--project-accent) 11%, transparent);
   color: var(--project-text);
-  font-size: 0.72rem;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
   line-height: 1;
   padding: 2px 8px;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -1205,7 +1228,7 @@ select option:checked {
 .rich-tag-input {
   width: 96px;
   outline: none;
-  font-family: var(--font-editor);
+  font-family: var(--font-mono);
 }
 
 .rich-tag-input:focus {
@@ -1217,18 +1240,18 @@ select option:checked {
   width: 100%;
   min-height: 420px;
   margin-top: 26px;
-  border-top: 1px solid var(--project-border);
+  border-top: 1px solid var(--document-line);
   padding-top: 26px;
 }
 
 .rich-content-editable {
   min-height: 380px;
   outline: none;
-  color: var(--project-text);
-  font-family: var(--font-editor);
-  font-size: 1.05rem;
-  font-weight: 400;
-  line-height: 1.78;
+  color: var(--document-text);
+  font-family: var(--font-document);
+  font-size: 1.16rem;
+  font-weight: 500;
+  line-height: 1.72;
 }
 
 .rich-placeholder {
@@ -1237,9 +1260,9 @@ select option:checked {
   left: 0;
   pointer-events: none;
   color: color-mix(in srgb, var(--project-muted) 68%, transparent);
-  font-family: var(--font-editor);
-  font-size: 1.05rem;
-  font-weight: 400;
+  font-family: var(--font-document);
+  font-size: 1.16rem;
+  font-weight: 500;
 }
 
 .rich-paragraph,
@@ -1252,20 +1275,21 @@ select option:checked {
 
 .rich-heading {
   color: var(--project-text);
-  font-family: var(--font-editor);
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.18;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .rich-heading-two {
   margin-top: 2rem;
-  font-size: 1.55rem;
+  font-size: 1.75rem;
 }
 
 .rich-heading-three {
   margin-top: 1.5rem;
-  font-size: 1.22rem;
+  font-size: 1.32rem;
 }
 
 .rich-text-bold {
@@ -1289,7 +1313,7 @@ select option:checked {
 .rich-link {
   color: var(--project-accent);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: underline;
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.18em;
@@ -1301,7 +1325,7 @@ select option:checked {
 
 .rich-quote {
   border-left: 3px solid var(--project-accent);
-  color: var(--project-muted);
+  color: var(--document-muted);
   padding-left: 16px;
 }
 
@@ -1317,7 +1341,7 @@ select option:checked {
   display: grid;
   gap: 12px;
   margin-top: 34px;
-  border-top: 1px solid var(--project-border);
+  border-top: 1px solid var(--document-line);
   padding-top: 20px;
 }
 
@@ -1327,15 +1351,16 @@ select option:checked {
   justify-content: space-between;
   gap: 10px;
   color: var(--project-muted);
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .rich-notes-header small {
   color: var(--project-accent);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .rich-note-list {
@@ -1349,8 +1374,7 @@ select option:checked {
 .rich-note-card {
   display: grid;
   gap: 8px;
-  border: 1px solid var(--project-border);
-  border-radius: 2px;
+  border: 1px solid var(--document-line);
   background: color-mix(in srgb, var(--project-surface) 46%, transparent);
   padding: 12px;
 }
@@ -1372,9 +1396,11 @@ select option:checked {
   min-width: 0;
   overflow: hidden;
   color: var(--project-text);
-  font-size: 0.86rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
   line-height: 1.2;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -1395,12 +1421,13 @@ select option:checked {
 .rich-note-actions button {
   min-height: 24px;
   border: 1px solid var(--project-border);
-  border-radius: 2px;
   color: var(--project-muted);
   padding: 2px 7px;
-  font-size: 0.72rem;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
   line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .rich-note-actions button:hover {
@@ -1417,12 +1444,11 @@ select option:checked {
   min-height: 86px;
   resize: vertical;
   border: 1px solid var(--project-border);
-  border-radius: 2px;
   outline: none;
   background: color-mix(in srgb, var(--project-background) 80%, #000);
   color: var(--project-text);
-  font-family: var(--font-editor);
-  font-size: 0.9rem;
+  font-family: var(--font-document);
+  font-size: 1rem;
   line-height: 1.55;
   padding: 9px 10px;
 }
@@ -1446,7 +1472,6 @@ select option:checked {
   width: 200px;
   gap: 4px;
   border: 1px solid var(--project-border);
-  border-radius: 2px;
   background: var(--project-surface);
   color: var(--project-text);
   padding: 6px;
@@ -1458,16 +1483,18 @@ select option:checked {
   overflow: hidden;
   margin: 0;
   color: var(--project-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   padding: 6px 8px 4px;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .editor-context-menu button {
   min-height: 30px;
-  border-radius: 2px;
   color: var(--project-text);
   padding: 5px 8px;
   text-align: left;
@@ -1501,7 +1528,6 @@ select option:checked {
 .fractal-inspector-section {
   min-width: 0;
   border: 1px solid var(--project-border);
-  border-radius: 2px;
   background: color-mix(in srgb, var(--project-surface) 70%, transparent);
   padding: 12px;
 }
@@ -1516,9 +1542,10 @@ select option:checked {
 
 .fractal-inspector-kicker {
   color: var(--project-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   line-height: 1.2;
   text-transform: uppercase;
 }
@@ -1537,16 +1564,19 @@ select option:checked {
 
 .fractal-stats dt {
   color: var(--project-muted);
-  font-size: 0.68rem;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .fractal-stats dd {
   margin: 0;
   color: var(--project-text);
-  font-size: 1.05rem;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: 1;
 }
 
 .fractal-inspector-section {
@@ -1556,9 +1586,12 @@ select option:checked {
 
 .fractal-inspector-section h3 {
   color: var(--project-text);
-  font-size: 0.82rem;
-  font-weight: 750;
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .fractal-inspector-section p,
@@ -1580,8 +1613,16 @@ select option:checked {
 }
 
 @media (max-width: 760px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
     grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .project-flow {
@@ -1589,6 +1630,7 @@ select option:checked {
   }
 
   .sidebar {
+    max-height: 45vh;
     border-right: 0;
     border-bottom: 1px solid var(--app-border);
   }
