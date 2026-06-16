@@ -4,6 +4,7 @@ import Workspace from "@/features/workspace/components/Workspace";
 import { fractalClient } from "@/lib/fractal/client";
 import type {
   FractalCommandResult,
+  FractalNote,
   FractalProject,
   FractalProjectCatalog
 } from "@/lib/fractal/types";
@@ -111,6 +112,36 @@ function App() {
     setHasUnsavedPageChanges(true);
   }
 
+  function updateActivePageSummary(summary: string) {
+    setActiveProject((currentProject) =>
+      currentProject
+        ? {
+            ...currentProject,
+            activePageSummary: summary
+          }
+        : currentProject
+    );
+    setCommandResult(null);
+    setHasUnsavedPageChanges(true);
+  }
+
+  function updateActivePageTags(tags: string[]) {
+    setActiveProject((currentProject) =>
+      currentProject ? { ...currentProject, activePageTags: tags } : currentProject
+    );
+    setCommandResult(null);
+    setHasUnsavedPageChanges(true);
+  }
+
+  async function saveProjectPage(project: FractalProject) {
+    return fractalClient.savePage(project, {
+      bodyHtml: project.activePageBodyHtml,
+      summary: project.activePageSummary ?? "",
+      tags: project.activePageTags,
+      title: project.activePageTitle
+    });
+  }
+
   async function saveActivePage() {
     if (!activeProject || !hasUnsavedPageChanges || isBusy) {
       return;
@@ -122,10 +153,7 @@ function App() {
     setError(null);
 
     try {
-      const nextProject = await fractalClient.savePage(activeProject, {
-        bodyHtml: activeProject.activePageBodyHtml,
-        title: activeProject.activePageTitle
-      });
+      const nextProject = await saveProjectPage(activeProject);
       setActiveProject(nextProject);
       setHasUnsavedPageChanges(false);
       setCommandResult({
@@ -135,6 +163,95 @@ function App() {
       });
     } catch (saveError) {
       setError(getErrorMessage(saveError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function addActivePageNote(trigger: string, content: string) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    const trimmedTrigger = trigger.trim();
+    if (!trimmedTrigger) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const savedProject = hasUnsavedPageChanges
+        ? await saveProjectPage(activeProject)
+        : activeProject;
+      const nextProject = await fractalClient.addNote(savedProject, trimmedTrigger, content);
+
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Note added.",
+        details: trimmedTrigger
+      });
+    } catch (noteError) {
+      setError(getErrorMessage(noteError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function updateActivePageNote(note: FractalNote, content: string) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const savedProject = hasUnsavedPageChanges
+        ? await saveProjectPage(activeProject)
+        : activeProject;
+      const nextProject = await fractalClient.updateNote(savedProject, note, content);
+
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Note updated.",
+        details: note.label
+      });
+    } catch (noteError) {
+      setError(getErrorMessage(noteError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function deleteActivePageNote(note: FractalNote) {
+    if (!activeProject || isBusy) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+
+    try {
+      const savedProject = hasUnsavedPageChanges
+        ? await saveProjectPage(activeProject)
+        : activeProject;
+      const nextProject = await fractalClient.deleteNote(savedProject, note);
+
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({
+        ok: true,
+        message: "Note deleted.",
+        details: note.label
+      });
+    } catch (noteError) {
+      setError(getErrorMessage(noteError));
     } finally {
       setIsBusy(false);
     }
@@ -248,6 +365,11 @@ function App() {
     }
   }
 
+  function dismissStatus() {
+    setCommandResult(null);
+    setError(null);
+  }
+
   useEffect(() => {
     void refreshProjectCatalog();
   }, []);
@@ -278,11 +400,17 @@ function App() {
       project={activeProject}
       onBuildIndex={() => runProjectCommand(fractalClient.buildIndex)}
       onChangePageBodyHtml={updateActivePageBodyHtml}
+      onChangePageSummary={updateActivePageSummary}
+      onChangePageTags={updateActivePageTags}
       onChangePageTitle={updateActivePageTitle}
       onCreatePage={createProjectPage}
       onDeletePage={deleteProjectPage}
+      onAddNote={addActivePageNote}
+      onDeleteNote={deleteActivePageNote}
+      onDismissStatus={dismissStatus}
       onOpenPage={openProjectPage}
       onRenamePage={renameProjectPage}
+      onUpdateNote={updateActivePageNote}
       onSavePage={saveActivePage}
       onValidate={() => runProjectCommand(fractalClient.validateProject)}
     />

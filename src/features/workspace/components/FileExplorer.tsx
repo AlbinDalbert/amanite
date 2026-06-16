@@ -242,12 +242,7 @@ function FileExplorer({
   }
 
   function createPageFromMenu(folderPath?: string) {
-    const defaultPath = folderPath ? `${folderPath}/untitled` : "untitled";
-    const pagePath = window.prompt("New page path", defaultPath);
-
-    if (pagePath) {
-      onCreatePage(pagePath);
-    }
+    onCreatePage(folderPath ? `${folderPath}/untitled` : "untitled");
   }
 
   function renamePageFromMenu(pagePath: string) {

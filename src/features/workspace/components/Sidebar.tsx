@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
 import FileExplorer from "./FileExplorer";
 
@@ -28,11 +29,45 @@ function Sidebar({
   onSelectPage,
   onValidate
 }: SidebarProps) {
-  function handleCreatePage() {
-    const pagePath = window.prompt("New page path", "untitled");
+  const [createPagePath, setCreatePagePath] = useState<string | null>(null);
+  const createPageInputRef = useRef<HTMLInputElement>(null);
 
-    if (pagePath) {
-      onCreatePage(pagePath);
+  useEffect(() => {
+    if (!createPagePath) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      createPageInputRef.current?.focus();
+      createPageInputRef.current?.select();
+    });
+  }, [createPagePath]);
+
+  function openCreatePageDialog(defaultPath = "untitled") {
+    setCreatePagePath(defaultPath);
+  }
+
+  function closeCreatePageDialog() {
+    setCreatePagePath(null);
+  }
+
+  function handleCreatePageSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!createPagePath) {
+      return;
+    }
+
+    const trimmedPagePath = createPagePath.trim();
+    if (trimmedPagePath) {
+      onCreatePage(trimmedPagePath);
+      closeCreatePageDialog();
+    }
+  }
+
+  function handleCreatePageBackdropClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      closeCreatePageDialog();
     }
   }
 
@@ -56,7 +91,7 @@ function Sidebar({
           type="button"
           aria-label="Create page"
           disabled={isBusy}
-          onClick={handleCreatePage}
+          onClick={() => openCreatePageDialog()}
         >
           +
         </button>
@@ -69,13 +104,67 @@ function Sidebar({
           isBusy={isBusy}
           pages={pages}
           onBuildIndex={onBuildIndex}
-          onCreatePage={onCreatePage}
+          onCreatePage={openCreatePageDialog}
           onDeletePage={onDeletePage}
           onRenamePage={onRenamePage}
           onSelectPage={onSelectPage}
           onValidate={onValidate}
         />
       </nav>
+
+      {createPagePath !== null ? (
+        <div
+          className="modal-backdrop"
+          onClick={handleCreatePageBackdropClick}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              closeCreatePageDialog();
+            }
+          }}
+        >
+          <form
+            aria-labelledby="create-page-title"
+            aria-modal="true"
+            className="create-page-dialog"
+            onSubmit={handleCreatePageSubmit}
+            role="dialog"
+          >
+            <div className="dialog-header">
+              <p className="dialog-kicker">Archive operation</p>
+              <h2 id="create-page-title">Create page</h2>
+            </div>
+
+            <label className="dialog-field">
+              <span>Page path</span>
+              <input
+                autoComplete="off"
+                disabled={isBusy}
+                onChange={(event) => setCreatePagePath(event.currentTarget.value)}
+                placeholder="notes/day-two"
+                ref={createPageInputRef}
+                value={createPagePath}
+              />
+            </label>
+
+            <p className="dialog-note">
+              Use folders with <code>/</code>. The <code>.html</code> extension is optional.
+            </p>
+
+            <div className="dialog-actions">
+              <button className="ghost-action" onClick={closeCreatePageDialog} type="button">
+                Cancel
+              </button>
+              <button
+                className="primary-action"
+                disabled={isBusy || createPagePath.trim().length === 0}
+                type="submit"
+              >
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </aside>
   );
 }

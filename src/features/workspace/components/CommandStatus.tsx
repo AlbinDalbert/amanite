@@ -3,11 +3,16 @@ import type { FractalCommandResult } from "@/lib/fractal/types";
 type CommandStatusProps = {
   error: string | null;
   result: FractalCommandResult | null;
+  onDismiss: () => void;
 };
 
-function CommandStatus({ error, result }: CommandStatusProps) {
+function CommandStatus({ error, result, onDismiss }: CommandStatusProps) {
   if (error) {
-    return <p className="status-message error">{error}</p>;
+    return (
+      <button className="status-message error" onClick={onDismiss} type="button">
+        {error}
+      </button>
+    );
   }
 
   if (!result) {
@@ -15,10 +20,14 @@ function CommandStatus({ error, result }: CommandStatusProps) {
   }
 
   return (
-    <p className={result.ok ? "status-message success" : "status-message error"}>
+    <button
+      className={result.ok ? "status-message success" : "status-message error"}
+      onClick={onDismiss}
+      type="button"
+    >
       <span>{result.message}</span>
       {result.details ? <small>{result.details}</small> : null}
-    </p>
+    </button>
   );
 }
 

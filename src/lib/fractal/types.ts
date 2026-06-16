@@ -68,6 +68,8 @@ export type FractalCommandResult = {
 export type FractalPageUpdate = {
   title: string;
   bodyHtml: string;
+  summary: string;
+  tags: string[];
 };
 
 export type FractalClient = {
@@ -83,6 +85,17 @@ export type FractalClient = {
     nextPagePath: string
   ) => Promise<FractalProject>;
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
+  addNote: (
+    project: FractalProject,
+    trigger: string,
+    content: string
+  ) => Promise<FractalProject>;
+  updateNote: (
+    project: FractalProject,
+    note: FractalNote,
+    content: string
+  ) => Promise<FractalProject>;
+  deleteNote: (project: FractalProject, note: FractalNote) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   buildIndex: (project: FractalProject) => Promise<FractalCommandResult>;
 };

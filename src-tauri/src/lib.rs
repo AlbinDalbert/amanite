@@ -374,6 +374,8 @@ fn update_project_page(
     page_path: &str,
     title: &str,
     body_html: &str,
+    summary: &str,
+    tags: Vec<String>,
 ) -> Result<FractalProject, String> {
     let active_page_path = normalize_page_reference(page_path);
     let root = root
@@ -386,7 +388,8 @@ fn update_project_page(
         fractal::project::EditorPageUpdate {
             title: Some(title.to_string()),
             body_html: Some(body_html.to_string()),
-            ..fractal::project::EditorPageUpdate::default()
+            summary: Some(summary.to_string()),
+            tags: Some(tags),
         },
     )
     .map_err(|error| format!("Could not update Fractal page {page_path}: {error}"))?;
@@ -465,6 +468,62 @@ fn delete_project_page(
     }
 }
 
+fn add_project_note(
+    root: PathBuf,
+    page_path: &str,
+    trigger: &str,
+    content: &str,
+) -> Result<FractalProject, String> {
+    let active_page_path = normalize_page_reference(page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::add_note(&root, page_path, trigger, content)
+        .map_err(|error| format!("Could not add Fractal note for {page_path}: {error}"))?;
+    fractal::project::sync_project(&root)
+        .map_err(|error| format!("Could not link Fractal note for {page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
+}
+
+fn update_project_note(
+    root: PathBuf,
+    page_path: &str,
+    trigger: &str,
+    content: &str,
+) -> Result<FractalProject, String> {
+    let active_page_path = normalize_page_reference(page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::patch_note(&root, page_path, trigger, content)
+        .map_err(|error| format!("Could not update Fractal note for {page_path}: {error}"))?;
+    fractal::project::sync_project(&root)
+        .map_err(|error| format!("Could not relink Fractal note for {page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
+}
+
+fn delete_project_note(
+    root: PathBuf,
+    page_path: &str,
+    trigger: &str,
+) -> Result<FractalProject, String> {
+    let active_page_path = normalize_page_reference(page_path);
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    fractal::project::remove_note(&root, page_path, trigger)
+        .map_err(|error| format!("Could not delete Fractal note for {page_path}: {error}"))?;
+    fractal::project::sync_project(&root)
+        .map_err(|error| format!("Could not unlink Fractal note for {page_path}: {error}"))?;
+
+    read_project_with_active_page(root, Some(&active_page_path))
+}
+
 fn create_project_in_library(root: &Path, project_name: &str) -> Result<FractalProject, String> {
     let project_name = project_name.trim();
     let directory_name = project_directory_name(project_name)?;
@@ -534,8 +593,17 @@ fn fractal_update_page(
     page_path: String,
     title: String,
     body_html: String,
+    summary: String,
+    tags: Vec<String>,
 ) -> Result<FractalProject, String> {
-    update_project_page(PathBuf::from(project_root), &page_path, &title, &body_html)
+    update_project_page(
+        PathBuf::from(project_root),
+        &page_path,
+        &title,
+        &body_html,
+        &summary,
+        tags,
+    )
 }
 
 #[tauri::command]
@@ -565,6 +633,35 @@ fn fractal_delete_page(
     active_page_path: String,
 ) -> Result<FractalProject, String> {
     delete_project_page(PathBuf::from(project_root), &page_path, &active_page_path)
+}
+
+#[tauri::command]
+fn fractal_add_note(
+    project_root: String,
+    page_path: String,
+    trigger: String,
+    content: String,
+) -> Result<FractalProject, String> {
+    add_project_note(PathBuf::from(project_root), &page_path, &trigger, &content)
+}
+
+#[tauri::command]
+fn fractal_update_note(
+    project_root: String,
+    page_path: String,
+    trigger: String,
+    content: String,
+) -> Result<FractalProject, String> {
+    update_project_note(PathBuf::from(project_root), &page_path, &trigger, &content)
+}
+
+#[tauri::command]
+fn fractal_delete_note(
+    project_root: String,
+    page_path: String,
+    trigger: String,
+) -> Result<FractalProject, String> {
+    delete_project_note(PathBuf::from(project_root), &page_path, &trigger)
 }
 
 #[tauri::command]
@@ -610,6 +707,9 @@ pub fn run() {
             fractal_create_page,
             fractal_rename_page,
             fractal_delete_page,
+            fractal_add_note,
+            fractal_update_note,
+            fractal_delete_note,
             fractal_validate_project,
             fractal_build_index
         ])
@@ -758,6 +858,8 @@ mod tests {
             "index.html",
             "Rewritten Notes",
             "<p>Saved from the rich editor.</p>",
+            "Updated summary",
+            vec!["editor".to_string(), "saved".to_string()],
         )
         .expect("update page");
 
@@ -766,12 +868,114 @@ mod tests {
         assert!(project
             .active_page_body_html
             .contains("Saved from the rich editor."));
+        assert_eq!(project.active_page_summary.as_deref(), Some("Updated summary"));
+        assert_eq!(
+            project.active_page_tags,
+            vec!["editor".to_string(), "saved".to_string()]
+        );
 
         let source =
             fs::read_to_string(project_root.join("pages/index.html")).expect("read updated page");
         assert!(source.contains("<title>Rewritten Notes</title>"));
         assert!(source.contains("<h1>Rewritten Notes</h1>"));
         assert!(source.contains("Saved from the rich editor."));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn add_project_note_appends_internal_note_and_reopens_page() {
+        let library = temp_library("add-note");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        update_project_page(
+            project_root.clone(),
+            "index.html",
+            "Field Notes",
+            "<p>Nested pages are useful.</p>",
+            "",
+            vec![],
+        )
+        .expect("seed note trigger text");
+
+        let project = add_project_note(project_root.clone(), "index.html", "Nested pages", "")
+            .expect("add note");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert_eq!(project.active_page_notes.len(), 1);
+        assert_eq!(project.active_page_notes[0].id, "note-nested-pages");
+        let source =
+            fs::read_to_string(project_root.join("pages/index.html")).expect("read noted page");
+        assert!(source.contains("data-fractal-note"));
+        assert!(source.contains("data-fractal-link=\"note\""));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn update_project_note_patches_internal_note() {
+        let library = temp_library("update-note");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        update_project_page(
+            project_root.clone(),
+            "index.html",
+            "Field Notes",
+            "<p>Nested pages are useful.</p>",
+            "",
+            vec![],
+        )
+        .expect("seed note trigger text");
+        add_project_note(project_root.clone(), "index.html", "Nested pages", "old")
+            .expect("add note");
+
+        let project = update_project_note(
+            project_root.clone(),
+            "index.html",
+            "Nested pages",
+            "updated note body",
+        )
+        .expect("update note");
+
+        assert_eq!(project.active_page_notes.len(), 1);
+        assert_eq!(project.active_page_notes[0].text, "updated note body");
+        assert!(fs::read_to_string(project_root.join("pages/index.html"))
+            .expect("read noted page")
+            .contains("updated note body"));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn delete_project_note_removes_internal_note_and_generated_link() {
+        let library = temp_library("delete-note");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        update_project_page(
+            project_root.clone(),
+            "index.html",
+            "Field Notes",
+            "<p>Nested pages are useful.</p>",
+            "",
+            vec![],
+        )
+        .expect("seed note trigger text");
+        add_project_note(project_root.clone(), "index.html", "Nested pages", "old")
+            .expect("add note");
+
+        let project = delete_project_note(project_root.clone(), "index.html", "Nested pages")
+            .expect("delete note");
+
+        assert!(project.active_page_notes.is_empty());
+        let source =
+            fs::read_to_string(project_root.join("pages/index.html")).expect("read noted page");
+        assert!(!source.contains("id=\"note-nested-pages\""));
+        assert!(!source.contains("href=\"#note-nested-pages\""));
+        assert!(!source.contains("data-fractal-link=\"note\""));
+        assert!(source.contains("Nested pages"));
 
         fs::remove_dir_all(&library).expect("cleanup temp project library");
     }

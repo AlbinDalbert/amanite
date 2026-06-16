@@ -121,25 +121,33 @@ function StartScreen({
 
             {projects.length > 0 ? (
               <>
-                <label className="project-field">
+                <div className="project-field">
                   <span>Project</span>
                   <div className="project-field-row">
-                    <select
-                      disabled={isBusy}
-                      onChange={(event) => setSelectedDirectoryName(event.currentTarget.value)}
-                      value={selectedDirectoryName}
-                    >
-                      {projects.map((project) => (
-                        <option key={project.directoryName} value={project.directoryName}>
-                          {project.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="project-picker" role="group" aria-label="Project">
+                      {projects.map((project) => {
+                        const isSelected = project.directoryName === selectedDirectoryName;
+
+                        return (
+                          <button
+                            aria-pressed={isSelected}
+                            className={isSelected ? "project-option selected" : "project-option"}
+                            disabled={isBusy}
+                            key={project.directoryName}
+                            onClick={() => setSelectedDirectoryName(project.directoryName)}
+                            type="button"
+                          >
+                            <span>{project.name}</span>
+                            <small>{project.directoryName}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
                     <button className="secondary-action" type="submit" disabled={!canOpen}>
                       Open
                     </button>
                   </div>
-                </label>
+                </div>
                 {selectedProject ? (
                   <p className="project-path" title={selectedProject.rootPath}>
                     {selectedProject.rootPath}

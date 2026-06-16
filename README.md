@@ -37,6 +37,11 @@ Run the web frontend only:
 pnpm run dev
 ```
 
+When this runs outside Tauri, Amanite uses a browser-only mock Fractal
+library backed by `localStorage`. It is meant for UI debugging with Playwright
+or browser devtools; it does not read or write local Fractal project files.
+Use the Tauri command below for real filesystem-backed projects.
+
 Run the desktop app:
 
 ```sh
