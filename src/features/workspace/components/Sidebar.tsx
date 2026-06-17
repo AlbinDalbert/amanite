@@ -31,12 +31,19 @@ function Sidebar({
 }: SidebarProps) {
   const [createPagePath, setCreatePagePath] = useState<string | null>(null);
   const createPageInputRef = useRef<HTMLInputElement>(null);
+  const wasCreatePageDialogOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!createPagePath) {
+    if (createPagePath === null) {
+      wasCreatePageDialogOpenRef.current = false;
       return;
     }
 
+    if (wasCreatePageDialogOpenRef.current) {
+      return;
+    }
+
+    wasCreatePageDialogOpenRef.current = true;
     requestAnimationFrame(() => {
       createPageInputRef.current?.focus();
       createPageInputRef.current?.select();
@@ -72,11 +79,7 @@ function Sidebar({
   }
 
   return (
-    <aside
-      className="sidebar"
-      aria-label="File explorer"
-      onContextMenu={(event) => event.preventDefault()}
-    >
+    <aside className="sidebar" aria-label="File explorer">
       <div className="brand">
         <span className="brand-mark" aria-hidden="true" />
         <div>

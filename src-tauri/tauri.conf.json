@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.fractal.amanite",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -16,6 +16,7 @@
         "title": "Amanite",
         "width": 1200,
         "height": 760,
+        "decorations": false,
         "minWidth": 900,
         "minHeight": 620
       }

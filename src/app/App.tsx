@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import UniversalContextMenu, {
+  type UniversalContextMenuAction
+} from "@/components/ui/UniversalContextMenu";
 import StartScreen from "@/features/project-open/components/StartScreen";
 import Workspace from "@/features/workspace/components/Workspace";
 import { fractalClient } from "@/lib/fractal/client";
@@ -158,7 +161,7 @@ function App() {
       setHasUnsavedPageChanges(false);
       setCommandResult({
         ok: true,
-        message: "Page saved.",
+        message: "Page saved and synced.",
         details: pagePath
       });
     } catch (saveError) {
@@ -374,46 +377,73 @@ function App() {
     void refreshProjectCatalog();
   }, []);
 
+  const contextMenuActions: UniversalContextMenuAction[] = activeProject
+    ? [
+        {
+          disabled: isBusy || !hasUnsavedPageChanges,
+          label: "Save page + sync",
+          title: hasUnsavedPageChanges
+            ? "Save the active page and run Fractal sync."
+            : "No page changes to save.",
+          onSelect: () => void saveActivePage()
+        },
+        {
+          disabled: isBusy,
+          label: "Validate project",
+          onSelect: () => void runProjectCommand(fractalClient.validateProject)
+        },
+        {
+          disabled: isBusy,
+          label: "Build index",
+          onSelect: () => void runProjectCommand(fractalClient.buildIndex)
+        }
+      ]
+    : [];
+
   if (!activeProject) {
     return (
-      <StartScreen
-        error={error}
-        isBusy={isBusy}
-        projectCatalog={projectCatalog}
-        onCreateProject={(projectName) =>
-          loadProject(() => fractalClient.createProject(projectName))
-        }
-        onOpenProject={(directoryName) =>
-          loadProject(() => fractalClient.openProject(directoryName))
-        }
-        onRefreshProjects={refreshProjectCatalog}
-      />
+      <UniversalContextMenu actions={contextMenuActions}>
+        <StartScreen
+          error={error}
+          isBusy={isBusy}
+          projectCatalog={projectCatalog}
+          onCreateProject={(projectName) =>
+            loadProject(() => fractalClient.createProject(projectName))
+          }
+          onOpenProject={(directoryName) =>
+            loadProject(() => fractalClient.openProject(directoryName))
+          }
+          onRefreshProjects={refreshProjectCatalog}
+        />
+      </UniversalContextMenu>
     );
   }
 
   return (
-    <Workspace
-      commandResult={commandResult}
-      error={error}
-      hasUnsavedPageChanges={hasUnsavedPageChanges}
-      isBusy={isBusy}
-      project={activeProject}
-      onBuildIndex={() => runProjectCommand(fractalClient.buildIndex)}
-      onChangePageBodyHtml={updateActivePageBodyHtml}
-      onChangePageSummary={updateActivePageSummary}
-      onChangePageTags={updateActivePageTags}
-      onChangePageTitle={updateActivePageTitle}
-      onCreatePage={createProjectPage}
-      onDeletePage={deleteProjectPage}
-      onAddNote={addActivePageNote}
-      onDeleteNote={deleteActivePageNote}
-      onDismissStatus={dismissStatus}
-      onOpenPage={openProjectPage}
-      onRenamePage={renameProjectPage}
-      onUpdateNote={updateActivePageNote}
-      onSavePage={saveActivePage}
-      onValidate={() => runProjectCommand(fractalClient.validateProject)}
-    />
+    <UniversalContextMenu actions={contextMenuActions}>
+      <Workspace
+        commandResult={commandResult}
+        error={error}
+        hasUnsavedPageChanges={hasUnsavedPageChanges}
+        isBusy={isBusy}
+        project={activeProject}
+        onBuildIndex={() => runProjectCommand(fractalClient.buildIndex)}
+        onChangePageBodyHtml={updateActivePageBodyHtml}
+        onChangePageSummary={updateActivePageSummary}
+        onChangePageTags={updateActivePageTags}
+        onChangePageTitle={updateActivePageTitle}
+        onCreatePage={createProjectPage}
+        onDeletePage={deleteProjectPage}
+        onAddNote={addActivePageNote}
+        onDeleteNote={deleteActivePageNote}
+        onDismissStatus={dismissStatus}
+        onOpenPage={openProjectPage}
+        onRenamePage={renameProjectPage}
+        onUpdateNote={updateActivePageNote}
+        onSavePage={saveActivePage}
+        onValidate={() => runProjectCommand(fractalClient.validateProject)}
+      />
+    </UniversalContextMenu>
   );
 }
 

@@ -8,8 +8,10 @@ use tauri::{AppHandle, Manager};
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FractalPage {
+    body_preview: Option<String>,
     name: String,
     path: String,
+    summary: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -221,13 +223,77 @@ fn normalize_page_reference(page_path: &str) -> String {
     normalized
 }
 
+fn decode_basic_html_entities(value: &str) -> String {
+    value
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+fn text_preview_from_html(html: &str) -> Option<String> {
+    let mut text = String::new();
+    let mut in_tag = false;
+    let mut pending_space = false;
+
+    for character in html.chars() {
+        if in_tag {
+            if character == '>' {
+                in_tag = false;
+                pending_space = true;
+            }
+
+            continue;
+        }
+
+        if character == '<' {
+            in_tag = true;
+            pending_space = true;
+            continue;
+        }
+
+        if character.is_whitespace() {
+            pending_space = true;
+            continue;
+        }
+
+        if pending_space && !text.is_empty() {
+            text.push(' ');
+        }
+
+        text.push(character);
+        pending_space = false;
+    }
+
+    let text = decode_basic_html_entities(&text);
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if text.is_empty() {
+        None
+    } else if text.chars().count() > 240 {
+        Some(format!("{}…", text.chars().take(239).collect::<String>()))
+    } else {
+        Some(text)
+    }
+}
+
 fn list_fractal_pages(root: &Path) -> Result<Vec<FractalPage>, String> {
     let mut pages = fractal::project::list_editor_pages(root)
         .map_err(|error| format!("Could not list Fractal editor pages: {error}"))?
         .into_iter()
-        .map(|page| FractalPage {
-            name: page.title,
-            path: page.path,
+        .map(|page| {
+            let body_preview = fractal::project::editor_page_detail(root, &page.path)
+                .ok()
+                .and_then(|detail| text_preview_from_html(&detail.body_html));
+
+            FractalPage {
+                body_preview,
+                name: page.title,
+                path: page.path,
+                summary: page.summary,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -393,6 +459,9 @@ fn update_project_page(
         },
     )
     .map_err(|error| format!("Could not update Fractal page {page_path}: {error}"))?;
+    fractal::project::sync_project(&root).map_err(|error| {
+        format!("Could not sync Fractal project after saving {page_path}: {error}")
+    })?;
 
     read_project_with_active_page(root, Some(&active_page_path))
 }
@@ -868,7 +937,10 @@ mod tests {
         assert!(project
             .active_page_body_html
             .contains("Saved from the rich editor."));
-        assert_eq!(project.active_page_summary.as_deref(), Some("Updated summary"));
+        assert_eq!(
+            project.active_page_summary.as_deref(),
+            Some("Updated summary")
+        );
         assert_eq!(
             project.active_page_tags,
             vec!["editor".to_string(), "saved".to_string()]

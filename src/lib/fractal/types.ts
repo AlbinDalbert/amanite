@@ -9,8 +9,10 @@ export type FractalThemeToken =
 export type FractalTheme = Partial<Record<FractalThemeToken, string>>;
 
 export type FractalPage = {
+  bodyPreview?: string | null;
   name: string;
   path: string;
+  summary?: string | null;
 };
 
 export type FractalNote = {

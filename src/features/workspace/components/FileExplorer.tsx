@@ -197,12 +197,14 @@ function FileExplorer({
     }
 
     window.addEventListener("click", closeContextMenu);
+    window.addEventListener("contextmenu", closeContextMenu, true);
     window.addEventListener("resize", closeContextMenu);
     window.addEventListener("scroll", closeContextMenu, true);
     window.addEventListener("keydown", closeOnEscape);
 
     return () => {
       window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("contextmenu", closeContextMenu, true);
       window.removeEventListener("resize", closeContextMenu);
       window.removeEventListener("scroll", closeContextMenu, true);
       window.removeEventListener("keydown", closeOnEscape);

@@ -357,8 +357,10 @@ function toFractalProject(
 
   const graphLinks = graphLinksForPage(project, activePage);
   const pages: FractalPage[] = sortedPages.map((page) => ({
+    bodyPreview: summaryFromBody(page.bodyHtml),
     name: page.title,
-    path: page.path
+    path: page.path,
+    summary: page.summary
   }));
 
   return {

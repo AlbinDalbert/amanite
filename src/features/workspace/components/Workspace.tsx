@@ -70,7 +70,10 @@ function Workspace({
         style={project.theme as CSSProperties | undefined}
         aria-label="Fractal workspace"
       >
-        <WorkspaceToolbar projectName={project.name} />
+        <WorkspaceToolbar
+          activePagePath={project.activePagePath}
+          activePageTitle={project.activePageTitle}
+        />
         <CommandStatus error={error} result={commandResult} onDismiss={onDismissStatus} />
         <div className="editor-stage" aria-label="Editable Fractal page">
           <FractalEditor
@@ -81,6 +84,7 @@ function Workspace({
             links={project.activePageLinks}
             notes={project.activePageNotes}
             outlinks={project.activePageOutlinks}
+            pages={project.pages}
             pagePath={project.activePagePath}
             summary={project.activePageSummary}
             tags={project.activePageTags}

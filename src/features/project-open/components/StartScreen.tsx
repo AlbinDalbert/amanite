@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
 import type { FractalProjectCatalog, FractalProjectSummary } from "@/lib/fractal/types";
 
 const EMPTY_PROJECTS: FractalProjectSummary[] = [];
@@ -62,6 +63,14 @@ function StartScreen({
 
   return (
     <main className="start-screen">
+      <div
+        className="start-titlebar"
+        data-tauri-drag-region
+        onMouseDown={handleWindowDragMouseDown}
+      >
+        <WindowControls />
+      </div>
+
       <section className="start-panel" aria-labelledby="start-title">
         <div className="start-brand">
           <span className="brand-mark" aria-hidden="true" />
