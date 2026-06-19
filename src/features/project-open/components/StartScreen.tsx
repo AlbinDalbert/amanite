@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
 import type { FractalProjectCatalog, FractalProjectSummary } from "@/lib/fractal/types";
 
@@ -22,13 +22,8 @@ function StartScreen({
   onRefreshProjects
 }: StartScreenProps) {
   const [projectName, setProjectName] = useState("");
-  const [selectedDirectoryName, setSelectedDirectoryName] = useState("");
   const projects = projectCatalog?.projects ?? EMPTY_PROJECTS;
-  const selectedProject = projects.find(
-    (project) => project.directoryName === selectedDirectoryName
-  );
   const canCreate = projectName.trim().length > 0 && !isBusy;
-  const canOpen = Boolean(selectedProject) && !isBusy;
   const emptyProjectMessage =
     projectCatalog === null
       ? isBusy
@@ -36,28 +31,12 @@ function StartScreen({
         : "Project list unavailable."
       : "No Fractal projects found.";
 
-  useEffect(() => {
-    if (projects.some((project) => project.directoryName === selectedDirectoryName)) {
-      return;
-    }
-
-    setSelectedDirectoryName(projects[0]?.directoryName ?? "");
-  }, [projects, selectedDirectoryName]);
-
   function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedProjectName = projectName.trim();
     if (trimmedProjectName.length > 0) {
       onCreateProject(trimmedProjectName);
-    }
-  }
-
-  function handleOpenSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (selectedProject) {
-      onOpenProject(selectedProject.directoryName);
     }
   }
 
@@ -79,10 +58,6 @@ function StartScreen({
 
         <div className="start-copy">
           <h1 id="start-title">Open a Fractal project</h1>
-          <p>
-            Work with a local Fractal knowledge base, then let its own project
-            files define how the page surface should feel.
-          </p>
           {projectCatalog ? (
             <p className="library-path" title={projectCatalog.rootPath}>
               {projectCatalog.rootPath}
@@ -93,9 +68,9 @@ function StartScreen({
         {error ? <p className="status-message error">{error}</p> : null}
 
         <div className="project-flow">
-          <form className="project-section" onSubmit={handleCreateSubmit}>
+          <form className="project-section create-project-section" onSubmit={handleCreateSubmit}>
             <div className="section-heading">
-              <h2>Create project</h2>
+              <h2>Create new project</h2>
             </div>
             <label className="project-field">
               <span>Project name</span>
@@ -115,7 +90,7 @@ function StartScreen({
             </label>
           </form>
 
-          <form className="project-section" onSubmit={handleOpenSubmit}>
+          <section className="project-section project-list-section">
             <div className="section-heading">
               <h2>Open project</h2>
               <button
@@ -129,44 +104,30 @@ function StartScreen({
             </div>
 
             {projects.length > 0 ? (
-              <>
-                <div className="project-field">
-                  <span>Project</span>
-                  <div className="project-field-row">
-                    <div className="project-picker" role="group" aria-label="Project">
-                      {projects.map((project) => {
-                        const isSelected = project.directoryName === selectedDirectoryName;
-
-                        return (
-                          <button
-                            aria-pressed={isSelected}
-                            className={isSelected ? "project-option selected" : "project-option"}
-                            disabled={isBusy}
-                            key={project.directoryName}
-                            onClick={() => setSelectedDirectoryName(project.directoryName)}
-                            type="button"
-                          >
-                            <span>{project.name}</span>
-                            <small>{project.directoryName}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button className="secondary-action" type="submit" disabled={!canOpen}>
+              <div className="project-picker project-list" role="group" aria-label="Projects">
+                {projects.map((project) => (
+                  <button
+                    className="project-option project-list-option"
+                    disabled={isBusy}
+                    key={project.directoryName}
+                    onClick={() => onOpenProject(project.directoryName)}
+                    title={project.rootPath}
+                    type="button"
+                  >
+                    <span className="project-option-main">
+                      <strong>{project.name}</strong>
+                      <small>{project.directoryName}</small>
+                    </span>
+                    <span className="project-option-action" aria-hidden="true">
                       Open
-                    </button>
-                  </div>
-                </div>
-                {selectedProject ? (
-                  <p className="project-path" title={selectedProject.rootPath}>
-                    {selectedProject.rootPath}
-                  </p>
-                ) : null}
-              </>
+                    </span>
+                  </button>
+                ))}
+              </div>
             ) : (
               <p className="empty-projects">{emptyProjectMessage}</p>
             )}
-          </form>
+          </section>
         </div>
       </section>
     </main>

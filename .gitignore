@@ -17,6 +17,9 @@ pnpm-debug.log*
 src-tauri/target/
 src-tauri/gen/
 
+# Debug/test artifacts
+artifacts/
+
 # Editor/system noise
 .DS_Store
 .idea/

@@ -281,12 +281,6 @@ function extractLinks(bodyHtml: string): FractalPageLink[] {
   });
 }
 
-function pageSource(project: StoredMockProject, page: StoredMockPage) {
-  return `<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>${escapeHtml(
-    page.title
-  )}</title>\n</head>\n<body>\n  <main>\n    <h1>${escapeHtml(page.title)}</h1>\n    ${page.bodyHtml}\n  </main>\n  <!-- Mock project: ${escapeHtml(project.name)} -->\n</body>\n</html>`;
-}
-
 function graphLinksForPage(project: StoredMockProject, page: StoredMockPage) {
   const pagePaths = new Set(project.pages.map((projectPage) => projectPage.path));
   const activeLinks = extractLinks(page.bodyHtml);
@@ -370,8 +364,6 @@ function toFractalProject(
     activePageNotes: activePage.notes ?? [],
     activePageOutlinks: graphLinks.outlinks,
     activePagePath: activePage.path,
-    activePageSource: pageSource(project, activePage),
-    activePageStylesheet: "/* Browser mock project stylesheet. Real files load through Tauri. */",
     activePageSummary: activePage.summary,
     activePageTags: activePage.tags,
     activePageTitle: activePage.title,

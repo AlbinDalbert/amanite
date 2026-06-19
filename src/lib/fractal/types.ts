@@ -38,9 +38,7 @@ export type FractalProject = {
   theme?: FractalTheme;
   pages: FractalPage[];
   activePagePath: string;
-  activePageSource: string;
   activePageBodyHtml: string;
-  activePageStylesheet: string;
   activePageTitle: string;
   activePageSummary: string | null;
   activePageTags: string[];

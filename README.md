@@ -48,6 +48,17 @@ Run the desktop app:
 pnpm run tauri:dev
 ```
 
+Run a real Tauri desktop smoke/debug session through the embedded WebDriver
+harness:
+
+```sh
+pnpm run tauri:webdriver:doctor
+pnpm run tauri:webdriver:smoke
+pnpm run tauri:webdriver:open
+```
+
+See [`docs/tauri-webdriver.md`](docs/tauri-webdriver.md) for details.
+
 By default, Amanite stores its development projects in the app data directory
 under `projects`. Set `AMANITE_PROJECT_ROOT` when you want Create/Open to use a
 specific project library directory instead:

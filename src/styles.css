@@ -303,8 +303,8 @@ select option:checked {
 .start-panel {
   position: relative;
   display: grid;
-  width: min(860px, 100%);
-  gap: 30px;
+  width: min(760px, 100%);
+  gap: 26px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--app-border-strong) 72%, transparent);
   background:
@@ -407,8 +407,8 @@ select option:checked {
 
 .start-copy {
   display: grid;
-  max-width: 580px;
-  gap: 12px;
+  max-width: 620px;
+  gap: 10px;
 }
 
 .start-copy h1 {
@@ -446,8 +446,8 @@ select option:checked {
 
 .project-flow {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
+  grid-template-columns: 1fr;
+  gap: 18px;
   border-top: 1px solid color-mix(in srgb, var(--app-border-strong) 64%, transparent);
   padding-top: 22px;
 }
@@ -462,6 +462,16 @@ select option:checked {
     linear-gradient(180deg, rgba(255, 217, 120, 0.04), transparent 34%),
     rgba(5, 5, 4, 0.28);
   padding: 16px;
+}
+
+.create-project-section {
+  background:
+    linear-gradient(90deg, rgba(242, 173, 50, 0.08), transparent 54%),
+    rgba(5, 5, 4, 0.32);
+}
+
+.project-list-section {
+  gap: 12px;
 }
 
 .section-heading {
@@ -534,7 +544,7 @@ select option:checked {
 .project-picker {
   display: grid;
   min-height: 44px;
-  max-height: 156px;
+  max-height: 286px;
   overflow: auto;
   border: 1px solid var(--app-border);
   background:
@@ -555,7 +565,7 @@ select option:checked {
   text-transform: none;
 }
 
-.project-option span,
+.project-option strong,
 .project-option small {
   display: block;
   min-width: 0;
@@ -564,7 +574,7 @@ select option:checked {
   white-space: nowrap;
 }
 
-.project-option span {
+.project-option strong {
   color: var(--app-text);
   font-size: 0.92rem;
   font-weight: 700;
@@ -592,6 +602,41 @@ select option:checked {
 .project-option:focus-visible {
   outline: 1px solid var(--app-accent);
   outline-offset: -1px;
+}
+
+.project-list-option {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 54px;
+  border-bottom: 1px solid rgba(242, 173, 50, 0.075);
+  padding: 10px 12px;
+}
+
+.project-list-option:last-child {
+  border-bottom: 0;
+}
+
+.project-option-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-option-action {
+  color: var(--app-accent);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
+.project-list-option:hover .project-option-action,
+.project-list-option:focus-visible .project-option-action {
+  color: var(--app-accent-strong);
+  opacity: 1;
 }
 
 .project-field-row > button,
