@@ -151,7 +151,7 @@ fn selected_project_root(root: &Path, directory_name: &str) -> Result<PathBuf, S
 }
 
 fn project_summary(root: PathBuf) -> Result<FractalProjectSummary, String> {
-    let manifest = fractal::project::load_project_manifest(&root).map_err(|error| {
+    let manifest = fractal::load_project_manifest(&root).map_err(|error| {
         format!(
             "Could not load Fractal project manifest at {}: {error}",
             root.display()
@@ -250,11 +250,11 @@ fn list_fractal_directories(root: &Path) -> Result<Vec<String>, String> {
 }
 
 fn list_fractal_pages(root: &Path) -> Result<Vec<FractalPage>, String> {
-    let mut pages = fractal::project::list_editor_pages(root)
+    let mut pages = fractal::list_editor_pages(root)
         .map_err(|error| format!("Could not list Fractal editor pages: {error}"))?
         .into_iter()
         .map(|page| {
-            let body_preview = fractal::project::extract_page_text(root, Path::new(&page.path))
+            let body_preview = fractal::extract_page_text(root, Path::new(&page.path))
                 .ok()
                 .and_then(|text| text_preview_from_text(&text));
 
@@ -274,9 +274,46 @@ fn list_fractal_pages(root: &Path) -> Result<Vec<FractalPage>, String> {
 fn load_editor_page_detail(
     root: &Path,
     page_path: &str,
-) -> Result<fractal::project::EditorPageDetail, String> {
-    fractal::project::editor_page_detail(root, page_path)
+) -> Result<fractal::EditorPageDetail, String> {
+    fractal::editor_page_detail(root, page_path)
         .map_err(|error| format!("Could not load Fractal editor page {page_path}: {error}"))
+}
+
+fn manifest_page_reference(default_page: &str) -> String {
+    default_page
+        .strip_prefix("pages/")
+        .unwrap_or(default_page)
+        .to_string()
+}
+
+fn page_reference_is_index(page_path: &str) -> bool {
+    matches!(
+        manifest_page_reference(page_path).as_str(),
+        "index" | "index.html"
+    )
+}
+
+fn create_initial_amanite_page(root: &Path, title: &str) -> Result<(), String> {
+    fractal::create_page(
+        root,
+        fractal::PageCreate {
+            directory: None,
+            title: "Index".to_string(),
+        },
+    )
+    .map_err(|error| format!("Could not create initial Fractal page: {error}"))?;
+    fractal::update_editor_page(
+        root,
+        "index.html",
+        fractal::EditorPageUpdate {
+            title: Some(title.to_string()),
+            body_html: Some("<p>Fractal project scaffold.</p>".to_string()),
+            summary: None,
+            tags: None,
+        },
+    )
+    .map_err(|error| format!("Could not populate initial Fractal page: {error}"))?;
+    Ok(())
 }
 
 fn active_editor_page_detail(
@@ -284,7 +321,7 @@ fn active_editor_page_detail(
     pages: &[FractalPage],
     default_page: &str,
     requested_page_path: Option<&str>,
-) -> Result<fractal::project::EditorPageDetail, String> {
+) -> Result<fractal::EditorPageDetail, String> {
     if let Some(page_path) = requested_page_path {
         return load_editor_page_detail(root, page_path);
     }
@@ -311,11 +348,17 @@ fn read_project_with_active_page(
     let root = root
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
-    let manifest = fractal::project::load_project_manifest(&root)
+    let mut manifest = fractal::load_project_manifest(&root)
         .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
-    let name = manifest.project_name;
-    let default_page = manifest.default_page;
-    let pages = list_fractal_pages(&root)?;
+    let name = manifest.project_name.clone();
+    let mut pages = list_fractal_pages(&root)?;
+    if pages.is_empty() {
+        create_initial_amanite_page(&root, &manifest.project_name)?;
+        manifest = fractal::load_project_manifest(&root)
+            .map_err(|error| format!("Could not reload Fractal project manifest: {error}"))?;
+        pages = list_fractal_pages(&root)?;
+    }
+    let default_page = manifest_page_reference(&manifest.default_page);
     let directories = list_fractal_directories(&root)?;
 
     let active_page_detail =
@@ -381,13 +424,22 @@ fn update_project_page(
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    let current_page = load_editor_page_detail(&root, page_path)?;
+    let current_page = match load_editor_page_detail(&root, page_path) {
+        Ok(page) => page,
+        Err(_error) if page_reference_is_index(page_path) => {
+            let manifest = fractal::load_project_manifest(&root)
+                .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+            create_initial_amanite_page(&root, &manifest.project_name)?;
+            load_editor_page_detail(&root, page_path)?
+        }
+        Err(error) => return Err(error),
+    };
     let mut active_page_path = current_page.metadata.path;
 
-    fractal::project::update_editor_page(
+    fractal::update_editor_page(
         &root,
         &active_page_path,
-        fractal::project::EditorPageUpdate {
+        fractal::EditorPageUpdate {
             title: None,
             body_html: Some(body_html.to_string()),
             summary: Some(summary.to_string()),
@@ -397,20 +449,20 @@ fn update_project_page(
     .map_err(|error| format!("Could not update Fractal page {page_path}: {error}"))?;
 
     if current_page.metadata.title != title.trim() {
-        let preflight = fractal::project::preflight_rename_page(
+        let preflight = fractal::preflight_rename_page(
             &root,
             &active_page_path,
-            fractal::project::PageRename {
+            fractal::PageRename {
                 path: None,
                 title: Some(title.to_string()),
             },
         )
         .map_err(|error| format!("Could not rename Fractal page title {page_path}: {error}"))?;
         active_page_path = preflight.destination_page;
-        fractal::project::rename_page(
+        fractal::rename_page(
             &root,
             page_path,
-            fractal::project::PageRename {
+            fractal::PageRename {
                 path: None,
                 title: Some(title.to_string()),
             },
@@ -418,18 +470,17 @@ fn update_project_page(
         .map_err(|error| format!("Could not rename Fractal page title {page_path}: {error}"))?;
     }
 
-    fractal::project::sync_project(&root).map_err(|error| {
+    fractal::sync_project(&root).map_err(|error| {
         format!("Could not sync Fractal project after saving {page_path}: {error}")
     })?;
 
     read_project_with_active_page(root, Some(&active_page_path))
 }
 
-fn created_page_path(root: &Path, report: &fractal::project::OperationReport) -> Option<String> {
-    let pages_dir = root.join("pages");
+fn created_page_path(_root: &Path, report: &fractal::OperationReport) -> Option<String> {
     report.events.iter().find_map(|event| match event {
-        fractal::project::OperationEvent::Created { path } => path
-            .strip_prefix(&pages_dir)
+        fractal::OperationEvent::PageCreated { path } => path
+            .strip_prefix("pages")
             .ok()
             .map(|path| path.to_string_lossy().replace('\\', "/")),
         _ => None,
@@ -445,7 +496,7 @@ fn create_project_directory(
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    fractal::project::create_directory(&root, Path::new(parent), name).map_err(|error| {
+    fractal::create_directory(&root, Path::new(parent), name).map_err(|error| {
         format!("Could not create Fractal directory {name} in {parent}: {error}")
     })?;
 
@@ -484,7 +535,7 @@ fn delete_project_directory(
         .path;
     let deletes_active_page = page_path_is_in_directory(&active_page_path, directory_path);
 
-    fractal::project::delete_directory(&root, Path::new(directory_path), true)
+    fractal::delete_directory(&root, Path::new(directory_path), true)
         .map_err(|error| format!("Could not delete Fractal directory {directory_path}: {error}"))?;
 
     if deletes_active_page {
@@ -499,6 +550,12 @@ fn create_project_page(root: PathBuf, page_path: &str) -> Result<FractalProject,
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
+    if list_fractal_pages(&root)?.is_empty() && !page_reference_is_index(page_path) {
+        let manifest = fractal::load_project_manifest(&root)
+            .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+        create_initial_amanite_page(&root, &manifest.project_name)?;
+    }
+
     let page_path = page_path.trim();
     let path = Path::new(page_path);
     let directory = path
@@ -508,9 +565,9 @@ fn create_project_page(root: PathBuf, page_path: &str) -> Result<FractalProject,
         .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or(page_path);
-    let report = fractal::project::create_page(
+    let report = fractal::create_page(
         &root,
-        fractal::project::PageCreate {
+        fractal::PageCreate {
             directory: directory.map(Path::to_path_buf),
             title: title.to_string(),
         },
@@ -546,10 +603,10 @@ fn rename_project_page(
         active_page_path.as_str()
     };
 
-    fractal::project::rename_page(
+    fractal::rename_page(
         &root,
         page_path,
-        fractal::project::PageRename {
+        fractal::PageRename {
             path: Some(PathBuf::from(next_page_path)),
             title: None,
         },
@@ -569,12 +626,29 @@ fn delete_project_page(
     let root = root
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+    if page_path == active_page_path
+        && list_fractal_pages(&root)?.len() == 1
+        && !page_reference_is_index(page_path)
+    {
+        let manifest = fractal::load_project_manifest(&root)
+            .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+        create_initial_amanite_page(&root, &manifest.project_name)?;
+    }
     let source_page_path = load_editor_page_detail(&root, page_path)?.metadata.path;
-    let active_page_path = load_editor_page_detail(&root, active_page_path)?
-        .metadata
-        .path;
+    let active_page_path = match load_editor_page_detail(&root, active_page_path) {
+        Ok(page) => page.metadata.path,
+        Err(_error) if page_reference_is_index(active_page_path) => {
+            let manifest = fractal::load_project_manifest(&root)
+                .map_err(|error| format!("Could not load Fractal project manifest: {error}"))?;
+            create_initial_amanite_page(&root, &manifest.project_name)?;
+            load_editor_page_detail(&root, active_page_path)?
+                .metadata
+                .path
+        }
+        Err(error) => return Err(error),
+    };
 
-    fractal::project::delete_page(&root, page_path)
+    fractal::delete_page(&root, page_path)
         .map_err(|error| format!("Could not delete Fractal page {page_path}: {error}"))?;
 
     if source_page_path == active_page_path {
@@ -594,9 +668,9 @@ fn add_project_note(
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    fractal::project::add_note(&root, page_path, trigger, content)
+    fractal::add_note(&root, page_path, trigger, content)
         .map_err(|error| format!("Could not add Fractal note for {page_path}: {error}"))?;
-    fractal::project::sync_project(&root)
+    fractal::sync_project(&root)
         .map_err(|error| format!("Could not link Fractal note for {page_path}: {error}"))?;
 
     read_project_with_active_page(root, Some(page_path))
@@ -612,9 +686,9 @@ fn update_project_note(
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    fractal::project::patch_note(&root, page_path, trigger, content)
+    fractal::patch_note(&root, page_path, trigger, content)
         .map_err(|error| format!("Could not update Fractal note for {page_path}: {error}"))?;
-    fractal::project::sync_project(&root)
+    fractal::sync_project(&root)
         .map_err(|error| format!("Could not relink Fractal note for {page_path}: {error}"))?;
 
     read_project_with_active_page(root, Some(page_path))
@@ -629,9 +703,9 @@ fn delete_project_note(
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    fractal::project::remove_note(&root, page_path, trigger)
+    fractal::remove_note(&root, page_path, trigger)
         .map_err(|error| format!("Could not delete Fractal note for {page_path}: {error}"))?;
-    fractal::project::sync_project(&root)
+    fractal::sync_project(&root)
         .map_err(|error| format!("Could not unlink Fractal note for {page_path}: {error}"))?;
 
     read_project_with_active_page(root, Some(page_path))
@@ -657,9 +731,9 @@ fn create_project_in_library(root: &Path, project_name: &str) -> Result<FractalP
         ));
     }
 
-    fractal::project::init_project_at(&project_root, project_name)
+    fractal::init_project_at(&project_root, project_name)
         .map_err(|error| format!("Could not create Fractal project: {error}"))?;
-    fractal::project::build_index(&project_root)
+    fractal::build_index(&project_root)
         .map_err(|error| format!("Could not build Fractal project index: {error}"))?;
     read_project(project_root)
 }
@@ -793,7 +867,7 @@ fn fractal_delete_note(
 #[tauri::command]
 fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult, String> {
     let root = PathBuf::from(project_root);
-    fractal::project::validate_project(&root)
+    fractal::validate_project(&root)
         .map_err(|error| format!("Fractal project validation failed: {error}"))?;
     let project = read_project(root)?;
 
@@ -807,7 +881,7 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
 #[tauri::command]
 fn fractal_build_index(project_root: String) -> Result<FractalCommandResult, String> {
     let root = PathBuf::from(project_root);
-    fractal::project::build_index(&root)
+    fractal::build_index(&root)
         .map_err(|error| format!("Could not build Fractal project index: {error}"))?;
     let project = read_project(root)?;
 
@@ -912,7 +986,7 @@ mod tests {
         assert!(project_root.join(".fractal/graph.json").is_file());
         assert!(project_root.join("pages/index.html").is_file());
         assert_eq!(
-            fractal::project::load_project_manifest(&project_root)
+            fractal::load_project_manifest(&project_root)
                 .expect("load manifest")
                 .project_name,
             "Field Notes"
@@ -928,7 +1002,7 @@ mod tests {
         let nested_page = project_root.join("pages/notes/day.html");
         let nested_source = "<main><h1>Day notes</h1></main>";
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
         fs::create_dir_all(nested_page.parent().expect("nested page directory"))
             .expect("create nested page directory");
         fs::write(&nested_page, nested_source).expect("write nested page");
@@ -947,7 +1021,7 @@ mod tests {
         let library = temp_library("unknown-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
 
         assert!(
             read_project_with_active_page(project_root.clone(), Some("../outside.html")).is_err()
@@ -962,7 +1036,7 @@ mod tests {
         let library = temp_library("update-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
 
         let project = update_project_page(
             project_root.clone(),
@@ -1002,8 +1076,8 @@ mod tests {
         let library = temp_library("update-page-links");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::new_page(&project_root, "rust").expect("create linked page");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::new_page(&project_root, "rust").expect("create linked page");
 
         let project = update_project_page(
             project_root.clone(),
@@ -1033,7 +1107,7 @@ mod tests {
         let library = temp_library("add-note");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
         update_project_page(
             project_root.clone(),
             "index.html",
@@ -1063,7 +1137,7 @@ mod tests {
         let library = temp_library("update-note");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
         update_project_page(
             project_root.clone(),
             "index.html",
@@ -1098,7 +1172,7 @@ mod tests {
         let library = temp_library("delete-note");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
         update_project_page(
             project_root.clone(),
             "index.html",
@@ -1130,8 +1204,8 @@ mod tests {
         let library = temp_library("create-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::build_index(&project_root).expect("build index");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::build_index(&project_root).expect("build index");
 
         let project =
             create_project_page(project_root.clone(), "Notes Day").expect("create project page");
@@ -1152,8 +1226,8 @@ mod tests {
         let library = temp_library("delete-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::new_page(&project_root, "Day").expect("create page");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::new_page(&project_root, "Day").expect("create page");
 
         let project = delete_project_page(project_root.clone(), "day.html", "day.html")
             .expect("delete project page");
@@ -1170,9 +1244,8 @@ mod tests {
         let library = temp_library("delete-nested-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::create_directory(&project_root, Path::new(""), "folder")
-            .expect("create folder");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::create_directory(&project_root, Path::new(""), "folder").expect("create folder");
         create_project_page(project_root.clone(), "folder/Nested").expect("create nested page");
 
         let project = delete_project_page(
@@ -1197,8 +1270,8 @@ mod tests {
         let library = temp_library("delete-inactive-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::new_page(&project_root, "Day").expect("create page");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::new_page(&project_root, "Day").expect("create page");
 
         let project = delete_project_page(project_root.clone(), "day.html", "index.html")
             .expect("delete inactive project page");
@@ -1214,8 +1287,8 @@ mod tests {
         let library = temp_library("rename-page");
         let project_root = library.join("field-notes");
 
-        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
-        fractal::project::new_page(&project_root, "Day").expect("create page");
+        fractal::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::new_page(&project_root, "Day").expect("create page");
 
         let project = rename_project_page(
             project_root.clone(),
@@ -1239,10 +1312,10 @@ mod tests {
         let beta = library.join("beta");
         let stray = library.join("not-a-project");
 
-        fractal::project::init_project_at(&beta, "Beta").expect("create beta");
-        fractal::project::build_index(&beta).expect("index beta");
-        fractal::project::init_project_at(&alpha, "Alpha").expect("create alpha");
-        fractal::project::build_index(&alpha).expect("index alpha");
+        fractal::init_project_at(&beta, "Beta").expect("create beta");
+        fractal::build_index(&beta).expect("index beta");
+        fractal::init_project_at(&alpha, "Alpha").expect("create alpha");
+        fractal::build_index(&alpha).expect("index alpha");
         fs::create_dir_all(stray).expect("create stray directory");
 
         let projects = list_project_summaries(&library).expect("list projects");
