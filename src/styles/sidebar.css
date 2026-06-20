@@ -87,9 +87,14 @@
 }
 
 .file-explorer {
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
+}
+
+.file-explorer-surface {
+  min-height: 100%;
 }
 
 .file-context-menu {

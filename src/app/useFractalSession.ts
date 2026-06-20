@@ -11,6 +11,12 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function pagePathIsInsideDirectory(pagePath: string, directoryPath: string) {
+  const directory = directoryPath.split("/").filter(Boolean).join("/");
+
+  return directory.length > 0 && pagePath.startsWith(`${directory}/`);
+}
+
 type BusyOperation = "catalog" | "load" | "command" | "page" | "save" | "note" | null;
 
 type ConfirmState = {
@@ -214,6 +220,50 @@ export function useFractalSession() {
     [activeProject, confirm, hasUnsavedPageChanges, isBusy, withBusy]
   );
 
+  const createProjectDirectory = useCallback(
+    async (parentPath: string, directoryName: string) => {
+      if (!activeProject || isBusy) return;
+      const trimmedDirectoryName = directoryName.trim();
+      if (!trimmedDirectoryName) return;
+      const nextProject = await withBusy("page", () =>
+        fractalClient.createDirectory(activeProject, parentPath, trimmedDirectoryName)
+      );
+      if (!nextProject) return;
+      setActiveProject(nextProject);
+      setCommandResult({ ok: true, message: "Folder created.", details: trimmedDirectoryName });
+    },
+    [activeProject, isBusy, withBusy]
+  );
+
+  const deleteProjectDirectory = useCallback(
+    async (directoryPath: string) => {
+      if (!activeProject || isBusy) return;
+      const trimmedDirectoryPath = directoryPath.trim();
+      if (!trimmedDirectoryPath) return;
+      if (
+        activeProject.pages.length > 0 &&
+        activeProject.pages.every((page) => pagePathIsInsideDirectory(page.path, trimmedDirectoryPath))
+      ) {
+        setCommandResult(null);
+        setError("A Fractal project must keep at least one page.");
+        return;
+      }
+
+      const prompt = hasUnsavedPageChanges
+        ? `Delete folder ${trimmedDirectoryPath} and every page inside it? Unsaved changes will be discarded.`
+        : `Delete folder ${trimmedDirectoryPath} and every page inside it?`;
+      if (!(await confirm(prompt))) return;
+      const nextProject = await withBusy("page", () =>
+        fractalClient.deleteDirectory(activeProject, trimmedDirectoryPath)
+      );
+      if (!nextProject) return;
+      setActiveProject(nextProject);
+      setHasUnsavedPageChanges(false);
+      setCommandResult({ ok: true, message: "Folder deleted.", details: trimmedDirectoryPath });
+    },
+    [activeProject, confirm, hasUnsavedPageChanges, isBusy, withBusy]
+  );
+
   const renameProjectPage = useCallback(
     async (pagePath: string, nextPagePath: string) => {
       if (!activeProject || isBusy) return;
@@ -265,8 +315,10 @@ export function useFractalSession() {
     isBusy,
     projectCatalog,
     addActivePageNote,
+    createProjectDirectory,
     createProjectPage,
     deleteActivePageNote,
+    deleteProjectDirectory,
     deleteProjectPage,
     dismissStatus,
     loadProject,

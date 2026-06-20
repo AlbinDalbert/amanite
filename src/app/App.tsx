@@ -14,17 +14,20 @@ function ConfirmDialog({
   message: string;
   onAnswer: (confirmed: boolean) => void;
 }) {
-  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelButtonRef.current?.focus();
+    continueButtonRef.current?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
         onAnswer(false);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        onAnswer(true);
       }
     }
 
@@ -53,12 +56,16 @@ function ConfirmDialog({
           <button
             className="ghost-action"
             onClick={() => onAnswer(false)}
-            ref={cancelButtonRef}
             type="button"
           >
             Cancel
           </button>
-          <button className="primary-action" onClick={() => onAnswer(true)} type="button">
+          <button
+            className="primary-action"
+            onClick={() => onAnswer(true)}
+            ref={continueButtonRef}
+            type="button"
+          >
             Continue
           </button>
         </div>
@@ -130,7 +137,9 @@ function App() {
           onChangePageSummary={session.updateActivePageSummary}
           onChangePageTags={session.updateActivePageTags}
           onChangePageTitle={session.updateActivePageTitle}
+          onCreateDirectory={session.createProjectDirectory}
           onCreatePage={session.createProjectPage}
+          onDeleteDirectory={session.deleteProjectDirectory}
           onDeletePage={session.deleteProjectPage}
           onAddNote={session.addActivePageNote}
           onDeleteNote={session.deleteActivePageNote}

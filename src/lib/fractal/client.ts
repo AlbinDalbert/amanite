@@ -52,6 +52,20 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath
     });
   },
+  createDirectory(project, parentPath, directoryName) {
+    return invokeFractal<FractalProject>("fractal_create_directory", {
+      directoryName,
+      parentPath,
+      projectRoot: project.rootPath
+    });
+  },
+  deleteDirectory(project, directoryPath) {
+    return invokeFractal<FractalProject>("fractal_delete_directory", {
+      activePagePath: project.activePagePath,
+      directoryPath,
+      projectRoot: project.rootPath
+    });
+  },
   renamePage(project, pagePath, nextPagePath) {
     return invokeFractal<FractalProject>("fractal_rename_page", {
       activePagePath: project.activePagePath,

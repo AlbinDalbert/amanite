@@ -16,7 +16,9 @@ type WorkspaceProps = {
   onChangePageSummary: (summary: string) => void;
   onChangePageTags: (tags: string[]) => void;
   onChangePageTitle: (title: string) => void;
+  onCreateDirectory: (parentPath: string, directoryName: string) => void;
   onCreatePage: (pagePath: string) => void;
+  onDeleteDirectory: (directoryPath: string) => void;
   onDeletePage: (pagePath: string) => void;
   onAddNote: (trigger: string, content: string) => void;
   onDeleteNote: (note: FractalNote) => void;
@@ -39,7 +41,9 @@ function Workspace({
   onChangePageSummary,
   onChangePageTags,
   onChangePageTitle,
+  onCreateDirectory,
   onCreatePage,
+  onDeleteDirectory,
   onDeletePage,
   onAddNote,
   onDeleteNote,
@@ -56,10 +60,13 @@ function Workspace({
         activePagePath={project.activePagePath}
         canDeletePage={project.pages.length > 1}
         isBusy={isBusy}
+        directories={project.directories}
         pages={project.pages}
         projectName={project.name}
         onBuildIndex={onBuildIndex}
+        onCreateDirectory={onCreateDirectory}
         onCreatePage={onCreatePage}
+        onDeleteDirectory={onDeleteDirectory}
         onDeletePage={onDeletePage}
         onRenamePage={onRenamePage}
         onSelectPage={onOpenPage}

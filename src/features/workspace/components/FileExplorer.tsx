@@ -25,12 +25,15 @@ type FileTreeNode = FolderNode | PageNode;
 type FileExplorerProps = {
   activePagePath: string;
   canDeletePage: boolean;
+  directories: string[];
   isBusy: boolean;
   pages: FractalPage[];
   onBuildIndex: () => void;
-  onCreatePage: (pagePath: string) => void;
+  onCreateDirectory: (parentPath: string) => void;
+  onCreatePage: (pageTitle: string, parentPath?: string) => void;
+  onDeleteDirectory: (directoryPath: string) => void;
   onDeletePage: (pagePath: string) => void;
-  onRenamePage: (pagePath: string, nextPagePath: string) => void;
+  onRenamePage: (pagePath: string) => void;
   onSelectPage: (pagePath: string) => void;
   onValidate: () => void;
 };
@@ -61,11 +64,21 @@ function fileNameFromPath(path: string) {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
+function pageTitle(page: FractalPage) {
+  return page.name.trim() || fileNameFromPath(page.path);
+}
+
 function parentFolderPaths(path: string) {
   const parts = path.split("/").filter(Boolean);
   const folders = parts.slice(0, -1);
 
   return folders.map((_, index) => folders.slice(0, index + 1).join("/"));
+}
+
+function pagePathIsInsideDirectory(pagePath: string, directoryPath: string) {
+  const directory = directoryPath.split("/").filter(Boolean).join("/");
+
+  return directory.length > 0 && pagePath.startsWith(`${directory}/`);
 }
 
 function sortTreeNodes(left: FileTreeNode, right: FileTreeNode) {
@@ -79,7 +92,37 @@ function sortTreeNodes(left: FileTreeNode, right: FileTreeNode) {
   });
 }
 
-function buildFileTree(pages: FractalPage[]) {
+function ensureFolder(root: FolderNode, folderPath: string) {
+  const parts = folderPath.split("/").filter(Boolean);
+  let currentFolder = root;
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const folderName = parts[index];
+    const currentPath = parts.slice(0, index + 1).join("/");
+    const existingFolder = currentFolder.children.find(
+      (node): node is FolderNode => node.kind === "folder" && node.path === currentPath
+    );
+
+    if (existingFolder) {
+      currentFolder = existingFolder;
+      continue;
+    }
+
+    const nextFolder: FolderNode = {
+      kind: "folder",
+      name: folderName,
+      path: currentPath,
+      children: []
+    };
+
+    currentFolder.children.push(nextFolder);
+    currentFolder = nextFolder;
+  }
+
+  return currentFolder;
+}
+
+function buildFileTree(pages: FractalPage[], directories: string[]) {
   const root: FolderNode = {
     kind: "folder",
     name: "",
@@ -87,36 +130,17 @@ function buildFileTree(pages: FractalPage[]) {
     children: []
   };
 
+  for (const directory of directories) {
+    ensureFolder(root, directory);
+  }
+
   for (const page of pages) {
     const parts = page.path.split("/").filter(Boolean);
-    let currentFolder = root;
-
-    for (let index = 0; index < parts.length - 1; index += 1) {
-      const folderName = parts[index];
-      const folderPath = parts.slice(0, index + 1).join("/");
-      const existingFolder = currentFolder.children.find(
-        (node): node is FolderNode => node.kind === "folder" && node.path === folderPath
-      );
-
-      if (existingFolder) {
-        currentFolder = existingFolder;
-        continue;
-      }
-
-      const nextFolder: FolderNode = {
-        kind: "folder",
-        name: folderName,
-        path: folderPath,
-        children: []
-      };
-
-      currentFolder.children.push(nextFolder);
-      currentFolder = nextFolder;
-    }
+    const currentFolder = ensureFolder(root, parts.slice(0, -1).join("/"));
 
     currentFolder.children.push({
       kind: "page",
-      name: fileNameFromPath(page.path) || page.name,
+      name: pageTitle(page),
       path: page.path
     });
   }
@@ -138,7 +162,7 @@ function buildFileTree(pages: FractalPage[]) {
 
 function menuPosition(event: MouseEvent) {
   const menuWidth = 224;
-  const menuHeight = 252;
+  const menuHeight = 304;
 
   return {
     x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
@@ -149,16 +173,19 @@ function menuPosition(event: MouseEvent) {
 function FileExplorer({
   activePagePath,
   canDeletePage,
+  directories,
   isBusy,
   pages,
   onBuildIndex,
+  onCreateDirectory,
   onCreatePage,
+  onDeleteDirectory,
   onDeletePage,
   onRenamePage,
   onSelectPage,
   onValidate
 }: FileExplorerProps) {
-  const tree = useMemo(() => buildFileTree(pages), [pages]);
+  const tree = useMemo(() => buildFileTree(pages, directories), [directories, pages]);
   const activeFolders = useMemo(() => parentFolderPaths(activePagePath), [activePagePath]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set(activeFolders)
@@ -243,16 +270,16 @@ function FileExplorer({
     openContextMenu(event, { kind: "project" });
   }
 
-  function createPageFromMenu(_folderPath?: string) {
-    onCreatePage("Untitled");
+  function createPageFromMenu(folderPath?: string) {
+    onCreatePage("Untitled", folderPath);
+  }
+
+  function createDirectoryFromMenu(parentPath?: string) {
+    onCreateDirectory(parentPath ?? "");
   }
 
   function renamePageFromMenu(pagePath: string) {
-    const nextPagePath = window.prompt("Rename or move page", pagePath);
-
-    if (nextPagePath) {
-      onRenamePage(pagePath, nextPagePath);
-    }
+    onRenamePage(pagePath);
   }
 
   function runContextAction(action: () => void) {
@@ -276,7 +303,16 @@ function FileExplorer({
           ? contextMenu.folderPath
           : "Project";
     const pagePath = contextMenu.kind === "page" ? contextMenu.pagePath : null;
-    const folderPath = contextMenu.kind === "folder" ? contextMenu.folderPath : undefined;
+    const directoryPath = contextMenu.kind === "folder" ? contextMenu.folderPath : null;
+    const folderPath =
+      contextMenu.kind === "folder"
+        ? contextMenu.folderPath
+        : contextMenu.kind === "page"
+          ? parentFolderPaths(contextMenu.pagePath).at(-1)
+          : undefined;
+    const deletesEveryPage = directoryPath
+      ? pages.length > 0 && pages.every((page) => pagePathIsInsideDirectory(page.path, directoryPath))
+      : false;
 
     return (
       <div
@@ -321,6 +357,23 @@ function FileExplorer({
             >
               Delete
             </button>
+            <div className="file-context-separator" role="separator" />
+            <button
+              disabled={isBusy}
+              onClick={() => runContextAction(() => createPageFromMenu(folderPath))}
+              role="menuitem"
+              type="button"
+            >
+              Create page
+            </button>
+            <button
+              disabled={isBusy}
+              onClick={() => runContextAction(() => createDirectoryFromMenu(folderPath))}
+              role="menuitem"
+              type="button"
+            >
+              Create folder
+            </button>
           </>
         ) : (
           <button
@@ -329,9 +382,40 @@ function FileExplorer({
             role="menuitem"
             type="button"
           >
-            New page
+            Create page
           </button>
         )}
+
+        {!pagePath ? (
+          <button
+            disabled={isBusy}
+            onClick={() => runContextAction(() => createDirectoryFromMenu(folderPath))}
+            role="menuitem"
+            type="button"
+          >
+            Create folder
+          </button>
+        ) : null}
+
+        {directoryPath ? (
+          <>
+            <div className="file-context-separator" role="separator" />
+            <button
+              className="danger"
+              disabled={isBusy || deletesEveryPage}
+              onClick={() => runContextAction(() => onDeleteDirectory(directoryPath))}
+              role="menuitem"
+              title={
+                deletesEveryPage
+                  ? "A Fractal project must keep at least one page."
+                  : `Delete ${directoryPath} and every page inside it.`
+              }
+              type="button"
+            >
+              Delete folder
+            </button>
+          </>
+        ) : null}
 
         <div className="file-context-separator" role="separator" />
         <button
@@ -432,7 +516,7 @@ function FileExplorer({
   }
 
   return (
-    <>
+    <div className="file-explorer-surface" onContextMenu={(event) => openContextMenu(event, { kind: "project" })}>
       <ul
         className="file-tree-group root"
         role="tree"
@@ -442,7 +526,7 @@ function FileExplorer({
         {tree.map((node) => renderNode(node, 0))}
       </ul>
       {renderContextMenu()}
-    </>
+    </div>
   );
 }
 

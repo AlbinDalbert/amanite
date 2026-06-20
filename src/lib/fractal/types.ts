@@ -39,6 +39,7 @@ export type FractalProject = {
   rootPath: string;
   theme?: FractalTheme;
   pages: FractalPage[];
+  directories: string[];
   activePagePath: string;
   activePageBodyHtml: string;
   activePageTitle: string;
@@ -81,6 +82,12 @@ export type FractalClient = {
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   savePage: (project: FractalProject, update: FractalPageUpdate) => Promise<FractalProject>;
   createPage: (project: FractalProject, pageTitle: string) => Promise<FractalProject>;
+  createDirectory: (
+    project: FractalProject,
+    parentPath: string,
+    directoryName: string
+  ) => Promise<FractalProject>;
+  deleteDirectory: (project: FractalProject, directoryPath: string) => Promise<FractalProject>;
   renamePage: (
     project: FractalProject,
     pagePath: string,

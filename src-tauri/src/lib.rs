@@ -45,6 +45,7 @@ struct FractalProject {
     name: String,
     root_path: String,
     pages: Vec<FractalPage>,
+    directories: Vec<String>,
     active_page_path: String,
     active_page_body_html: String,
     active_page_title: String,
@@ -220,6 +221,34 @@ fn text_preview_from_text(text: &str) -> Option<String> {
     }
 }
 
+fn list_fractal_directories(root: &Path) -> Result<Vec<String>, String> {
+    fn visit(base: &Path, current: &Path, directories: &mut Vec<String>) -> io::Result<()> {
+        for entry in fs::read_dir(current)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            if let Ok(relative) = path.strip_prefix(base) {
+                directories.push(relative.to_string_lossy().replace('\\', "/"));
+            }
+            visit(base, &path, directories)?;
+        }
+
+        Ok(())
+    }
+
+    let pages_dir = root.join("pages");
+    let mut directories = Vec::new();
+    if pages_dir.is_dir() {
+        visit(&pages_dir, &pages_dir, &mut directories)
+            .map_err(|error| format!("Could not list Fractal page directories: {error}"))?;
+    }
+    directories.sort();
+    Ok(directories)
+}
+
 fn list_fractal_pages(root: &Path) -> Result<Vec<FractalPage>, String> {
     let mut pages = fractal::project::list_editor_pages(root)
         .map_err(|error| format!("Could not list Fractal editor pages: {error}"))?
@@ -287,6 +316,7 @@ fn read_project_with_active_page(
     let name = manifest.project_name;
     let default_page = manifest.default_page;
     let pages = list_fractal_pages(&root)?;
+    let directories = list_fractal_directories(&root)?;
 
     let active_page_detail =
         active_editor_page_detail(&root, &pages, &default_page, requested_page_path)?;
@@ -294,6 +324,7 @@ fn read_project_with_active_page(
         name,
         root_path: root.to_string_lossy().to_string(),
         pages,
+        directories,
         active_page_path: active_page_detail.metadata.path,
         active_page_body_html: active_page_detail.body_html,
         active_page_title: active_page_detail.metadata.title,
@@ -405,15 +436,88 @@ fn created_page_path(root: &Path, report: &fractal::project::OperationReport) ->
     })
 }
 
-fn create_project_page(root: PathBuf, page_title: &str) -> Result<FractalProject, String> {
+fn create_project_directory(
+    root: PathBuf,
+    parent: &str,
+    name: &str,
+) -> Result<FractalProject, String> {
     let root = root
         .canonicalize()
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
-    let report = fractal::project::new_page(&root, page_title)
-        .map_err(|error| format!("Could not create Fractal page {page_title}: {error}"))?;
+    fractal::project::create_directory(&root, Path::new(parent), name).map_err(|error| {
+        format!("Could not create Fractal directory {name} in {parent}: {error}")
+    })?;
+
+    read_project(root)
+}
+
+fn page_path_is_in_directory(page_path: &str, directory_path: &str) -> bool {
+    let directory = directory_path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    !directory.is_empty() && page_path.starts_with(&format!("{directory}/"))
+}
+
+fn delete_project_directory(
+    root: PathBuf,
+    directory_path: &str,
+    active_page_path: &str,
+) -> Result<FractalProject, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+    let pages = list_fractal_pages(&root)?;
+    let deletes_every_page = !pages.is_empty()
+        && pages
+            .iter()
+            .all(|page| page_path_is_in_directory(&page.path, directory_path));
+    if deletes_every_page {
+        return Err("A Fractal project must keep at least one page.".to_string());
+    }
+
+    let active_page_path = load_editor_page_detail(&root, active_page_path)?
+        .metadata
+        .path;
+    let deletes_active_page = page_path_is_in_directory(&active_page_path, directory_path);
+
+    fractal::project::delete_directory(&root, Path::new(directory_path), true)
+        .map_err(|error| format!("Could not delete Fractal directory {directory_path}: {error}"))?;
+
+    if deletes_active_page {
+        read_project(root)
+    } else {
+        read_project_with_active_page(root, Some(&active_page_path))
+    }
+}
+
+fn create_project_page(root: PathBuf, page_path: &str) -> Result<FractalProject, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
+
+    let page_path = page_path.trim();
+    let path = Path::new(page_path);
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let title = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(page_path);
+    let report = fractal::project::create_page(
+        &root,
+        fractal::project::PageCreate {
+            directory: directory.map(Path::to_path_buf),
+            title: title.to_string(),
+        },
+    )
+    .map_err(|error| format!("Could not create Fractal page {page_path}: {error}"))?;
     let active_page_path = created_page_path(&root, &report)
-        .ok_or_else(|| format!("Fractal did not report created page path for {page_title}"))?;
+        .ok_or_else(|| format!("Fractal did not report created page path for {page_path}"))?;
 
     read_project_with_active_page(root, Some(&active_page_path))
 }
@@ -612,6 +716,28 @@ fn fractal_create_page(project_root: String, page_path: String) -> Result<Fracta
 }
 
 #[tauri::command]
+fn fractal_create_directory(
+    project_root: String,
+    parent_path: String,
+    directory_name: String,
+) -> Result<FractalProject, String> {
+    create_project_directory(PathBuf::from(project_root), &parent_path, &directory_name)
+}
+
+#[tauri::command]
+fn fractal_delete_directory(
+    project_root: String,
+    directory_path: String,
+    active_page_path: String,
+) -> Result<FractalProject, String> {
+    delete_project_directory(
+        PathBuf::from(project_root),
+        &directory_path,
+        &active_page_path,
+    )
+}
+
+#[tauri::command]
 fn fractal_rename_page(
     project_root: String,
     page_path: String,
@@ -709,6 +835,8 @@ pub fn run() {
             fractal_open_page,
             fractal_update_page,
             fractal_create_page,
+            fractal_create_directory,
+            fractal_delete_directory,
             fractal_rename_page,
             fractal_delete_page,
             fractal_add_note,
@@ -1033,6 +1161,33 @@ mod tests {
         assert_eq!(project.active_page_path, "index.html");
         assert!(!project_root.join("pages/day.html").exists());
         assert!(!project.pages.iter().any(|page| page.path == "day.html"));
+
+        fs::remove_dir_all(&library).expect("cleanup temp project library");
+    }
+
+    #[test]
+    fn delete_project_page_removes_nested_page_from_returned_project() {
+        let library = temp_library("delete-nested-page");
+        let project_root = library.join("field-notes");
+
+        fractal::project::init_project_at(&project_root, "Field Notes").expect("create project");
+        fractal::project::create_directory(&project_root, Path::new(""), "folder")
+            .expect("create folder");
+        create_project_page(project_root.clone(), "folder/Nested").expect("create nested page");
+
+        let project = delete_project_page(
+            project_root.clone(),
+            "folder/nested.html",
+            "folder/nested.html",
+        )
+        .expect("delete nested project page");
+
+        assert_eq!(project.active_page_path, "index.html");
+        assert!(!project_root.join("pages/folder/nested.html").exists());
+        assert!(!project
+            .pages
+            .iter()
+            .any(|page| page.path == "folder/nested.html"));
 
         fs::remove_dir_all(&library).expect("cleanup temp project library");
     }
