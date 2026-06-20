@@ -243,8 +243,8 @@ function FileExplorer({
     openContextMenu(event, { kind: "project" });
   }
 
-  function createPageFromMenu(folderPath?: string) {
-    onCreatePage(folderPath ? `${folderPath}/untitled` : "untitled");
+  function createPageFromMenu(_folderPath?: string) {
+    onCreatePage("Untitled");
   }
 
   function renamePageFromMenu(pagePath: string) {

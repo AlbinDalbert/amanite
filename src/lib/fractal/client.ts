@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createMockFractalClient } from "./mockClient";
 import type {
   FractalClient,
   FractalCommandResult,
@@ -11,36 +10,25 @@ function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
 
-function shouldUseBrowserMock() {
-  return (
-    !hasTauriRuntime() &&
-    (import.meta.env.DEV || import.meta.env.VITE_AMANITE_WEB_MOCK === "1")
-  );
-}
-
 async function invokeFractal<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!hasTauriRuntime()) {
     throw new Error(
-      "Amanite must be run through Tauri to load local Fractal project files. Run pnpm run dev for the browser mock, or set VITE_AMANITE_WEB_MOCK=1 for preview builds."
+      "Amanite must be run through the Tauri desktop app so it can access the Fractal backend. For UI debugging, use pnpm run tauri:webdriver:open or pnpm run tauri:webdriver:smoke."
     );
   }
 
   return invoke<T>(command, args);
 }
 
-const tauriFractalClient: FractalClient = {
+export const fractalClient: FractalClient = {
   listProjects() {
     return invokeFractal<FractalProjectCatalog>("fractal_list_projects");
   },
   createProject(projectName) {
-    return invokeFractal<FractalProject>("fractal_create_project", {
-      projectName
-    });
+    return invokeFractal<FractalProject>("fractal_create_project", { projectName });
   },
   openProject(directoryName) {
-    return invokeFractal<FractalProject>("fractal_open_project", {
-      directoryName
-    });
+    return invokeFractal<FractalProject>("fractal_open_project", { directoryName });
   },
   openPage(project, pagePath) {
     return invokeFractal<FractalProject>("fractal_open_page", {
@@ -58,9 +46,9 @@ const tauriFractalClient: FractalClient = {
       title: update.title
     });
   },
-  createPage(project, pagePath) {
+  createPage(project, pageTitle) {
     return invokeFractal<FractalProject>("fractal_create_page", {
-      pagePath,
+      pagePath: pageTitle,
       projectRoot: project.rootPath
     });
   },
@@ -111,53 +99,5 @@ const tauriFractalClient: FractalClient = {
     return invokeFractal<FractalCommandResult>("fractal_build_index", {
       projectRoot: project.rootPath
     });
-  }
-};
-
-const mockFractalClient = createMockFractalClient();
-
-function activeFractalClient() {
-  return shouldUseBrowserMock() ? mockFractalClient : tauriFractalClient;
-}
-
-export const fractalClient: FractalClient = {
-  listProjects() {
-    return activeFractalClient().listProjects();
-  },
-  createProject(projectName) {
-    return activeFractalClient().createProject(projectName);
-  },
-  openProject(directoryName) {
-    return activeFractalClient().openProject(directoryName);
-  },
-  openPage(project, pagePath) {
-    return activeFractalClient().openPage(project, pagePath);
-  },
-  savePage(project, update) {
-    return activeFractalClient().savePage(project, update);
-  },
-  createPage(project, pagePath) {
-    return activeFractalClient().createPage(project, pagePath);
-  },
-  renamePage(project, pagePath, nextPagePath) {
-    return activeFractalClient().renamePage(project, pagePath, nextPagePath);
-  },
-  deletePage(project, pagePath) {
-    return activeFractalClient().deletePage(project, pagePath);
-  },
-  addNote(project, trigger, content) {
-    return activeFractalClient().addNote(project, trigger, content);
-  },
-  updateNote(project, note, content) {
-    return activeFractalClient().updateNote(project, note, content);
-  },
-  deleteNote(project, note) {
-    return activeFractalClient().deleteNote(project, note);
-  },
-  validateProject(project) {
-    return activeFractalClient().validateProject(project);
-  },
-  buildIndex(project) {
-    return activeFractalClient().buildIndex(project);
   }
 };

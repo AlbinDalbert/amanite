@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export type UniversalContextMenuAction = {
   disabled?: boolean;
@@ -61,6 +61,7 @@ function menuSurfaceLabel(target: EventTarget | null) {
 
 function UniversalContextMenu({ actions = [], children }: UniversalContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function closeExistingMenu() {
@@ -113,26 +114,48 @@ function UniversalContextMenu({ actions = [], children }: UniversalContextMenuPr
       return;
     }
 
+    requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    });
+
     function closeMenu() {
       setMenu(null);
     }
 
-    function closeOnEscape(event: KeyboardEvent) {
+    function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         closeMenu();
+        return;
       }
+
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+        return;
+      }
+
+      const buttons = Array.from(
+        menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []
+      );
+      if (buttons.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = (Math.max(0, currentIndex) + delta + buttons.length) % buttons.length;
+      buttons[nextIndex]?.focus();
     }
 
     window.addEventListener("click", closeMenu);
     window.addEventListener("resize", closeMenu);
     window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       window.removeEventListener("click", closeMenu);
       window.removeEventListener("resize", closeMenu);
       window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [menu]);
 
@@ -161,6 +184,7 @@ function UniversalContextMenu({ actions = [], children }: UniversalContextMenuPr
           aria-label="Amanite actions"
           className="app-context-menu"
           onClick={(event) => event.stopPropagation()}
+          ref={menuRef}
           role="menu"
           style={menuStyle}
         >

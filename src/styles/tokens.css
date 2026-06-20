@@ -1,0 +1,76 @@
+:root {
+  --font-display: "Barlow Condensed", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-document: "Cormorant Garamond", Georgia, serif;
+
+  --bg: #090805;
+  --bg-deep: #020201;
+  --surface: #15110b;
+  --surface-2: #1f180e;
+  --surface-3: #2c2112;
+  --surface-hot: #3a2910;
+  --border: #3a3022;
+  --border-strong: #6c542b;
+
+  --text: #e9e0d4;
+  --text-strong: #fff6e8;
+  --muted: #aa9a83;
+  --dim: #675846;
+
+  --signal: #f2ad32;
+  --signal-strong: #ffd978;
+  --signal-deep: #8d5e14;
+  --signal-soft: rgba(242, 173, 50, 0.14);
+  --signal-glow: rgba(242, 173, 50, 0.32);
+  --ember: #c95824;
+  --ember-soft: rgba(201, 88, 36, 0.16);
+
+  --success: #62ca86;
+  --danger: #b33a2e;
+
+  --app-background: var(--bg);
+  --app-panel: var(--surface);
+  --app-panel-strong: var(--surface-2);
+  --app-text: var(--text);
+  --app-muted: var(--muted);
+  --app-subtle: var(--dim);
+  --app-border: var(--border);
+  --app-border-strong: var(--border-strong);
+  --app-accent: var(--signal);
+  --app-accent-strong: var(--signal-strong);
+  --app-danger: var(--danger);
+
+  --sidebar-background: #070604;
+  --sidebar-hover: color-mix(in srgb, var(--signal) 14%, var(--surface-3));
+
+  --project-background: var(--bg);
+  --project-surface: var(--surface);
+  --project-text: var(--text);
+  --project-muted: var(--muted);
+  --project-border: var(--border);
+  --project-accent: var(--signal);
+  --project-accent-strong: var(--signal-strong);
+
+  --document-text: color-mix(in srgb, var(--project-text) 94%, var(--signal-strong));
+  --document-muted: color-mix(in srgb, var(--project-muted) 78%, var(--project-text));
+  --document-line: color-mix(in srgb, var(--project-border) 74%, var(--signal) 26%);
+
+  color: var(--app-text);
+  background: var(--app-background);
+  color-scheme: dark;
+  font-family: var(--font-body);
+  font-synthesis: none;
+  line-height: 1.55;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg-deep);
+}
+

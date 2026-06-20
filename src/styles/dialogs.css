@@ -1,0 +1,108 @@
+.modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 64%);
+  padding: 24px;
+}
+
+.create-page-dialog {
+  display: grid;
+  width: min(460px, 100%);
+  gap: 18px;
+  border: 1px solid var(--app-border-strong);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(242, 173, 50, 0.12), transparent 16rem),
+    linear-gradient(180deg, #161108, #090806);
+  color: var(--app-text);
+  padding: 22px;
+  box-shadow:
+    0 24px 80px rgb(0 0 0 / 58%),
+    inset 3px 0 0 var(--app-accent);
+}
+
+.dialog-header {
+  display: grid;
+  gap: 6px;
+}
+
+.dialog-header h2,
+.dialog-kicker,
+.dialog-note {
+  margin: 0;
+}
+
+.dialog-header h2 {
+  color: var(--app-text);
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.dialog-kicker,
+.status-kicker {
+  color: var(--app-accent);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 8px;
+  color: var(--app-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dialog-field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--app-border);
+  outline: none;
+  background: var(--app-background);
+  color: var(--app-text);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  padding: 0 12px;
+  text-transform: none;
+}
+
+.dialog-field input:focus {
+  border-color: color-mix(in srgb, var(--app-accent) 70%, var(--app-border));
+  box-shadow: 0 0 0 3px rgb(232 168 48 / 10%);
+}
+
+.dialog-note {
+  color: var(--app-subtle);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.dialog-note code {
+  color: var(--app-muted);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-actions .primary-action,
+.dialog-actions .ghost-action {
+  min-height: 36px;
+}
+

@@ -1,0 +1,202 @@
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% 0%, color-mix(in srgb, var(--project-accent) 18%, transparent), transparent 29rem),
+    radial-gradient(circle at 28% 100%, rgba(201, 88, 36, 0.11), transparent 28rem),
+    linear-gradient(90deg, rgba(242, 173, 50, 0.045), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--project-background) 92%, #000), var(--bg-deep));
+}
+
+.workspace::before {
+  position: absolute;
+  inset: 48px 0 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(242, 173, 50, 0.055) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(242, 173, 50, 0.035) 1px, transparent 1px);
+  background-size: 96px 96px;
+  content: "";
+  mask-image: linear-gradient(90deg, transparent, black 16%, black 84%, transparent);
+  opacity: 0.42;
+}
+
+.workspace-toolbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-border-strong) 62%, transparent);
+  background:
+    linear-gradient(90deg, rgba(242, 173, 50, 0.1), transparent 38%),
+    color-mix(in srgb, var(--app-panel) 92%, #000);
+  box-shadow: inset 0 -1px 0 rgba(255, 217, 120, 0.04);
+  padding: 4px 8px 0 12px;
+}
+
+.workspace-tabstrip {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.workspace-tab {
+  display: flex;
+  min-width: min(210px, 34vw);
+  max-width: min(320px, 42vw);
+  min-height: 34px;
+  flex: 0 1 280px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-border));
+  border-bottom-color: color-mix(in srgb, var(--app-accent) 72%, var(--app-border));
+  background:
+    linear-gradient(90deg, rgba(242, 173, 50, 0.16), transparent 3px),
+    linear-gradient(180deg, rgba(255, 217, 120, 0.065), transparent 70%),
+    color-mix(in srgb, var(--app-panel-strong) 86%, #000);
+  color: var(--app-text);
+  padding: 0 12px;
+  text-align: left;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--app-accent) 62%, transparent);
+}
+
+.workspace-tab:hover,
+.workspace-tab:focus-visible {
+  border-color: color-mix(in srgb, var(--app-accent) 72%, var(--app-border));
+  color: var(--app-accent-strong);
+  outline: none;
+}
+
+.workspace-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.window-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.window-control {
+  display: grid;
+  width: 34px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-muted);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.window-control span {
+  transform: translateY(-1px);
+}
+
+.window-control:hover,
+.window-control:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--app-accent) 42%, var(--app-border));
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  color: var(--app-accent-strong);
+}
+
+.window-control.close:hover,
+.window-control.close:focus-visible {
+  border-color: color-mix(in srgb, #efaaa2 46%, var(--app-border));
+  background: rgb(143 73 68 / 24%);
+  color: #ffd1cb;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.toolbar-actions button {
+  min-height: 30px;
+  border: 1px solid var(--app-border);
+  background:
+    linear-gradient(180deg, rgba(255, 217, 120, 0.07), transparent),
+    var(--app-panel-strong);
+  color: var(--app-text);
+  padding: 5px 10px;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.status-message {
+  display: block;
+  margin: 0;
+  border: 1px solid var(--app-border);
+  appearance: none;
+  background: var(--app-panel);
+  color: var(--app-muted);
+  cursor: pointer;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.workspace > .status-message {
+  position: absolute;
+  z-index: 2;
+  top: 64px;
+  right: 18px;
+  max-width: min(460px, calc(100% - 36px));
+  background: var(--project-surface);
+  color: var(--project-muted);
+  box-shadow: 0 12px 34px rgb(0 0 0 / 28%);
+}
+
+.status-message span,
+.status-message small {
+  display: block;
+}
+
+.status-message small {
+  margin-top: 2px;
+  color: var(--app-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.status-message.success {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--project-border));
+}
+
+.status-message.error {
+  border-color: #8f4944;
+  color: #ffc4bd;
+}
+

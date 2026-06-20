@@ -6,12 +6,12 @@ The app is being rebuilt from the original Avalonia/.NET starter into a web-nati
 
 - Tauri 2 for the desktop host and Rust integration.
 - React and Vite for the frontend.
-- CodeMirror 6 for the HTML editor surface.
+- Lexical for the rich editor surface.
 - Fractal CLI integration for validation, indexing, import/export, page creation, and note mutation.
 
 ## Current Status
 
-This is an initial scaffold. It includes a Tauri app shell, a React workspace layout, and a CodeMirror HTML editor loaded from real Fractal project files.
+This is an active Tauri/React desktop app with project creation/opening, page navigation and mutation, rich Lexical editing, notes, validation, and index-building wired to real Fractal project files.
 
 The create/open project flow is backed by the Fractal Rust crate. The frontend talks through `src/lib/fractal`, which keeps Fractal/Tauri integration out of React feature components while the crate API continues to evolve.
 
@@ -31,16 +31,13 @@ Install frontend dependencies:
 pnpm install
 ```
 
-Run the web frontend only:
+Run the Vite frontend only:
 
 ```sh
 pnpm run dev
 ```
 
-When this runs outside Tauri, Amanite uses a browser-only mock Fractal
-library backed by `localStorage`. It is meant for UI debugging with Playwright
-or browser devtools; it does not read or write local Fractal project files.
-Use the Tauri command below for real filesystem-backed projects.
+This is useful for frontend build feedback, but Fractal project access requires the Tauri runtime. For UI debugging against the real backend, prefer the WebDriver harness below.
 
 Run the desktop app:
 
@@ -112,8 +109,4 @@ pnpm run tauri:build
 
 ## Near-Term Plan
 
-- Load Fractal pages from `pages/`.
-- Read `.fractal/index.json` for navigation.
-- Add Tauri commands that call the `fractal` CLI.
-- Wire toolbar actions to `fractal validate` and `fractal index build`.
-- Keep source editing and preview separate until the HTML mutation rules settle.
+See [`docs/todo.md`](docs/todo.md) for the current technical-debt backlog. The highest-priority frontend item is decomposing `FractalEditor.tsx` into editor plugins, metadata/note UI components, and shared editor helpers.

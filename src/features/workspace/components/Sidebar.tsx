@@ -50,8 +50,8 @@ function Sidebar({
     });
   }, [createPagePath]);
 
-  function openCreatePageDialog(defaultPath = "untitled") {
-    setCreatePagePath(defaultPath);
+  function openCreatePageDialog(defaultTitle = "Untitled") {
+    setCreatePagePath(defaultTitle);
   }
 
   function closeCreatePageDialog() {
@@ -138,19 +138,19 @@ function Sidebar({
             </div>
 
             <label className="dialog-field">
-              <span>Page path</span>
+              <span>Page title</span>
               <input
                 autoComplete="off"
                 disabled={isBusy}
                 onChange={(event) => setCreatePagePath(event.currentTarget.value)}
-                placeholder="notes/day-two"
+                placeholder="Day Two"
                 ref={createPageInputRef}
                 value={createPagePath}
               />
             </label>
 
             <p className="dialog-note">
-              Use folders with <code>/</code>. The <code>.html</code> extension is optional.
+              Fractal will use this title and generate the page file path from it.
             </p>
 
             <div className="dialog-actions">

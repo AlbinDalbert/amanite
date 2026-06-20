@@ -52,6 +52,7 @@ import type {
   FractalPage,
   FractalPageLink
 } from "@/lib/fractal/types";
+import InspectorSection from "./InspectorSection";
 
 type FractalEditorProps = {
   backlinks: FractalGraphPageLink[];
@@ -162,9 +163,63 @@ const lexicalTheme = {
   }
 };
 
+const FRACTAL_ALLOWED_BODY_ELEMENTS = new Set([
+  "a",
+  "blockquote",
+  "code",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "ul"
+]);
+
+function unwrapElement(element: Element) {
+  const parent = element.parentNode;
+
+  if (!parent) {
+    return;
+  }
+
+  while (element.firstChild) {
+    parent.insertBefore(element.firstChild, element);
+  }
+
+  parent.removeChild(element);
+}
+
+function sanitizeFractalBodyHtml(html: string) {
+  const template = document.createElement("template");
+  template.innerHTML = html || "<p></p>";
+
+  for (const element of Array.from(template.content.querySelectorAll("*"))) {
+    const tagName = element.tagName.toLowerCase();
+
+    if (!FRACTAL_ALLOWED_BODY_ELEMENTS.has(tagName)) {
+      unwrapElement(element);
+      continue;
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      if (tagName === "a" && ["data-fractal-link", "href"].includes(attribute.name)) {
+        continue;
+      }
+
+      element.removeAttribute(attribute.name);
+    }
+  }
+
+  return template.innerHTML || "<p></p>";
+}
+
 function importHtmlIntoEditor(editor: LexicalEditorInstance, html: string) {
   const parser = new DOMParser();
-  const dom = parser.parseFromString(html || "<p></p>", "text/html");
+  const dom = parser.parseFromString(sanitizeFractalBodyHtml(html), "text/html");
   const nodes = $generateNodesFromDOM(editor, dom.body);
   const root = $getRoot();
 
@@ -194,97 +249,6 @@ function tagsFromDraft(value: string) {
   }
 
   return tags;
-}
-
-function safeDecodePath(value: string) {
-  try {
-    return decodeURI(value);
-  } catch {
-    return value;
-  }
-}
-
-function urlBackToProjectHref(url: URL) {
-  const sameAppHost =
-    url.hostname &&
-    window.location.hostname &&
-    url.hostname === window.location.hostname &&
-    (url.protocol === window.location.protocol || url.hostname.endsWith(".localhost"));
-  const tauriAssetHost = url.protocol === "tauri:" && url.hostname === "localhost";
-
-  if (sameAppHost || tauriAssetHost) {
-    return safeDecodePath(url.pathname);
-  }
-
-  const hostLooksLikeRelativePath =
-    Boolean(url.hostname) &&
-    !url.username &&
-    !url.password &&
-    !url.port &&
-    (!url.hostname.includes(".") || /\.html?$/i.test(url.hostname));
-
-  if (!hostLooksLikeRelativePath) {
-    return null;
-  }
-
-  const urlPath = url.pathname === "/" ? "" : url.pathname;
-  return safeDecodePath(`${url.hostname}${urlPath}`);
-}
-
-function normalizeInternalPageHref(href: string, currentPagePath: string) {
-  let pageHref = href.trim();
-
-  if (/^(?:https?|tauri):\/\//i.test(pageHref)) {
-    try {
-      const normalizedUrlHref = urlBackToProjectHref(new URL(pageHref));
-
-      if (!normalizedUrlHref) {
-        return null;
-      }
-
-      pageHref = normalizedUrlHref;
-    } catch {
-      return null;
-    }
-  }
-
-  if (!pageHref || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(pageHref)) {
-    return null;
-  }
-
-  const hrefPath = pageHref.split("#", 1)[0].split("?", 1)[0];
-  if (!hrefPath) {
-    return null;
-  }
-
-  const currentFolder = currentPagePath.split("/").filter(Boolean).slice(0, -1);
-  const hrefParts = hrefPath.replaceAll("\\", "/").split("/").filter(Boolean);
-  const firstMeaningfulPart = hrefParts.find((part) => part !== ".");
-  const parts =
-    pageHref.startsWith("/") || firstMeaningfulPart === "pages" ? [] : [...currentFolder];
-
-  for (const part of hrefParts) {
-    if (part === "." || part === "pages") {
-      continue;
-    }
-
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-
-    parts.push(part);
-  }
-
-  if (parts.length === 0) {
-    return null;
-  }
-
-  if (!parts.at(-1)?.includes(".")) {
-    parts[parts.length - 1] = `${parts.at(-1)}.html`;
-  }
-
-  return parts.join("/");
 }
 
 function compactText(value: string) {
@@ -325,23 +289,8 @@ function pagePreviewText(page: FractalPage) {
   );
 }
 
-function fileNameFromPath(path: string) {
-  return path.split("/").filter(Boolean).at(-1) ?? path;
-}
-
-function stripHtmlExtension(value: string) {
-  return value.replace(/\.html?$/i, "");
-}
-
 function comparisonKey(value: string) {
   return compactText(value).toLowerCase();
-}
-
-function slugComparisonKey(value: string) {
-  return comparisonKey(value)
-    .replace(/\.html?$/i, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function uniqueInspectorItems<T>(
@@ -366,108 +315,103 @@ function uniqueInspectorItems<T>(
   return uniqueItems;
 }
 
-function isPageLinkHref(href: string) {
-  const trimmedHref = href.trim();
+function hrefMatchesLink(anchorHref: string, linkHref: string) {
+  if (anchorHref === linkHref) {
+    return true;
+  }
 
-  return (
-    Boolean(trimmedHref) &&
-    !trimmedHref.startsWith("#") &&
-    (!/^[a-z][a-z0-9+.-]*:/i.test(trimmedHref) || /^(?:https?|tauri):\/\//i.test(trimmedHref))
+  // Lexical normalizes bare relative hrefs like "second.html" into
+  // "https://second.html" inside the editable DOM. Fractal stores the
+  // project-relative href, so treat that synthetic URL form as equivalent.
+  if (anchorHref === `https://${linkHref}` || anchorHref === `http://${linkHref}`) {
+    return true;
+  }
+
+  try {
+    const parsedHref = new URL(anchorHref);
+    return `${parsedHref.hostname}${parsedHref.pathname}`.replace(/^\//, "") === linkHref;
+  } catch {
+    return false;
+  }
+}
+
+function linkForAnchor(anchor: HTMLAnchorElement, links: FractalPageLink[]) {
+  const href = anchor.getAttribute("href") ?? "";
+  const textKey = comparisonKey(anchor.textContent ?? "");
+  const candidates = links.filter(
+    (link) => hrefMatchesLink(href, link.href) && comparisonKey(link.text) === textKey
   );
-}
 
-function pagePathCandidatesForAnchor(
-  anchor: HTMLAnchorElement,
-  currentPagePath: string,
-  outlinks: FractalGraphPageLink[]
-) {
-  const href = anchor.getAttribute("href") ?? "";
-  const linkTextKey = comparisonKey(anchor.textContent ?? "");
-  const normalizedHref = normalizeInternalPageHref(href, currentPagePath);
-  const candidates: string[] = [];
-
-  if (normalizedHref) {
-    candidates.push(normalizedHref);
+  if (candidates.length === 1) {
+    return candidates[0];
   }
 
-  for (const outlink of outlinks) {
-    if (
-      (normalizedHref && outlink.page === normalizedHref) ||
-      (normalizedHref &&
-        fileNameFromPath(outlink.page).toLowerCase() ===
-          fileNameFromPath(normalizedHref).toLowerCase()) ||
-      (linkTextKey && comparisonKey(outlink.text) === linkTextKey)
-    ) {
-      candidates.push(outlink.page);
-    }
+  const textCandidates = links.filter((link) => comparisonKey(link.text) === textKey);
+  if (textCandidates.length === 1) {
+    return textCandidates[0];
   }
 
-  return candidates;
+  return candidates.find((link) => link.targetPage || link.targetNote) ?? null;
 }
 
-function resolvePageForAnchor(
-  anchor: HTMLAnchorElement,
-  currentPagePath: string,
-  pages: FractalPage[],
-  outlinks: FractalGraphPageLink[]
-) {
-  const href = anchor.getAttribute("href") ?? "";
+function normalizePagePath(path: string) {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  return normalized.startsWith("pages/") ? normalized.slice("pages/".length) : normalized;
+}
 
-  if (!isPageLinkHref(href)) {
+function resolvePageHref(currentPagePath: string, href: string) {
+  if (!href || href.startsWith("#")) {
     return null;
   }
 
-  const candidates = pagePathCandidatesForAnchor(anchor, currentPagePath, outlinks);
-  const byExactPath = new Map(pages.map((page) => [page.path, page]));
+  let hrefForResolution = href;
+  const syntheticRelativeUrl = href.match(/^https?:\/\/([^/?#]+\.html)([?#].*)?$/i);
+  if (syntheticRelativeUrl) {
+    hrefForResolution = `${syntheticRelativeUrl[1]}${syntheticRelativeUrl[2] ?? ""}`;
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    return null;
+  }
 
-  for (const candidate of candidates) {
-    const page = byExactPath.get(candidate);
+  const [hrefPath] = hrefForResolution.split(/[?#]/, 1);
+  if (!hrefPath) {
+    return null;
+  }
 
-    if (page) {
-      return page;
+  const baseParts = normalizePagePath(currentPagePath).split("/");
+  baseParts.pop();
+  const parts = hrefPath.startsWith("/") ? [] : baseParts;
+
+  for (const part of normalizePagePath(hrefPath).split("/")) {
+    if (!part || part === ".") {
+      continue;
     }
+
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+
+    parts.push(part);
   }
 
-  const candidateFileNames = candidates.map((candidate) =>
-    fileNameFromPath(candidate).toLowerCase()
-  );
-  const fileNameMatches = pages.filter((page) =>
-    candidateFileNames.includes(fileNameFromPath(page.path).toLowerCase())
-  );
-
-  if (fileNameMatches.length === 1) {
-    return fileNameMatches[0];
-  }
-
-  const linkText = anchor.textContent ?? "";
-  const linkTextKey = comparisonKey(linkText);
-  const linkSlugKey = slugComparisonKey(linkText);
-  const textMatches = pages.filter((page) => {
-    const pageFileStem = stripHtmlExtension(fileNameFromPath(page.path)).toLowerCase();
-
-    return (
-      comparisonKey(page.name) === linkTextKey ||
-      slugComparisonKey(page.name) === linkSlugKey ||
-      pageFileStem === linkSlugKey
-    );
-  });
-
-  return textMatches.length === 1 ? textMatches[0] : null;
+  const resolved = parts.join("/");
+  return resolved.endsWith(".html") ? resolved : `${resolved}.html`;
 }
 
-function resolvePagePathForAnchor(
+function pageForAnchor(
   anchor: HTMLAnchorElement,
-  currentPagePath: string,
+  links: FractalPageLink[],
   pages: FractalPage[],
-  outlinks: FractalGraphPageLink[]
+  currentPagePath: string
 ) {
-  const page = resolvePageForAnchor(anchor, currentPagePath, pages, outlinks);
+  const href = anchor.getAttribute("href") ?? "";
+  const targetPage = linkForAnchor(anchor, links)?.targetPage ?? resolvePageHref(currentPagePath, href);
 
-  if (page) {
-    return page.path;
+  if (!targetPage) {
+    return null;
   }
 
-  return normalizeInternalPageHref(anchor.getAttribute("href") ?? "", currentPagePath);
+  return pages.find((page) => page.path === targetPage) ?? null;
 }
 
 function positionFloatingPopover(
@@ -679,7 +623,7 @@ function HtmlBridgePlugin({
     }
 
     const nextBodyHtml = editorState.read(
-      () => $generateHtmlFromNodes(lexicalEditor, null),
+      () => sanitizeFractalBodyHtml($generateHtmlFromNodes(lexicalEditor, null)),
       { editor: lexicalEditor }
     );
 
@@ -693,31 +637,6 @@ function HtmlBridgePlugin({
       ignoreSelectionChange
       onChange={handleChange}
     />
-  );
-}
-
-function InspectorSection({
-  emptyLabel,
-  items,
-  title
-}: {
-  emptyLabel: string;
-  items: string[];
-  title: string;
-}) {
-  return (
-    <section className="fractal-inspector-section">
-      <h3>{title}</h3>
-      {items.length > 0 ? (
-        <ul>
-          {items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>{emptyLabel}</p>
-      )}
-    </section>
   );
 }
 
@@ -845,14 +764,13 @@ function FractalEditor({
   }
 
   function noteFromAnchor(anchor: HTMLAnchorElement) {
-    const href = anchor.getAttribute("href") ?? "";
+    const targetNote = linkForAnchor(anchor, links)?.targetNote;
 
-    if (!href.startsWith("#")) {
+    if (!targetNote) {
       return null;
     }
 
-    const noteId = href.slice(1);
-    return notes.find((note) => note.id === noteId) ?? null;
+    return notes.find((note) => note.id === targetNote) ?? null;
   }
 
   function openNoteDetailAtAnchor(note: FractalNote, anchor: HTMLAnchorElement) {
@@ -902,7 +820,7 @@ function FractalEditor({
     }
 
     const note = noteFromAnchor(anchor);
-    const page = note ? null : resolvePageForAnchor(anchor, pagePath, pages, outlinks);
+    const page = note ? null : pageForAnchor(anchor, links, pages, pagePath);
 
     if (!note && !page) {
       closeHoverPopover();
@@ -984,10 +902,12 @@ function FractalEditor({
         return;
       }
 
-      const noteId = href.slice(1);
-      const noteElement = Array.from(document.querySelectorAll<HTMLElement>("[data-note-id]")).find(
-        (element) => element.dataset.noteId === noteId
-      );
+      const noteId = linkForAnchor(anchor, links)?.targetNote;
+      const noteElement = noteId
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-note-id]")).find(
+            (element) => element.dataset.noteId === noteId
+          )
+        : null;
 
       if (noteElement) {
         event.preventDefault();
@@ -997,9 +917,10 @@ function FractalEditor({
       return;
     }
 
-    const nextPagePath = resolvePagePathForAnchor(anchor, pagePath, pages, outlinks);
+    const resolvedPagePath = resolvePageHref(pagePath, href);
+    const nextPagePath = linkForAnchor(anchor, links)?.targetPage ?? resolvedPagePath;
 
-    if (nextPagePath) {
+    if (nextPagePath && pages.some((page) => page.path === nextPagePath)) {
       event.preventDefault();
       onNavigatePage(nextPagePath);
     }

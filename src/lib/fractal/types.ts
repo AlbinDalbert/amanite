@@ -25,6 +25,8 @@ export type FractalPageLink = {
   href: string;
   text: string;
   scope: string;
+  targetPage?: string | null;
+  targetNote?: string | null;
 };
 
 export type FractalGraphPageLink = {
@@ -78,7 +80,7 @@ export type FractalClient = {
   openProject: (directoryName: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   savePage: (project: FractalProject, update: FractalPageUpdate) => Promise<FractalProject>;
-  createPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
+  createPage: (project: FractalProject, pageTitle: string) => Promise<FractalProject>;
   renamePage: (
     project: FractalProject,
     pagePath: string,
