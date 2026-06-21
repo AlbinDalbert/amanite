@@ -1,37 +1,15 @@
-import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
 import { LinkNode } from "@lexical/link";
-import {
-  INSERT_ORDERED_LIST_COMMAND,
-  INSERT_UNORDERED_LIST_COMMAND,
-  ListItemNode,
-  ListNode
-} from "@lexical/list";
+import { ListItemNode, ListNode } from "@lexical/list";
 import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { $setBlocksType } from "@lexical/selection";
-import { mergeRegister } from "@lexical/utils";
+import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import {
-  $createParagraphNode,
-  $getRoot,
-  $getSelection,
-  $isRangeSelection,
-  COMMAND_PRIORITY_LOW,
-  FORMAT_TEXT_COMMAND,
-  SELECTION_CHANGE_COMMAND,
-  type EditorState,
-  type LexicalEditor as LexicalEditorInstance,
-  type TextFormatType
-} from "lexical";
-import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -39,20 +17,34 @@ import {
   type KeyboardEvent,
   type MouseEvent
 } from "react";
-import {
-  $createHeadingNode,
-  $createQuoteNode,
-  HeadingNode,
-  QuoteNode,
-  type HeadingTagType
-} from "@lexical/rich-text";
 import type {
   FractalGraphPageLink,
   FractalNote,
   FractalPage,
   FractalPageLink
 } from "@/lib/fractal/types";
-import InspectorSection from "./InspectorSection";
+import InspectorPanel from "./InspectorPanel";
+import NoteContextMenu from "./NoteContextMenu";
+import NotePopover from "./NotePopover";
+import NotesLedger from "./NotesLedger";
+import PageMetadataEditor from "./PageMetadataEditor";
+import {
+  NOTE_CONTEXT_MENU_HEIGHT,
+  NOTE_CONTEXT_MENU_WIDTH,
+  NOTE_DETAIL_POPOVER_HEIGHT,
+  NOTE_EDITOR_POPOVER_HEIGHT,
+  NOTE_POPOVER_WIDTH,
+  NOTE_PREVIEW_POPOVER_HEIGHT,
+  positionFloatingPoint,
+  positionFloatingPopover,
+  selectionAnchorRect
+} from "./editorGeometry";
+import { linkForAnchor, pageForAnchor, resolvePageHref } from "./editorLinks";
+import { editorLexicalTheme } from "./editorLexicalTheme";
+import { tagsFromDraft } from "./editorText";
+import type { NoteContextMenuState, NotePopoverState } from "./editorTypes";
+import EditorToolbar from "./plugins/EditorToolbar";
+import HtmlBridgePlugin from "./plugins/HtmlBridgePlugin";
 
 type FractalEditorProps = {
   backlinks: FractalGraphPageLink[];
@@ -78,573 +70,10 @@ type FractalEditorProps = {
   onUpdateNote: (note: FractalNote, content: string) => void;
 };
 
-type ToolbarButtonProps = {
-  isActive?: boolean;
-  label: string;
-  title: string;
-  onClick: () => void;
-};
-
-type NoteContextMenuState = {
-  trigger: string;
-  popoverX: number;
-  popoverY: number;
-  x: number;
-  y: number;
-};
-
-type NotePopoverState =
-  | {
-      kind: "note-preview";
-      note: FractalNote;
-      x: number;
-      y: number;
-    }
-  | {
-      kind: "note-detail";
-      note: FractalNote;
-      x: number;
-      y: number;
-    }
-  | {
-      kind: "page-preview";
-      page: FractalPage;
-      x: number;
-      y: number;
-    }
-  | {
-      draft: string;
-      kind: "create";
-      trigger: string;
-      x: number;
-      y: number;
-    }
-  | {
-      draft: string;
-      kind: "edit";
-      note: FractalNote;
-      x: number;
-      y: number;
-    };
-
-const AMANITE_HTML_LOAD_TAG = "amanite-html-load";
-const NOTE_CONTEXT_MENU_WIDTH = 208;
-const NOTE_CONTEXT_MENU_HEIGHT = 96;
-const NOTE_POPOVER_WIDTH = 318;
-const NOTE_PREVIEW_POPOVER_HEIGHT = 148;
-const NOTE_DETAIL_POPOVER_HEIGHT = 242;
-const NOTE_EDITOR_POPOVER_HEIGHT = 238;
-const NOTE_PREVIEW_WORD_LIMIT = 26;
-const NOTE_PREVIEW_CHARACTER_LIMIT = 190;
-const PAGE_PREVIEW_WORD_LIMIT = 34;
-const PAGE_PREVIEW_CHARACTER_LIMIT = 240;
-
-const lexicalTheme = {
-  heading: {
-    h2: "rich-heading rich-heading-two",
-    h3: "rich-heading rich-heading-three"
-  },
-  link: "rich-link",
-  list: {
-    listitem: "rich-list-item",
-    nested: {
-      listitem: "rich-list-item nested"
-    },
-    ol: "rich-list ordered",
-    ul: "rich-list unordered"
-  },
-  paragraph: "rich-paragraph",
-  quote: "rich-quote",
-  text: {
-    bold: "rich-text-bold",
-    italic: "rich-text-italic",
-    strikethrough: "rich-text-strike",
-    underline: "rich-text-underline"
-  }
-};
-
-const FRACTAL_ALLOWED_BODY_ELEMENTS = new Set([
-  "a",
-  "blockquote",
-  "code",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "li",
-  "ol",
-  "p",
-  "pre",
-  "ul"
-]);
-
-function unwrapElement(element: Element) {
-  const parent = element.parentNode;
-
-  if (!parent) {
-    return;
-  }
-
-  while (element.firstChild) {
-    parent.insertBefore(element.firstChild, element);
-  }
-
-  parent.removeChild(element);
-}
-
-function sanitizeFractalBodyHtml(html: string) {
-  const template = document.createElement("template");
-  template.innerHTML = html || "<p></p>";
-
-  for (const element of Array.from(template.content.querySelectorAll("*"))) {
-    const tagName = element.tagName.toLowerCase();
-
-    if (!FRACTAL_ALLOWED_BODY_ELEMENTS.has(tagName)) {
-      unwrapElement(element);
-      continue;
-    }
-
-    for (const attribute of Array.from(element.attributes)) {
-      if (tagName === "a" && ["data-fractal-link", "href"].includes(attribute.name)) {
-        continue;
-      }
-
-      element.removeAttribute(attribute.name);
-    }
-  }
-
-  return template.innerHTML || "<p></p>";
-}
-
-function importHtmlIntoEditor(editor: LexicalEditorInstance, html: string) {
-  const parser = new DOMParser();
-  const dom = parser.parseFromString(sanitizeFractalBodyHtml(html), "text/html");
-  const nodes = $generateNodesFromDOM(editor, dom.body);
-  const root = $getRoot();
-
-  root.clear();
-
-  if (nodes.length > 0) {
-    root.append(...nodes);
-  }
-
-  if (root.getChildrenSize() === 0) {
-    root.append($createParagraphNode());
-  }
-}
-
-function tagsFromDraft(value: string) {
-  const seenTags = new Set<string>();
-  const tags: string[] = [];
-
-  for (const part of value.split(/[,\n]/)) {
-    const tag = part.trim();
-    const key = tag.toLowerCase();
-
-    if (tag && !seenTags.has(key)) {
-      seenTags.add(key);
-      tags.push(tag);
-    }
-  }
-
-  return tags;
-}
-
-function compactText(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function truncateText(value: string, wordLimit: number, characterLimit: number) {
-  const text = compactText(value);
-
-  if (!text) {
-    return "";
-  }
-
-  const words = text.split(" ");
-  if (words.length > wordLimit) {
-    return `${words.slice(0, wordLimit).join(" ")}…`;
-  }
-
-  if (text.length > characterLimit) {
-    return `${text.slice(0, characterLimit - 1).trim()}…`;
-  }
-
-  return text;
-}
-
-function truncateNotePreview(value: string) {
-  return (
-    truncateText(value, NOTE_PREVIEW_WORD_LIMIT, NOTE_PREVIEW_CHARACTER_LIMIT) ||
-    "No note body yet."
-  );
-}
-
-function pagePreviewText(page: FractalPage) {
-  return (
-    truncateText(page.summary ?? "", PAGE_PREVIEW_WORD_LIMIT, PAGE_PREVIEW_CHARACTER_LIMIT) ||
-    truncateText(page.bodyPreview ?? "", PAGE_PREVIEW_WORD_LIMIT, PAGE_PREVIEW_CHARACTER_LIMIT) ||
-    "No summary yet."
-  );
-}
-
-function comparisonKey(value: string) {
-  return compactText(value).toLowerCase();
-}
-
-function uniqueInspectorItems<T>(
-  items: T[],
-  keyForItem: (item: T) => string,
-  labelForItem: (item: T) => string
-) {
-  const seenItems = new Set<string>();
-  const uniqueItems: string[] = [];
-
-  for (const item of items) {
-    const key = comparisonKey(keyForItem(item));
-
-    if (!key || seenItems.has(key)) {
-      continue;
-    }
-
-    seenItems.add(key);
-    uniqueItems.push(labelForItem(item));
-  }
-
-  return uniqueItems;
-}
-
-function hrefMatchesLink(anchorHref: string, linkHref: string) {
-  if (anchorHref === linkHref) {
-    return true;
-  }
-
-  // Lexical normalizes bare relative hrefs like "second.html" into
-  // "https://second.html" inside the editable DOM. Fractal stores the
-  // project-relative href, so treat that synthetic URL form as equivalent.
-  if (anchorHref === `https://${linkHref}` || anchorHref === `http://${linkHref}`) {
-    return true;
-  }
-
-  try {
-    const parsedHref = new URL(anchorHref);
-    return `${parsedHref.hostname}${parsedHref.pathname}`.replace(/^\//, "") === linkHref;
-  } catch {
-    return false;
-  }
-}
-
-function linkForAnchor(anchor: HTMLAnchorElement, links: FractalPageLink[]) {
-  const href = anchor.getAttribute("href") ?? "";
-  const textKey = comparisonKey(anchor.textContent ?? "");
-  const candidates = links.filter(
-    (link) => hrefMatchesLink(href, link.href) && comparisonKey(link.text) === textKey
-  );
-
-  if (candidates.length === 1) {
-    return candidates[0];
-  }
-
-  const textCandidates = links.filter((link) => comparisonKey(link.text) === textKey);
-  if (textCandidates.length === 1) {
-    return textCandidates[0];
-  }
-
-  return candidates.find((link) => link.targetPage || link.targetNote) ?? null;
-}
-
-function normalizePagePath(path: string) {
-  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
-  return normalized.startsWith("pages/") ? normalized.slice("pages/".length) : normalized;
-}
-
-function resolvePageHref(currentPagePath: string, href: string) {
-  if (!href || href.startsWith("#")) {
-    return null;
-  }
-
-  let hrefForResolution = href;
-  const syntheticRelativeUrl = href.match(/^https?:\/\/([^/?#]+\.html)([?#].*)?$/i);
-  if (syntheticRelativeUrl) {
-    hrefForResolution = `${syntheticRelativeUrl[1]}${syntheticRelativeUrl[2] ?? ""}`;
-  } else if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-    return null;
-  }
-
-  const [hrefPath] = hrefForResolution.split(/[?#]/, 1);
-  if (!hrefPath) {
-    return null;
-  }
-
-  const baseParts = normalizePagePath(currentPagePath).split("/");
-  baseParts.pop();
-  const parts = hrefPath.startsWith("/") ? [] : baseParts;
-
-  for (const part of normalizePagePath(hrefPath).split("/")) {
-    if (!part || part === ".") {
-      continue;
-    }
-
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-
-    parts.push(part);
-  }
-
-  const resolved = parts.join("/");
-  return resolved.endsWith(".html") ? resolved : `${resolved}.html`;
-}
-
-function pageForAnchor(
-  anchor: HTMLAnchorElement,
-  links: FractalPageLink[],
-  pages: FractalPage[],
-  currentPagePath: string
-) {
-  const href = anchor.getAttribute("href") ?? "";
-  const targetPage = linkForAnchor(anchor, links)?.targetPage ?? resolvePageHref(currentPagePath, href);
-
-  if (!targetPage) {
-    return null;
-  }
-
-  return pages.find((page) => page.path === targetPage) ?? null;
-}
-
-function positionFloatingPopover(
-  rect: Pick<DOMRect, "bottom" | "height" | "left" | "top" | "width">,
-  height: number
-) {
-  const x = Math.max(
-    8,
-    Math.min(
-      rect.left + rect.width / 2 - NOTE_POPOVER_WIDTH / 2,
-      window.innerWidth - NOTE_POPOVER_WIDTH - 8
-    )
-  );
-  const preferredY = rect.bottom + 10;
-  const y =
-    preferredY + height <= window.innerHeight - 8
-      ? preferredY
-      : Math.max(8, rect.top - height - 10);
-
-  return { x, y };
-}
-
-function positionFloatingPoint(x: number, y: number, width: number, height: number) {
-  return {
-    x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
-    y: Math.max(8, Math.min(y, window.innerHeight - height - 8))
-  };
-}
-
-function selectionAnchorRect() {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    return null;
-  }
-
-  const range = selection.getRangeAt(0);
-  const rect = Array.from(range.getClientRects()).find(
-    (clientRect) => clientRect.width > 0 || clientRect.height > 0
-  );
-
-  if (rect) {
-    return rect;
-  }
-
-  const fallbackRect = range.getBoundingClientRect();
-  return fallbackRect.width > 0 || fallbackRect.height > 0 ? fallbackRect : null;
-}
-
-function ToolbarButton({ isActive = false, label, title, onClick }: ToolbarButtonProps) {
-  return (
-    <button
-      aria-pressed={isActive}
-      className={isActive ? "rich-toolbar-button active" : "rich-toolbar-button"}
-      onClick={onClick}
-      title={title}
-      type="button"
-    >
-      {label}
-    </button>
-  );
-}
-
-function EditorToolbar() {
-  const [editor] = useLexicalComposerContext();
-  const [activeFormats, setActiveFormats] = useState<Set<TextFormatType>>(() => new Set());
-
-  const updateToolbar = useCallback(() => {
-    const selection = $getSelection();
-    const nextFormats = new Set<TextFormatType>();
-
-    if ($isRangeSelection(selection)) {
-      for (const format of ["bold", "italic", "underline", "strikethrough"] as const) {
-        if (selection.hasFormat(format)) {
-          nextFormats.add(format);
-        }
-      }
-    }
-
-    setActiveFormats(nextFormats);
-  }, []);
-
-  useEffect(
-    () =>
-      mergeRegister(
-        editor.registerUpdateListener(({ editorState }) => {
-          editorState.read(updateToolbar, { editor });
-        }),
-        editor.registerCommand(
-          SELECTION_CHANGE_COMMAND,
-          () => {
-            updateToolbar();
-            return false;
-          },
-          COMMAND_PRIORITY_LOW
-        )
-      ),
-    [editor, updateToolbar]
-  );
-
-  function formatText(format: TextFormatType) {
-    editor.dispatchCommand(FORMAT_TEXT_COMMAND, format);
-  }
-
-  function formatBlock(kind: "paragraph" | "quote" | HeadingTagType) {
-    editor.update(() => {
-      const selection = $getSelection();
-
-      if (!$isRangeSelection(selection)) {
-        return;
-      }
-
-      if (kind === "paragraph") {
-        $setBlocksType(selection, () => $createParagraphNode());
-      } else if (kind === "quote") {
-        $setBlocksType(selection, () => $createQuoteNode());
-      } else {
-        $setBlocksType(selection, () => $createHeadingNode(kind));
-      }
-    });
-  }
-
-  return (
-    <div className="rich-toolbar" aria-label="Text formatting">
-      <div className="rich-toolbar-group" role="group" aria-label="Inline formatting">
-        <ToolbarButton
-          isActive={activeFormats.has("bold")}
-          label="B"
-          title="Bold"
-          onClick={() => formatText("bold")}
-        />
-        <ToolbarButton
-          isActive={activeFormats.has("italic")}
-          label="I"
-          title="Italic"
-          onClick={() => formatText("italic")}
-        />
-        <ToolbarButton
-          isActive={activeFormats.has("underline")}
-          label="U"
-          title="Underline"
-          onClick={() => formatText("underline")}
-        />
-        <ToolbarButton
-          isActive={activeFormats.has("strikethrough")}
-          label="S"
-          title="Strikethrough"
-          onClick={() => formatText("strikethrough")}
-        />
-      </div>
-
-      <div className="rich-toolbar-group" role="group" aria-label="Blocks">
-        <ToolbarButton label="P" title="Paragraph" onClick={() => formatBlock("paragraph")} />
-        <ToolbarButton label="H2" title="Heading 2" onClick={() => formatBlock("h2")} />
-        <ToolbarButton label="H3" title="Heading 3" onClick={() => formatBlock("h3")} />
-        <ToolbarButton label="Q" title="Quote" onClick={() => formatBlock("quote")} />
-      </div>
-
-      <div className="rich-toolbar-group" role="group" aria-label="Lists">
-        <ToolbarButton
-          label="•"
-          title="Bulleted list"
-          onClick={() => editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)}
-        />
-        <ToolbarButton
-          label="1."
-          title="Numbered list"
-          onClick={() => editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function HtmlBridgePlugin({
-  bodyHtml,
-  pagePath,
-  onChangeBodyHtml
-}: {
-  bodyHtml: string;
-  pagePath: string;
-  onChangeBodyHtml: (bodyHtml: string) => void;
-}) {
-  const [editor] = useLexicalComposerContext();
-  const loadedPagePathRef = useRef<string | null>(null);
-  const lastEmittedHtmlRef = useRef(bodyHtml);
-
-  useEffect(() => {
-    const isNewPage = loadedPagePathRef.current !== pagePath;
-    const isExternalUpdate = bodyHtml !== lastEmittedHtmlRef.current;
-
-    if (!isNewPage && !isExternalUpdate) {
-      return;
-    }
-
-    editor.update(() => importHtmlIntoEditor(editor, bodyHtml), {
-      tag: AMANITE_HTML_LOAD_TAG
-    });
-    loadedPagePathRef.current = pagePath;
-    lastEmittedHtmlRef.current = bodyHtml;
-  }, [bodyHtml, editor, pagePath]);
-
-  function handleChange(
-    editorState: EditorState,
-    lexicalEditor: LexicalEditorInstance,
-    tags: Set<string>
-  ) {
-    if (tags.has(AMANITE_HTML_LOAD_TAG)) {
-      return;
-    }
-
-    const nextBodyHtml = editorState.read(
-      () => sanitizeFractalBodyHtml($generateHtmlFromNodes(lexicalEditor, null)),
-      { editor: lexicalEditor }
-    );
-
-    lastEmittedHtmlRef.current = nextBodyHtml;
-    onChangeBodyHtml(nextBodyHtml);
-  }
-
-  return (
-    <OnChangePlugin
-      ignoreHistoryMergeTagChange
-      ignoreSelectionChange
-      onChange={handleChange}
-    />
-  );
-}
-
 function FractalEditor({
   backlinks,
   bodyHtml,
   isBusy,
-  isDirty,
   links,
   notes,
   outlinks,
@@ -679,7 +108,7 @@ function FractalEditor({
       onError(error: Error) {
         throw error;
       },
-      theme: lexicalTheme
+      theme: editorLexicalTheme
     }),
     [pagePath]
   );
@@ -1063,15 +492,6 @@ function FractalEditor({
     }
   }
 
-  const linkItems = uniqueInspectorItems(
-    links,
-    (link) => link.href,
-    (link) => `${link.text} -> ${link.href}`
-  );
-  const noteItems = notes.map((note) => `${note.label}: ${note.text || note.id}`);
-  const backlinkItems = backlinks.map((link) => `${link.text} <- ${link.page}`);
-  const outlinkItems = outlinks.map((link) => `${link.text} -> ${link.page}`);
-
   return (
     <div
       className={
@@ -1105,69 +525,22 @@ function FractalEditor({
 
           <article className="rich-page-canvas">
             <div className="rich-page-column">
-              <div className="rich-page-meta">
-                <span className="editor-page-path" title={pagePath}>
-                  {pagePath}
-                </span>
-              </div>
-
-              <textarea
-                aria-label={`Title for ${pagePath}`}
-                className="rich-title-input"
-                onChange={(event) => onChangeTitle(event.currentTarget.value)}
-                placeholder="Untitled"
-                rows={1}
-                value={title}
+              <PageMetadataEditor
+                isAddingTag={isAddingTag}
+                pagePath={pagePath}
+                summary={summary}
+                tagDraft={tagDraft}
+                tagInputRef={tagInputRef}
+                tags={tags}
+                title={title}
+                onChangeSummary={onChangeSummary}
+                onChangeTagDraft={setTagDraft}
+                onChangeTitle={onChangeTitle}
+                onCommitTagDraft={commitTagDraft}
+                onRemoveTag={removeTag}
+                onStartAddingTag={() => setIsAddingTag(true)}
+                onTagInputKeyDown={handleTagInputKeyDown}
               />
-
-              <div className="rich-metadata-editor">
-                <textarea
-                  aria-label={`Summary for ${pagePath}`}
-                  className="rich-summary-input"
-                  onChange={(event) => onChangeSummary(event.currentTarget.value)}
-                  placeholder="Add a short page summary..."
-                  rows={2}
-                  value={summary ?? ""}
-                />
-
-                <div className="rich-tag-row" aria-label="Page tags">
-                  {tags.map((tag) => (
-                    <span className="rich-tag" key={tag}>
-                      <span>{tag}</span>
-                      <button
-                        aria-label={`Remove ${tag} tag`}
-                        className="rich-tag-remove"
-                        onClick={() => removeTag(tag)}
-                        type="button"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-
-                  {isAddingTag ? (
-                    <input
-                      aria-label="New tag"
-                      className="rich-tag rich-tag-input"
-                      onBlur={commitTagDraft}
-                      onChange={(event) => setTagDraft(event.currentTarget.value)}
-                      onKeyDown={handleTagInputKeyDown}
-                      placeholder="tag"
-                      ref={tagInputRef}
-                      value={tagDraft}
-                    />
-                  ) : (
-                    <button
-                      aria-label="Add tag"
-                      className="rich-tag rich-tag-add"
-                      onClick={() => setIsAddingTag(true)}
-                      type="button"
-                    >
-                      +
-                    </button>
-                  )}
-                </div>
-              </div>
 
               <div className="rich-body-frame">
                 <RichTextPlugin
@@ -1191,276 +564,38 @@ function FractalEditor({
                 />
               </div>
 
-              <section className="rich-notes-ledger" aria-label="Internal notes">
-                <div className="rich-notes-header">
-                  <span>Internal notes</span>
-                  <small>{notes.length}</small>
-                </div>
-                {notes.length > 0 ? (
-                  <ol className="rich-note-list">
-                    {notes.map((note) => {
-                      const isEditingNote = editingNoteId === note.id;
-
-                      return (
-                        <li
-                          className={isEditingNote ? "rich-note-card editing" : "rich-note-card"}
-                          data-note-id={note.id}
-                          id={note.id}
-                          key={note.id}
-                        >
-                          <div className="rich-note-card-header">
-                            <strong>{note.label}</strong>
-                            <div className="rich-note-actions">
-                              {isEditingNote ? (
-                                <>
-                                  <button
-                                    disabled={isBusy}
-                                    onClick={() => commitNoteEdit(note)}
-                                    type="button"
-                                  >
-                                    Save
-                                  </button>
-                                  <button onClick={cancelEditingNote} type="button">
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    disabled={isBusy}
-                                    onClick={() => startEditingNote(note)}
-                                    type="button"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    className="danger"
-                                    disabled={isBusy}
-                                    onClick={() => onDeleteNote(note)}
-                                    type="button"
-                                  >
-                                    Delete
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {isEditingNote ? (
-                            <textarea
-                              aria-label={`Note body for ${note.label}`}
-                              className="rich-note-editor"
-                              onChange={(event) => setNoteDraft(event.currentTarget.value)}
-                              onKeyDown={(event) => handleNoteDraftKeyDown(event, note)}
-                              placeholder="Write the note body..."
-                              rows={3}
-                              value={noteDraft}
-                            />
-                          ) : (
-                            <p>{note.text || "No note body yet."}</p>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                ) : (
-                  <p className="rich-notes-empty">
-                    Select text in the body, right-click, then add a note.
-                  </p>
-                )}
-              </section>
+              <NotesLedger
+                editingNoteId={editingNoteId}
+                isBusy={isBusy}
+                noteDraft={noteDraft}
+                notes={notes}
+                onCancelEditingNote={cancelEditingNote}
+                onChangeNoteDraft={setNoteDraft}
+                onCommitNoteEdit={commitNoteEdit}
+                onDeleteNote={onDeleteNote}
+                onNoteDraftKeyDown={handleNoteDraftKeyDown}
+                onStartEditingNote={startEditingNote}
+              />
             </div>
           </article>
         </LexicalComposer>
       </section>
 
-      {noteMenu ? (
-        <div
-          className="editor-context-menu"
-          onClick={(event) => event.stopPropagation()}
-          role="menu"
-          style={{ left: noteMenu.x, top: noteMenu.y }}
-        >
-          <p title={noteMenu.trigger}>{noteMenu.trigger}</p>
-          <button onClick={handleAddNoteFromMenu} role="menuitem" type="button">
-            Add note
-          </button>
-        </div>
-      ) : null}
+      <NoteContextMenu noteMenu={noteMenu} onAddNote={handleAddNoteFromMenu} />
 
-      {notePopover ? (
-        <div
-          aria-label={
-            notePopover.kind === "page-preview"
-              ? "Page preview"
-              : notePopover.kind === "note-preview"
-                ? "Note preview"
-                : "Note dialog"
-          }
-          className={
-            notePopover.kind === "note-preview" || notePopover.kind === "page-preview"
-              ? "note-popover preview"
-              : notePopover.kind === "note-detail"
-                ? "note-popover detail"
-                : "note-popover editor"
-          }
-          onClick={(event) => event.stopPropagation()}
-          onMouseMove={(event) => event.stopPropagation()}
-          role={
-            notePopover.kind === "note-preview" || notePopover.kind === "page-preview"
-              ? "tooltip"
-              : "dialog"
-          }
-          style={{ left: notePopover.x, top: notePopover.y }}
-        >
-          {notePopover.kind === "note-preview" ? (
-            <>
-              <div className="note-popover-kicker">Note preview</div>
-              <strong title={notePopover.note.label}>{notePopover.note.label}</strong>
-              <p>{truncateNotePreview(notePopover.note.text)}</p>
-              <small>Click to expand note.</small>
-            </>
-          ) : notePopover.kind === "page-preview" ? (
-            <>
-              <div className="note-popover-kicker">Page preview</div>
-              <strong title={notePopover.page.path}>{notePopover.page.name}</strong>
-              <p>{pagePreviewText(notePopover.page)}</p>
-              <small>{notePopover.page.path}</small>
-            </>
-          ) : notePopover.kind === "note-detail" ? (
-            <>
-              <div className="note-popover-heading">
-                <div>
-                  <div className="note-popover-kicker">Note</div>
-                  <strong title={notePopover.note.label}>{notePopover.note.label}</strong>
-                </div>
-                <div className="note-popover-icon-actions" aria-label="Note actions">
-                  <button
-                    aria-label={`Edit note for ${notePopover.note.label}`}
-                    disabled={isBusy}
-                    onClick={() => openNoteEditor(notePopover.note)}
-                    title="Edit note"
-                    type="button"
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 16 16">
-                      <path d="M2.5 11.6 2 14l2.4-.5 8.2-8.2-1.9-1.9-8.2 8.2Z" />
-                      <path d="m9.8 4.3 1.9 1.9" />
-                    </svg>
-                  </button>
-                  <button
-                    aria-label={`Delete note for ${notePopover.note.label}`}
-                    className="danger"
-                    disabled={isBusy}
-                    onClick={() => deleteNoteFromPopover(notePopover.note)}
-                    title="Delete note"
-                    type="button"
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 16 16">
-                      <path d="M3.5 5h9" />
-                      <path d="M6.2 5V3.4h3.6V5" />
-                      <path d="M4.5 5.5 5.1 14h5.8l.6-8.5" />
-                      <path d="M7 7.4v4.2" />
-                      <path d="M9 7.4v4.2" />
-                    </svg>
-                  </button>
-                  <button
-                    aria-label="Close note"
-                    onClick={cancelNotePopover}
-                    title="Close"
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-              <p className="note-popover-full-text">
-                {notePopover.note.text || "No note body yet."}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="note-popover-kicker">
-                {notePopover.kind === "create" ? "New note" : "Edit note"}
-              </div>
-              <strong
-                title={
-                  notePopover.kind === "create" ? notePopover.trigger : notePopover.note.label
-                }
-              >
-                {notePopover.kind === "create" ? notePopover.trigger : notePopover.note.label}
-              </strong>
-              <textarea
-                aria-label={
-                  notePopover.kind === "create"
-                    ? `New note body for ${notePopover.trigger}`
-                    : `Note body for ${notePopover.note.label}`
-                }
-                disabled={isBusy}
-                onChange={(event) => updateNotePopoverDraft(event.currentTarget.value)}
-                onKeyDown={handleNotePopoverKeyDown}
-                placeholder="Write the note body..."
-                ref={notePopoverEditorRef}
-                rows={4}
-                value={notePopover.draft}
-              />
-              <div className="note-popover-actions">
-                <button className="ghost-action" onClick={cancelNotePopover} type="button">
-                  Cancel
-                </button>
-                <button
-                  className="primary-action"
-                  disabled={isBusy}
-                  onClick={commitNotePopover}
-                  type="button"
-                >
-                  {notePopover.kind === "create" ? "Create note" : "Save note"}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ) : null}
+      <NotePopover
+        isBusy={isBusy}
+        notePopover={notePopover}
+        notePopoverEditorRef={notePopoverEditorRef}
+        onCancel={cancelNotePopover}
+        onCommit={commitNotePopover}
+        onDeleteNote={deleteNoteFromPopover}
+        onKeyDown={handleNotePopoverKeyDown}
+        onOpenNoteEditor={openNoteEditor}
+        onUpdateDraft={updateNotePopoverDraft}
+      />
 
-      <aside className="fractal-inspector" aria-label="Fractal page context">
-        <section className="fractal-inspector-card">
-          <p className="fractal-inspector-kicker">Context</p>
-          <dl className="fractal-stats">
-            <div>
-              <dt>Links</dt>
-              <dd>{linkItems.length}</dd>
-            </div>
-            <div>
-              <dt>Backlinks</dt>
-              <dd>{backlinks.length}</dd>
-            </div>
-            <div>
-              <dt>Notes</dt>
-              <dd>{notes.length}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <InspectorSection
-          emptyLabel="No outgoing page links."
-          items={outlinkItems}
-          title="Outlinks"
-        />
-        <InspectorSection
-          emptyLabel="No backlinks yet."
-          items={backlinkItems}
-          title="Backlinks"
-        />
-        <InspectorSection
-          emptyLabel="No inline links."
-          items={linkItems}
-          title="HTML Links"
-        />
-        <InspectorSection
-          emptyLabel="No Fractal notes."
-          items={noteItems}
-          title="Notes"
-        />
-      </aside>
+      <InspectorPanel backlinks={backlinks} links={links} notes={notes} outlinks={outlinks} />
     </div>
   );
 }
