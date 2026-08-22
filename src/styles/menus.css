@@ -1,220 +1,3 @@
-.editor-context-menu {
-  position: fixed;
-  z-index: 30;
-  display: grid;
-  width: 200px;
-  gap: 4px;
-  border: 1px solid color-mix(in srgb, var(--project-accent) 36%, var(--project-border));
-  background:
-    linear-gradient(180deg, rgba(242, 173, 50, 0.08), transparent 42%),
-    var(--project-surface);
-  color: var(--project-text);
-  padding: 6px;
-  box-shadow:
-    0 18px 48px rgb(0 0 0 / 46%),
-    0 0 34px rgba(242, 173, 50, 0.08);
-}
-
-.editor-context-menu p {
-  min-width: 0;
-  overflow: hidden;
-  margin: 0;
-  color: var(--project-muted);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 6px 8px 4px;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.editor-context-menu button {
-  min-height: 30px;
-  color: var(--project-text);
-  padding: 5px 8px;
-  text-align: left;
-  font-size: 0.84rem;
-  font-weight: 700;
-}
-
-.editor-context-menu button:hover {
-  background: color-mix(in srgb, var(--project-accent) 12%, transparent);
-  color: var(--project-accent);
-}
-
-.note-popover {
-  position: fixed;
-  z-index: 34;
-  display: grid;
-  width: 318px;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--project-accent) 42%, var(--project-border));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--project-accent) 32%, transparent), transparent 2px),
-    linear-gradient(180deg, rgba(255, 217, 120, 0.08), transparent 48%),
-    color-mix(in srgb, var(--project-surface) 92%, #000);
-  color: var(--project-text);
-  padding: 10px;
-  box-shadow:
-    0 22px 58px rgb(0 0 0 / 48%),
-    0 0 38px rgba(242, 173, 50, 0.1);
-}
-
-.note-popover.preview {
-  pointer-events: none;
-}
-
-.note-popover.detail {
-  gap: 10px;
-  max-height: min(420px, calc(100vh - 24px));
-}
-
-.note-popover-kicker {
-  color: var(--project-accent);
-  font-family: var(--font-mono);
-  font-size: 0.63rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  line-height: 1.1;
-  text-transform: uppercase;
-}
-
-.note-popover strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--project-text);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.note-popover p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  color: var(--document-muted);
-  font-family: var(--font-document);
-  font-size: 1rem;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-}
-
-.note-popover .note-popover-full-text {
-  display: block;
-  max-height: 260px;
-  overflow: auto;
-  white-space: pre-wrap;
-  -webkit-line-clamp: unset;
-}
-
-.note-popover-heading {
-  display: flex;
-  min-width: 0;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.note-popover-heading > div:first-child {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-}
-
-.note-popover-icon-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 4px;
-}
-
-.note-popover-icon-actions button {
-  display: inline-flex;
-  width: 26px;
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--project-accent) 22%, var(--project-border));
-  background: color-mix(in srgb, var(--project-background) 66%, transparent);
-  color: var(--project-muted);
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.note-popover-icon-actions button:hover,
-.note-popover-icon-actions button:focus-visible {
-  outline: none;
-  border-color: color-mix(in srgb, var(--project-accent) 54%, var(--project-border));
-  background: color-mix(in srgb, var(--project-accent) 12%, transparent);
-  color: var(--project-accent);
-}
-
-.note-popover-icon-actions svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  stroke-width: 1.5;
-}
-
-.note-popover-icon-actions button.danger {
-  color: #efaaa2;
-}
-
-.note-popover-icon-actions button.danger:hover,
-.note-popover-icon-actions button.danger:focus-visible {
-  border-color: color-mix(in srgb, #efaaa2 48%, var(--project-border));
-  background: rgb(143 73 68 / 20%);
-  color: #ffd1cb;
-}
-
-.note-popover small {
-  color: color-mix(in srgb, var(--project-muted) 76%, transparent);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.note-popover textarea {
-  min-height: 106px;
-  resize: vertical;
-  border: 1px solid var(--project-border);
-  outline: none;
-  background: color-mix(in srgb, var(--project-background) 82%, #000);
-  color: var(--project-text);
-  font-family: var(--font-document);
-  font-size: 1rem;
-  line-height: 1.55;
-  padding: 9px 10px;
-}
-
-.note-popover textarea:focus {
-  border-color: color-mix(in srgb, var(--project-accent) 62%, var(--project-border));
-}
-
-.note-popover-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.note-popover-actions .primary-action,
-.note-popover-actions .ghost-action {
-  min-height: 30px;
-  padding-inline: 9px;
-}
-
 .fractal-inspector {
   display: none;
   min-width: 0;
@@ -223,24 +6,18 @@
   gap: 14px;
   overflow: auto;
   border-left: 1px solid color-mix(in srgb, var(--project-accent) 26%, var(--project-border));
-  background:
-    linear-gradient(90deg, rgba(242, 173, 50, 0.07), transparent 2px),
-    color-mix(in srgb, var(--project-background) 88%, #000);
+  background: color-mix(in srgb, var(--project-background) 88%, #000);
   color: var(--project-text);
   padding: 16px 14px 28px;
 }
 
-.fractal-editor.inspector-open .fractal-inspector {
-  display: grid;
-}
+.fractal-editor.inspector-open .fractal-inspector { display: grid; }
 
 .fractal-inspector-card,
 .fractal-inspector-section {
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--project-accent) 18%, var(--project-border));
-  background:
-    linear-gradient(180deg, rgba(255, 217, 120, 0.045), transparent 44%),
-    color-mix(in srgb, var(--project-surface) 76%, transparent);
+  background: color-mix(in srgb, var(--project-surface) 76%, transparent);
   padding: 12px;
 }
 
@@ -248,9 +25,7 @@
 .fractal-inspector-section h3,
 .fractal-inspector-section p,
 .fractal-inspector-section ul,
-.fractal-stats {
-  margin: 0;
-}
+.fractal-stats { margin: 0; }
 
 .fractal-inspector-kicker {
   color: var(--project-muted);
@@ -258,7 +33,6 @@
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.12em;
-  line-height: 1.2;
   text-transform: uppercase;
 }
 
@@ -269,148 +43,27 @@
   margin-top: 10px;
 }
 
-.fractal-stats div {
-  display: grid;
-  gap: 1px;
-}
-
-.fractal-stats dt {
-  color: var(--project-muted);
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.fractal-stats dd {
-  margin: 0;
-  color: var(--project-accent-strong);
-  font-family: var(--font-display);
-  font-size: 1.3rem;
-  font-weight: 800;
-  line-height: 1;
-  text-shadow: 0 0 16px rgba(242, 173, 50, 0.16);
-}
-
-.fractal-inspector-section {
-  display: grid;
-  gap: 10px;
-}
-
-.fractal-inspector-section h3 {
-  color: var(--project-text);
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
+.fractal-stats div { display: grid; gap: 1px; }
+.fractal-stats dt { color: var(--project-muted); font: 800 0.64rem var(--font-mono); text-transform: uppercase; }
+.fractal-stats dd { margin: 0; color: var(--project-accent-strong); font: 800 1.3rem/1 var(--font-display); }
+.fractal-inspector-section { display: grid; gap: 10px; }
+.fractal-inspector-section h3 { color: var(--project-text); font: 800 1rem/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; }
 .fractal-inspector-section p,
-.fractal-inspector-section li {
-  color: var(--project-muted);
-  font-size: 0.86rem;
-  line-height: 1.48;
-}
-
-.fractal-inspector-section ul {
-  display: grid;
-  gap: 7px;
-  padding: 0;
-  list-style: none;
-}
-
-.fractal-inspector-section li {
-  overflow-wrap: anywhere;
-}
+.fractal-inspector-section li { color: var(--project-muted); font-size: 0.86rem; line-height: 1.48; }
+.fractal-inspector-section ul { display: grid; gap: 7px; padding: 0; list-style: none; }
+.fractal-inspector-section li { overflow-wrap: anywhere; }
+.fractal-inspector-section button { color: inherit; text-align: left; }
+.fractal-inspector-section button:hover { color: var(--project-accent); }
 
 @media (max-width: 760px) {
-  body {
-    overflow: auto;
-  }
-
-  .app-shell {
-    width: 100%;
-    height: auto;
-    min-height: 100vh;
-    grid-template-columns: 1fr;
-    overflow: visible;
-  }
-
-  .project-flow {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    max-height: 45vh;
-    border-right: 0;
-    border-bottom: 1px solid var(--app-border);
-  }
-
-  .workspace-toolbar {
-    align-items: center;
-    flex-direction: row;
-    gap: 8px;
-    padding: 4px 8px 0;
-  }
-
-  .workspace-tabstrip {
-    width: auto;
-  }
-
-  .workspace-tab {
-    min-width: 0;
-    max-width: none;
-  }
-
-  .toolbar-actions {
-    justify-content: flex-start;
-  }
-
-  .workspace > .status-message {
-    top: auto;
-    right: 12px;
-    bottom: 12px;
-    left: 12px;
-    max-width: none;
-  }
-
-  .fractal-editor,
-  .fractal-editor.inspector-open {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(520px, 1fr) auto;
-  }
-
-  .rich-editor-header {
-    right: 68px;
-    left: 12px;
-    width: auto;
-    max-width: none;
-    transform: none;
-  }
-
-  .rich-toolbar {
-    justify-content: flex-start;
-  }
-
-  .fractal-inspector {
-    border-right: 0;
-    border-left: 0;
-    border-top: 1px solid var(--project-border);
-  }
-
-  .rich-page-canvas {
-    padding: 74px 18px 58px;
-  }
+  body { overflow: auto; }
+  .app-shell { width: 100%; height: auto; min-height: 100vh; grid-template-columns: 1fr; overflow: visible; }
+  .project-flow { grid-template-columns: 1fr; }
+  .sidebar { max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--app-border); }
+  .workspace > .status-message { top: auto; right: 12px; bottom: 12px; left: 12px; max-width: none; }
 }
 
 @media (max-width: 520px) {
-  .project-field-row {
-    grid-template-columns: 1fr;
-  }
-
-  .project-field-row > button {
-    width: 100%;
-  }
+  .project-field-row { grid-template-columns: 1fr; }
+  .project-field-row > button { width: 100%; }
 }

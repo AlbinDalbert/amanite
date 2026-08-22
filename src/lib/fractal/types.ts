@@ -1,54 +1,62 @@
-export type FractalThemeToken =
-  | "--project-background"
-  | "--project-surface"
-  | "--project-text"
-  | "--project-muted"
-  | "--project-border"
-  | "--project-accent";
+export type FractalLinkTarget =
+  | { kind: "internal"; value: string }
+  | { kind: "internal_file"; value: string }
+  | { kind: "external"; value: string }
+  | { kind: "fragment"; value: string }
+  | { kind: "broken"; value: string };
 
-export type FractalTheme = Partial<Record<FractalThemeToken, string>>;
-
-export type FractalPage = {
-  bodyPreview?: string | null;
-  name: string;
-  path: string;
-  summary?: string | null;
-};
-
-export type FractalNote = {
-  id: string;
-  label: string;
-  text: string;
-};
-
-export type FractalPageLink = {
+export type FractalLink = {
   href: string;
   text: string;
-  scope: string;
-  targetPage?: string | null;
-  targetNote?: string | null;
+  target: FractalLinkTarget;
 };
 
-export type FractalGraphPageLink = {
+export type FractalBacklink = {
   page: string;
   text: string;
+};
+
+export type FractalIframeTarget =
+  | { kind: "internal"; value: string }
+  | { kind: "internal_file"; value: string }
+  | { kind: "external"; value: string }
+  | { kind: "inline" }
+  | { kind: "missing" }
+  | { kind: "broken"; value: string };
+
+export type FractalIframe = {
+  src?: string | null;
+  title?: string | null;
+  sandbox?: string | null;
+  target: FractalIframeTarget;
+};
+
+export type FractalIframeBacklink = {
+  page: string;
+  title?: string | null;
+};
+
+export type FractalPageKind = "native" | "raw";
+
+export type FractalPage = {
+  path: string;
+  kind: FractalPageKind;
+  title?: string | null;
+  text: string;
+  links: FractalLink[];
+  iframes: FractalIframe[];
 };
 
 export type FractalProject = {
   name: string;
   rootPath: string;
-  theme?: FractalTheme;
   pages: FractalPage[];
-  directories: string[];
-  activePagePath: string;
-  activePageBodyHtml: string;
-  activePageTitle: string;
-  activePageSummary: string | null;
-  activePageTags: string[];
-  activePageNotes: FractalNote[];
-  activePageLinks: FractalPageLink[];
-  activePageBacklinks: FractalGraphPageLink[];
-  activePageOutlinks: FractalGraphPageLink[];
+  activePagePath?: string | null;
+  activePageSource?: string | null;
+  activePageLinks: FractalLink[];
+  activePageBacklinks: FractalBacklink[];
+  activePageIframes: FractalIframe[];
+  activePageIframeBacklinks: FractalIframeBacklink[];
 };
 
 export type FractalProjectSummary = {
@@ -65,14 +73,7 @@ export type FractalProjectCatalog = {
 export type FractalCommandResult = {
   ok: boolean;
   message: string;
-  details?: string;
-};
-
-export type FractalPageUpdate = {
-  title: string;
-  bodyHtml: string;
-  summary: string;
-  tags: string[];
+  details?: string | null;
 };
 
 export type FractalClient = {
@@ -80,31 +81,9 @@ export type FractalClient = {
   createProject: (projectName: string) => Promise<FractalProject>;
   openProject: (directoryName: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
-  savePage: (project: FractalProject, update: FractalPageUpdate) => Promise<FractalProject>;
-  createPage: (project: FractalProject, pageTitle: string) => Promise<FractalProject>;
-  createDirectory: (
-    project: FractalProject,
-    parentPath: string,
-    directoryName: string
-  ) => Promise<FractalProject>;
-  deleteDirectory: (project: FractalProject, directoryPath: string) => Promise<FractalProject>;
-  renamePage: (
-    project: FractalProject,
-    pagePath: string,
-    nextPagePath: string
-  ) => Promise<FractalProject>;
+  writePage: (project: FractalProject, source: string) => Promise<FractalProject>;
+  createPage: (project: FractalProject, title: string) => Promise<FractalProject>;
+  movePage: (project: FractalProject, pagePath: string, destination: string) => Promise<FractalProject>;
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
-  addNote: (
-    project: FractalProject,
-    trigger: string,
-    content: string
-  ) => Promise<FractalProject>;
-  updateNote: (
-    project: FractalProject,
-    note: FractalNote,
-    content: string
-  ) => Promise<FractalProject>;
-  deleteNote: (project: FractalProject, note: FractalNote) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
-  buildIndex: (project: FractalProject) => Promise<FractalCommandResult>;
 };

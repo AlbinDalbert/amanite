@@ -1,52 +1,75 @@
-import type {
-  FractalGraphPageLink,
-  FractalNote,
-  FractalPageLink
-} from "@/lib/fractal/types";
+import type { FractalBacklink, FractalIframe, FractalIframeBacklink, FractalLink } from "@/lib/fractal/types";
 import InspectorSection from "./InspectorSection";
-import { uniqueInspectorItems } from "./editorText";
 
 type InspectorPanelProps = {
-  backlinks: FractalGraphPageLink[];
-  links: FractalPageLink[];
-  notes: FractalNote[];
-  outlinks: FractalGraphPageLink[];
+  backlinks: FractalBacklink[];
+  iframeBacklinks: FractalIframeBacklink[];
+  iframes: FractalIframe[];
+  links: FractalLink[];
+  onNavigatePage: (pagePath: string) => void;
 };
 
-function InspectorPanel({ backlinks, links, notes, outlinks }: InspectorPanelProps) {
-  const linkItems = uniqueInspectorItems(
-    links,
-    (link) => link.href,
-    (link) => `${link.text} -> ${link.href}`
-  );
-  const noteItems = notes.map((note) => `${note.label}: ${note.text || note.id}`);
-  const backlinkItems = backlinks.map((link) => `${link.text} <- ${link.page}`);
-  const outlinkItems = outlinks.map((link) => `${link.text} -> ${link.page}`);
+function iframeLabel(iframe: FractalIframe) {
+  return iframe.title?.trim() || iframe.src?.trim() || (iframe.target.kind === "inline" ? "Inline document" : "Untitled iframe");
+}
+
+function InspectorPanel({ backlinks, iframeBacklinks, iframes, links, onNavigatePage }: InspectorPanelProps) {
+  const internalLinks = links.filter((link) => link.target.kind === "internal");
+  const brokenLinks = links.filter((link) => link.target.kind === "broken");
 
   return (
-    <aside className="fractal-inspector" aria-label="Fractal page context">
+    <aside className="fractal-inspector" aria-label="Page links">
       <section className="fractal-inspector-card">
-        <p className="fractal-inspector-kicker">Context</p>
+        <p className="fractal-inspector-kicker">References</p>
         <dl className="fractal-stats">
-          <div>
-            <dt>Links</dt>
-            <dd>{linkItems.length}</dd>
-          </div>
-          <div>
-            <dt>Backlinks</dt>
-            <dd>{backlinks.length}</dd>
-          </div>
-          <div>
-            <dt>Notes</dt>
-            <dd>{notes.length}</dd>
-          </div>
+          <div><dt>Outgoing</dt><dd>{internalLinks.length}</dd></div>
+          <div><dt>Incoming</dt><dd>{backlinks.length}</dd></div>
+          <div><dt>Embeds</dt><dd>{iframes.length}</dd></div>
         </dl>
       </section>
-
-      <InspectorSection emptyLabel="No outgoing page links." items={outlinkItems} title="Outlinks" />
-      <InspectorSection emptyLabel="No backlinks yet." items={backlinkItems} title="Backlinks" />
-      <InspectorSection emptyLabel="No inline links." items={linkItems} title="HTML Links" />
-      <InspectorSection emptyLabel="No Fractal notes." items={noteItems} title="Notes" />
+      <InspectorSection
+        emptyLabel="No internal links."
+        items={internalLinks.map((link) => ({
+          label: link.text || link.href,
+          onSelect: () => onNavigatePage(link.target.value)
+        }))}
+        title="Outgoing"
+      />
+      <InspectorSection
+        emptyLabel="No backlinks."
+        items={backlinks.map((link) => ({
+          label: link.text || link.page,
+          onSelect: () => onNavigatePage(link.page)
+        }))}
+        title="Backlinks"
+      />
+      <InspectorSection
+        emptyLabel="No embedded documents."
+        items={iframes.map((iframe) => {
+          const target = iframe.target.kind === "internal" ? iframe.target.value : null;
+          return {
+            label: iframeLabel(iframe),
+            onSelect: target ? () => onNavigatePage(target) : undefined
+          };
+        })}
+        title="Iframes"
+      />
+      <InspectorSection
+        emptyLabel="This file is not embedded by another page."
+        items={iframeBacklinks.map((backlink) => ({
+          label: backlink.title?.trim() || backlink.page,
+          onSelect: () => onNavigatePage(backlink.page)
+        }))}
+        title="Embedded by"
+      />
+      <InspectorSection
+        emptyLabel="No broken links."
+        items={[
+          ...brokenLinks.map((link) => ({ label: link.href })),
+          ...iframes.filter((iframe) => iframe.target.kind === "broken" || iframe.target.kind === "missing").map((iframe) => ({ label: iframeLabel(iframe) }))
+        ]}
+        title="Broken"
+      />
     </aside>
   );
 }

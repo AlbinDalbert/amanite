@@ -1,89 +1,31 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
-import type {
-  FractalGraphPageLink,
-  FractalNote,
-  FractalPage,
-  FractalPageLink
-} from "@/lib/fractal/types";
-import EditorCanvas from "./EditorCanvas";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import type { FractalBacklink, FractalIframe, FractalIframeBacklink, FractalLink, FractalPageKind } from "@/lib/fractal/types";
 import InspectorPanel from "./InspectorPanel";
-import NoteContextMenu from "./NoteContextMenu";
-import NotePopover from "./NotePopover";
-import { useEditorLinkInteractions } from "./useEditorLinkInteractions";
-import { useNoteInteractions } from "./useNoteInteractions";
-import { useTagEditor } from "./useTagEditor";
+import { readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
+import RawHtmlEditor from "./RawHtmlEditor";
+import RichDocumentEditor from "./RichDocumentEditor";
 
 type FractalEditorProps = {
-  backlinks: FractalGraphPageLink[];
-  bodyHtml: string;
+  backlinks: FractalBacklink[];
   isBusy: boolean;
-  isDirty: boolean;
-  links: FractalPageLink[];
-  notes: FractalNote[];
-  outlinks: FractalGraphPageLink[];
-  pages: FractalPage[];
+  iframeBacklinks: FractalIframeBacklink[];
+  iframes: FractalIframe[];
+  kind: FractalPageKind;
+  links: FractalLink[];
   pagePath: string;
-  summary?: string | null;
-  tags: string[];
-  title: string;
-  onAddNote: (trigger: string, content: string) => void;
-  onDeleteNote: (note: FractalNote) => void;
-  onChangeBodyHtml: (bodyHtml: string) => void;
-  onChangeSummary: (summary: string) => void;
-  onChangeTags: (tags: string[]) => void;
-  onChangeTitle: (title: string) => void;
+  source: string;
+  onChangeSource: (source: string) => void;
   onNavigatePage: (pagePath: string) => void;
   onSave: () => void;
-  onUpdateNote: (note: FractalNote, content: string) => void;
 };
 
-function FractalEditor({
-  backlinks,
-  bodyHtml,
-  isBusy,
-  links,
-  notes,
-  outlinks,
-  pages,
-  pagePath,
-  summary,
-  tags,
-  title,
-  onAddNote,
-  onDeleteNote,
-  onChangeBodyHtml,
-  onChangeSummary,
-  onChangeTags,
-  onChangeTitle,
-  onNavigatePage,
-  onSave,
-  onUpdateNote
-}: FractalEditorProps) {
+function FractalEditor({ backlinks, isBusy, iframeBacklinks, iframes, kind, links, pagePath, source, onChangeSource, onNavigatePage, onSave }: FractalEditorProps) {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
-  const tagEditor = useTagEditor({ resetKey: pagePath, tags, onChangeTags });
-  const noteInteractions = useNoteInteractions({
-    resetKey: pagePath,
-    onAddNote,
-    onDeleteNote,
-    onUpdateNote
-  });
-  const editorLinkInteractions = useEditorLinkInteractions({
-    closeHoverPopover: noteInteractions.closeHoverPopover,
-    links,
-    notes,
-    onNavigatePage,
-    openNoteDetailAtAnchor: noteInteractions.openNoteDetailAtAnchor,
-    pagePath,
-    pages,
-    showHoverPopover: noteInteractions.showHoverPopover,
-    showNoteContextMenu: noteInteractions.showNoteContextMenu
-  });
+  const page = useMemo(() => readEditablePage(source), [source]);
 
-  useEffect(() => {
-    setIsInspectorOpen(false);
-  }, [pagePath]);
+  useEffect(() => setIsInspectorOpen(false), [pagePath]);
 
-  function handleEditorKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
       onSave();
@@ -91,54 +33,31 @@ function FractalEditor({
   }
 
   return (
-    <div
-      className={
-        isInspectorOpen
-          ? "fractal-editor rich-editor inspector-open"
-          : "fractal-editor rich-editor"
-      }
-      onClickCapture={editorLinkInteractions.handleEditorClick}
-      onContextMenu={editorLinkInteractions.handleEditorContextMenu}
-      onKeyDown={handleEditorKeyDown}
-      onMouseLeave={editorLinkInteractions.handleEditorMouseLeave}
-      onMouseMove={editorLinkInteractions.handleEditorMouseMove}
-    >
-      <EditorCanvas
-        bodyHtml={bodyHtml}
-        isBusy={isBusy}
-        isInspectorOpen={isInspectorOpen}
-        noteInteractions={noteInteractions}
-        notes={notes}
-        pagePath={pagePath}
-        summary={summary}
-        tagEditor={tagEditor}
-        tags={tags}
-        title={title}
-        onChangeBodyHtml={onChangeBodyHtml}
-        onChangeSummary={onChangeSummary}
-        onChangeTitle={onChangeTitle}
-        onDeleteNote={onDeleteNote}
-        onToggleInspector={() => setIsInspectorOpen((current) => !current)}
-      />
-
-      <NoteContextMenu
-        noteMenu={noteInteractions.noteMenu}
-        onAddNote={noteInteractions.handleAddNoteFromMenu}
-      />
-
-      <NotePopover
-        isBusy={isBusy}
-        notePopover={noteInteractions.notePopover}
-        notePopoverEditorRef={noteInteractions.notePopoverEditorRef}
-        onCancel={noteInteractions.cancelNotePopover}
-        onCommit={noteInteractions.commitNotePopover}
-        onDeleteNote={noteInteractions.deleteNoteFromPopover}
-        onKeyDown={noteInteractions.handleNotePopoverKeyDown}
-        onOpenNoteEditor={noteInteractions.openNoteEditor}
-        onUpdateDraft={noteInteractions.updateNotePopoverDraft}
-      />
-
-      <InspectorPanel backlinks={backlinks} links={links} notes={notes} outlinks={outlinks} />
+    <div className={isInspectorOpen ? "fractal-editor inspector-open" : "fractal-editor"} onKeyDown={handleKeyDown}>
+      {kind === "native" ? (
+        <RichDocumentEditor
+          bodyHtml={page.bodyHtml}
+          isBusy={isBusy}
+          pagePath={pagePath}
+          title={page.title}
+          onChangeBody={(bodyHtml) =>
+            onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading))
+          }
+          onChangeTitle={(title) =>
+            onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading))
+          }
+          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+        />
+      ) : (
+        <RawHtmlEditor
+          isBusy={isBusy}
+          pagePath={pagePath}
+          source={source}
+          onChangeSource={onChangeSource}
+          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+        />
+      )}
+      <InspectorPanel backlinks={backlinks} iframeBacklinks={iframeBacklinks} iframes={iframes} links={links} onNavigatePage={onNavigatePage} />
     </div>
   );
 }

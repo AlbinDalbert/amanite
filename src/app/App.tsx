@@ -78,7 +78,6 @@ function App() {
   const session = useFractalSession();
   const {
     activeProject,
-    busy,
     commandResult,
     confirmDialog,
     error,
@@ -91,21 +90,14 @@ function App() {
     ? [
         {
           disabled: isBusy || !hasUnsavedPageChanges,
-          label: "Save page + sync",
-          title: hasUnsavedPageChanges
-            ? "Save the active page and run Fractal sync."
-            : "No page changes to save.",
+          label: "Save page",
+          title: hasUnsavedPageChanges ? "Save the active page." : "No page changes to save.",
           onSelect: () => void session.saveActivePage()
         },
         {
-          disabled: busy.isRunningCommand,
+          disabled: isBusy,
           label: "Validate project",
-          onSelect: () => void session.runProjectCommand(fractalClient.validateProject)
-        },
-        {
-          disabled: busy.isRunningCommand,
-          label: "Build index",
-          onSelect: () => void session.runProjectCommand(fractalClient.buildIndex)
+          onSelect: () => void session.validateProject()
         }
       ]
     : [];
@@ -132,23 +124,14 @@ function App() {
           hasUnsavedPageChanges={hasUnsavedPageChanges}
           isBusy={isBusy}
           project={activeProject}
-          onBuildIndex={() => session.runProjectCommand(fractalClient.buildIndex)}
-          onChangePageBodyHtml={session.updateActivePageBodyHtml}
-          onChangePageSummary={session.updateActivePageSummary}
-          onChangePageTags={session.updateActivePageTags}
-          onChangePageTitle={session.updateActivePageTitle}
-          onCreateDirectory={session.createProjectDirectory}
+          onChangePageSource={session.updateActivePageSource}
           onCreatePage={session.createProjectPage}
-          onDeleteDirectory={session.deleteProjectDirectory}
           onDeletePage={session.deleteProjectPage}
-          onAddNote={session.addActivePageNote}
-          onDeleteNote={session.deleteActivePageNote}
           onDismissStatus={session.dismissStatus}
+          onMovePage={session.moveProjectPage}
           onOpenPage={session.openProjectPage}
-          onRenamePage={session.renameProjectPage}
-          onUpdateNote={session.updateActivePageNote}
           onSavePage={session.saveActivePage}
-          onValidate={() => session.runProjectCommand(fractalClient.validateProject)}
+          onValidate={session.validateProject}
         />
       )}
 

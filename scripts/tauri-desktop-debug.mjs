@@ -298,16 +298,24 @@ async function runSmoke(driver, screenshotsDir) {
   await driver.click("button.primary-action");
 
   await driver.find(".workspace", 30_000);
+  await driver.click(".empty-project .primary-action");
   await driver.find(".rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
 
-  await driver.setValue(".rich-title-input", `${projectName} Edited`);
+  await driver.setValue(".document-title-field input", projectName);
+  await driver.setValue(".rich-content-editable", "Saved from the desktop WebDriver smoke test.");
   await driver.ctrlS();
   await takeScreenshot(driver, screenshotsDir, "03-after-edit-save-shortcut");
 
+  await driver.click(".explorer-header button");
+  await driver.setValue(".create-page-dialog input", "My file");
+  await driver.click(".create-page-dialog .primary-action");
+  await driver.find('[title="my-file.fractal.html"]', 30_000);
+  await takeScreenshot(driver, screenshotsDir, "04-created-page");
+
   await driver.click(".editor-inspector-toggle");
   await driver.find(".fractal-inspector", 10_000);
-  await takeScreenshot(driver, screenshotsDir, "04-inspector");
+  await takeScreenshot(driver, screenshotsDir, "05-inspector");
 }
 
 function startApp({ appBinary, artifactsDir, port, projectRoot }) {

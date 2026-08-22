@@ -14,6 +14,5 @@
 - The `webdriver` Cargo feature is debug/test-only. Do not enable it for production builds.
 
 ## Fractal boundary
-- Production project/page persistence should go through Fractal APIs from the Tauri backend.
-- Avoid adding Amanite-side raw full-page HTML save/manipulation paths when Fractal can own them.
-- Lexical may still use body HTML fragments as the editor boundary for now, but saving should go through Fractal editor/update APIs.
+- Production project/page persistence goes through the `fractal::Project` API in the Tauri backend.
+- Amanite presents the page body through the rich editor, rebuilds the complete HTML document at that UI boundary, and persists it with `Project::write_page`; do not add a second durable page format.

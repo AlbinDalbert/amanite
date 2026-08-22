@@ -26,6 +26,8 @@
   --ember: #c95824;
   --ember-soft: rgba(201, 88, 36, 0.16);
 
+  --noise-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.78' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='.24'/%3E%3C/svg%3E");
+
   --success: #62ca86;
   --danger: #b33a2e;
 
@@ -73,4 +75,3 @@
 html {
   background: var(--bg-deep);
 }
-

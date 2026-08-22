@@ -32,10 +32,6 @@ function menuPosition(event: globalThis.MouseEvent, actionCount: number) {
 function menuSurfaceLabel(target: EventTarget | null) {
   const element = target instanceof HTMLElement ? target : null;
 
-  if (element?.closest(".rich-content-editable")) {
-    return "Editor surface";
-  }
-
   if (element?.closest("textarea, input, [contenteditable='true']")) {
     return "Text field";
   }
@@ -83,7 +79,7 @@ function UniversalContextMenu({ actions = [], children }: UniversalContextMenuPr
 
       if (
         element?.closest(
-          ".app-context-menu, .file-context-menu, .editor-context-menu, .note-popover"
+          ".app-context-menu, .file-context-menu"
         )
       ) {
         event.preventDefault();

@@ -16,7 +16,7 @@
   min-height: 36px;
   align-items: center;
   justify-content: flex-end;
-  background: linear-gradient(180deg, rgba(2, 2, 1, 0.62), transparent);
+  background: rgba(2, 2, 1, 0.54);
   padding: 4px 8px;
 }
 
@@ -28,26 +28,15 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--app-border-strong) 72%, transparent);
   background:
-    linear-gradient(90deg, rgba(242, 173, 50, 0.13), transparent 2px) 0 0 / 100% 100%,
+    var(--noise-texture),
     radial-gradient(circle at 10% 0%, rgba(242, 173, 50, 0.14), transparent 22rem),
     radial-gradient(circle at 100% 100%, rgba(201, 88, 36, 0.11), transparent 24rem),
-    linear-gradient(180deg, rgba(21, 17, 11, 0.88), rgba(6, 5, 3, 0.68));
+    rgba(10, 8, 5, 0.9);
+  background-blend-mode: soft-light, normal, normal, normal;
   box-shadow:
     0 34px 90px rgb(0 0 0 / 54%),
     inset 0 1px 0 rgba(255, 217, 120, 0.08);
   padding: clamp(28px, 4vw, 48px);
-}
-
-.start-panel::before {
-  position: absolute;
-  top: 22px;
-  right: 22px;
-  width: 118px;
-  height: 22px;
-  border-top: 1px solid rgba(242, 173, 50, 0.48);
-  border-bottom: 1px solid rgba(242, 173, 50, 0.18);
-  background: linear-gradient(90deg, transparent, rgba(242, 173, 50, 0.12));
-  content: "";
 }
 
 .start-panel::after {
@@ -178,16 +167,12 @@
   align-content: start;
   gap: 14px;
   border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
-  background:
-    linear-gradient(180deg, rgba(255, 217, 120, 0.04), transparent 34%),
-    rgba(5, 5, 4, 0.28);
+  background: rgba(5, 5, 4, 0.34);
   padding: 16px;
 }
 
 .create-project-section {
-  background:
-    linear-gradient(90deg, rgba(242, 173, 50, 0.08), transparent 54%),
-    rgba(5, 5, 4, 0.32);
+  background: rgba(8, 7, 4, 0.42);
 }
 
 .project-list-section {
@@ -239,9 +224,7 @@
   min-height: 44px;
   border: 1px solid var(--app-border);
   outline: none;
-  background:
-    linear-gradient(90deg, rgba(242, 173, 50, 0.055), transparent 42%),
-    #0c0b08;
+  background: #0c0b08;
   color: var(--app-text);
   font-family: var(--font-body);
   font-size: 0.92rem;
@@ -267,9 +250,7 @@
   max-height: 286px;
   overflow: auto;
   border: 1px solid var(--app-border);
-  background:
-    linear-gradient(180deg, rgba(242, 173, 50, 0.05), transparent 60%),
-    #0c0b08;
+  background: #0c0b08;
 }
 
 .project-option {
@@ -418,4 +399,3 @@
   background: var(--signal-soft);
   color: var(--app-accent-strong);
 }
-

@@ -1,6 +1,8 @@
+type InspectorItem = { label: string; onSelect?: () => void };
+
 type InspectorSectionProps = {
   emptyLabel: string;
-  items: string[];
+  items: InspectorItem[];
   title: string;
 };
 
@@ -10,13 +12,13 @@ function InspectorSection({ emptyLabel, items, title }: InspectorSectionProps) {
       <h3>{title}</h3>
       {items.length > 0 ? (
         <ul>
-          {items.map((item) => (
-            <li key={item}>{item}</li>
+          {items.map((item, index) => (
+            <li key={`${item.label}-${index}`}>
+              {item.onSelect ? <button onClick={item.onSelect} type="button">{item.label}</button> : item.label}
+            </li>
           ))}
         </ul>
-      ) : (
-        <p>{emptyLabel}</p>
-      )}
+      ) : <p>{emptyLabel}</p>}
     </section>
   );
 }
