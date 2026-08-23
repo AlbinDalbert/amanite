@@ -1,4 +1,5 @@
 import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
+import { APP_VERSION } from "@/app/appVersion";
 import {
   DEFAULT_APPEARANCE_SETTINGS,
   type AppearanceSettings,
@@ -173,7 +174,7 @@ function SettingsScreen({ settings, onChange, onClose, onCloseRequest }: Props) 
           </fieldset>
 
           <footer className="settings-footer">
-            <p>Stored locally in Amanite.</p>
+            <p>Amanite {APP_VERSION} · Stored locally</p>
             <button className="ghost-action" onClick={() => onChange(DEFAULT_APPEARANCE_SETTINGS)} type="button">Reset appearance</button>
           </footer>
         </section>
