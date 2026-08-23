@@ -165,17 +165,6 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    function handleSaveShortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
-      event.preventDefault();
-      void saveActivePageRef.current();
-      if (saveAuxiliaryPageRef.current) void saveAuxiliaryPageRef.current();
-    }
-    window.addEventListener("keydown", handleSaveShortcut);
-    return () => window.removeEventListener("keydown", handleSaveShortcut);
-  }, []);
-
-  useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       if (!hasUnsavedPageChanges && !hasAuxiliaryUnsavedChanges) return;
       event.preventDefault();
@@ -206,14 +195,9 @@ function App() {
 
   return (
     <UniversalContextMenu actions={contextMenuActions}>
-      {isSettingsOpen ? (
-        <SettingsScreen
-          settings={appearance.settings}
-          onChange={appearance.setSettings}
-          onClose={() => setIsSettingsOpen(false)}
-          onCloseRequest={() => void requestWindowClose()}
-        />
-      ) : !activeProject ? (
+      {!activeProject ? (isSettingsOpen ? (
+        <SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} />
+      ) : (
         <StartScreen
           error={error}
           isBusy={isBusy}
@@ -229,35 +213,37 @@ function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRefreshProjects={session.refreshProjectCatalog}
         />
-      ) : (
-        <Workspace
-          commandResult={commandResult}
-          error={error}
-          externalChangeDetected={session.externalChangeDetected}
-          isBusy={isBusy}
-          project={activeProject}
-          settings={appearance.settings}
-          saveState={session.saveState}
-          onChangePageSource={session.updateActivePageSource}
-          onCloseProject={session.closeProject}
-          onCloseRequest={() => void requestWindowClose()}
-          onCreatePage={session.createProjectPage}
-          onCreateFolder={session.createProjectFolder}
-          onDeletePage={session.deleteProjectPage}
-          onDeleteFolder={session.deleteProjectFolder}
-          onDuplicatePage={session.duplicateProjectPage}
-          onDismissStatus={session.dismissStatus}
-          onMovePage={session.moveProjectPage}
-          onOpenPage={session.openProjectPage}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onImportNativePage={session.importNativePage}
-          onReloadPage={session.reloadActivePage}
-          onRegisterAuxiliaryPage={registerAuxiliaryPage}
-          onRevealPage={session.revealPage}
-          onSavePage={session.saveActivePage}
-          onSearchProject={session.searchProject}
-          onValidate={session.validateProject}
-        />
+      )) : (
+        <>
+          <div className={isSettingsOpen ? "workspace-view settings-hidden" : "workspace-view"}>
+            <Workspace
+              commandResult={commandResult}
+              error={error}
+              initialPageDirty={hasUnsavedPageChanges}
+              isBusy={isBusy}
+              project={activeProject}
+              settings={appearance.settings}
+              onCloseProject={session.closeProject}
+              onCloseRequest={() => void requestWindowClose()}
+              onCreatePage={session.createProjectPage}
+              onCreateFolder={session.createProjectFolder}
+              onDeletePage={session.deleteProjectPage}
+              onDeleteFolder={session.deleteProjectFolder}
+              onDuplicatePage={session.duplicateProjectPage}
+              onDismissStatus={session.dismissStatus}
+              onMovePage={session.moveProjectPage}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onImportNativePage={session.importNativePage}
+              onProjectSnapshot={session.adoptProjectSnapshot}
+              onRegisterWorkspace={registerAuxiliaryPage}
+              onRequestConfirmation={session.requestConfirmation}
+              onRevealPage={session.revealPage}
+              onSearchProject={session.searchProject}
+              onValidate={session.validateProject}
+            />
+          </div>
+          {isSettingsOpen ? <SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /> : null}
+        </>
       )}
 
       {confirmDialog ? <ConfirmDialog {...confirmDialog} /> : null}

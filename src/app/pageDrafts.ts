@@ -36,10 +36,14 @@ export function readPageDraft(projectRoot: string, pagePath: string) {
 
 export function writePageDraft(project: FractalProject) {
   if (!project.activePagePath || project.activePageSource == null) return;
+  writePageDraftSource(project.rootPath, project.activePagePath, project.activePageSource);
+}
+
+export function writePageDraftSource(projectRoot: string, pagePath: string, source: string) {
   const draft: PageDraft = {
-    pagePath: project.activePagePath,
-    projectRoot: project.rootPath,
-    source: project.activePageSource,
+    pagePath,
+    projectRoot,
+    source,
     updatedAt: new Date().toISOString(),
     version: 1
   };

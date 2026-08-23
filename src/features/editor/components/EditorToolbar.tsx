@@ -14,7 +14,7 @@ import { relativePageHref } from "./pageLinks";
 
 type ButtonProps = { active?: boolean; disabled: boolean; label: string; title: string; onClick: () => void };
 function ToolButton({ active = false, disabled, label, title, onClick }: ButtonProps) {
-  return <button aria-pressed={active} className="rich-toolbar-button" disabled={disabled} onClick={onClick} title={title} type="button">{label}</button>;
+  return <button aria-label={title} aria-pressed={active} className="rich-toolbar-button" data-tool={title} disabled={disabled} onClick={onClick} title={title} type="button">{label}</button>;
 }
 
 function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pagePath: string; pages: FractalPage[] }) {
@@ -134,7 +134,6 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
           <ToolButton active={blockType === "h1"} disabled={disabled} label="H1" title="Heading 1" onClick={() => block("h1")} />
           <ToolButton active={blockType === "h2"} disabled={disabled} label="H2" title="Heading 2" onClick={() => block("h2")} />
           <ToolButton active={blockType === "quote"} disabled={disabled} label="Quote" title="Quote" onClick={() => block("quote")} />
-          <ToolButton active={blockType === "code"} disabled={disabled} label="Code block" title="Code block" onClick={codeBlock} />
         </div>
         <div className="rich-toolbar-group">
           <ToolButton active={blockType === "bullet"} disabled={disabled} label="• List" title="Bulleted list" onClick={() => editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)} />
@@ -142,6 +141,9 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
         </div>
       </div>
       {isMoreOpen ? <div className="rich-toolbar rich-toolbar-more" role="toolbar" aria-label="More formatting">
+        <div className="rich-toolbar-group">
+          <ToolButton active={blockType === "code"} disabled={disabled} label="Code block" title="Code block" onClick={codeBlock} />
+        </div>
         <div className="rich-toolbar-group">
           {(["h3", "h4", "h5", "h6"] as HeadingTagType[]).map((heading) => <ToolButton active={blockType === heading} disabled={disabled} key={heading} label={heading.toUpperCase()} title={`Heading ${heading.slice(1)}`} onClick={() => block(heading)} />)}
         </div>

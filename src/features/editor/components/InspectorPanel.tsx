@@ -38,23 +38,23 @@ function InspectorPanel({ backlinks, iframeBacklinks, iframes, links, outline, o
         items={outline.map((heading) => ({ label: `${"· ".repeat(Math.max(0, heading.level - 1))}${heading.label}`, onSelect: () => onNavigateHeading(heading.index) }))}
         title="Outline"
       />
-      <InspectorSection
+      {internalLinks.length ? <InspectorSection
         emptyLabel="No internal links."
         items={internalLinks.map((link) => ({
           label: link.text || link.href,
           onSelect: () => onNavigatePage(link.target.value)
         }))}
         title="Outgoing"
-      />
-      <InspectorSection
+      /> : null}
+      {backlinks.length ? <InspectorSection
         emptyLabel="No backlinks."
         items={backlinks.map((link) => ({
           label: link.text || link.page,
           onSelect: () => onNavigatePage(link.page)
         }))}
         title="Backlinks"
-      />
-      <InspectorSection
+      /> : null}
+      {iframes.length ? <InspectorSection
         emptyLabel="No embedded documents."
         items={iframes.map((iframe) => {
           const target = iframe.target.kind === "internal" ? iframe.target.value : null;
@@ -64,23 +64,24 @@ function InspectorPanel({ backlinks, iframeBacklinks, iframes, links, outline, o
           };
         })}
         title="Iframes"
-      />
-      <InspectorSection
+      /> : null}
+      {iframeBacklinks.length ? <InspectorSection
         emptyLabel="This file is not embedded by another page."
         items={iframeBacklinks.map((backlink) => ({
           label: backlink.title?.trim() || backlink.page,
           onSelect: () => onNavigatePage(backlink.page)
         }))}
         title="Embedded by"
-      />
-      <InspectorSection
+      /> : null}
+      {brokenLinks.length || iframes.some((iframe) => iframe.target.kind === "broken" || iframe.target.kind === "missing") ? <InspectorSection
         emptyLabel="No broken links."
         items={[
           ...brokenLinks.map((link) => ({ label: link.href })),
           ...iframes.filter((iframe) => iframe.target.kind === "broken" || iframe.target.kind === "missing").map((iframe) => ({ label: iframeLabel(iframe) }))
         ]}
         title="Broken"
-      />
+      /> : null}
+      {!internalLinks.length && !backlinks.length && !iframes.length && !iframeBacklinks.length && !brokenLinks.length ? <p className="inspector-empty-summary">No links or embeds on this page.</p> : null}
     </aside>
   );
 }

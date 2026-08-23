@@ -16,7 +16,7 @@ Native `.fractal.html` documents stay in the rich editor and never expose an HTM
 
 Amanite saves before changing pages and can autosave after 900 ms without typing. It keeps temporary recovery drafts for unsaved pages and watches the active file for changes made by another program. Recovery drafts contain the same complete HTML source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth. The app can restore the last project and page at launch.
 
-Tabs can be opened beside the current page with their split button or by dragging a tab into the editor. Both panes remain independently editable and save through Fractal. The center divider, project sidebar, and each reference inspector can be resized within practical limits.
+The workspace has two independent editor groups. Each group owns an ordered tab list, active page, and navigation history. Drag tabs within a group to reorder them, drag tabs between groups to move them, or drag a tab to the right edge to create the second group. Quick open, the page explorer, links, and Ctrl/Cmd+W act on the focused group. Dirty and conflicted files report their state on their own tabs. The center divider, project sidebar, and each reference inspector can be resized within practical limits.
 
 Useful shortcuts include `Ctrl/Cmd+S` to save, `Ctrl/Cmd+P` to quick-open, `Ctrl/Cmd+F` to find, `Ctrl/Cmd+H` to replace, `Ctrl/Cmd+K` to insert a link, `Ctrl/Cmd+B` to toggle the sidebar, `Ctrl/Cmd+\` to toggle focus mode, and `Ctrl/Cmd+Shift+T` to reopen a closed tab.
 

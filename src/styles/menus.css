@@ -54,6 +54,7 @@
 .fractal-inspector-section li { overflow-wrap: anywhere; }
 .fractal-inspector-section button { color: inherit; text-align: left; }
 .fractal-inspector-section button:hover { color: var(--project-accent); }
+.inspector-empty-summary { margin: 0; border-top: 1px solid var(--project-border); color: var(--project-muted); padding: 12px 2px; font-size: .75rem; }
 
 @media (max-width: 760px) {
   body { overflow: auto; }

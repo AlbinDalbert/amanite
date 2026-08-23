@@ -161,7 +161,7 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
 }
 
 .rich-toolbar-stack { display: grid; min-width: 0; flex: 1 1 auto; gap: 6px; overflow: hidden; }
-.rich-toolbar { display: flex; width: 100%; min-width: 0; align-items: center; justify-content: flex-start; gap: 8px; overflow-x: auto; }
+.rich-toolbar { display: flex; width: 100%; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 8px; overflow: visible; }
 .rich-toolbar-more { border-top: 1px solid color-mix(in srgb, var(--project-accent) 18%, var(--project-border)); padding-top: 6px; }
 .rich-toolbar-group { display: flex; flex: 0 0 auto; align-items: center; gap: 3px; }
 .rich-toolbar-group + .rich-toolbar-group { border-left: 1px solid var(--project-border); padding-left: 8px; }
@@ -198,8 +198,8 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--project-background) 42%, transparent);
 }
 
-.rich-toolbar-button[title="Italic"] { font-family: Georgia, serif; font-style: italic; }
-.rich-toolbar-button[title="Underline"] { text-decoration: underline; text-underline-offset: 2px; }
+.rich-toolbar-button[data-tool="Italic"] { font-family: Georgia, serif; font-style: italic; }
+.rich-toolbar-button[data-tool="Underline"] { text-decoration: underline; text-underline-offset: 2px; }
 .toolbar-divider { width: 1px; height: 22px; flex: 0 0 auto; background: var(--project-border); }
 .editor-inspector-toggle { text-transform: uppercase; letter-spacing: 0.08em; }
 

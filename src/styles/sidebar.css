@@ -4,13 +4,13 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
   overflow: hidden;
   border-right: 1px solid color-mix(in srgb, var(--app-border-strong) 76%, transparent);
   background: var(--sidebar-background);
   color: var(--app-muted);
   box-shadow: inset -1px 0 0 rgba(255, 217, 120, 0.055);
-  padding: 18px 12px;
+  padding: 10px 12px 14px;
 }
 
 .sidebar-resize-handle { position: absolute; z-index: 8 !important; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
@@ -27,6 +27,7 @@
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-height: 58px;
   padding: 0 6px;
 }
 .brand > button { color: var(--app-subtle); font: 750 .56rem/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
@@ -296,7 +297,8 @@
   text-overflow: ellipsis;
 }
 
-.file-tree-node { padding-left: calc(var(--tree-depth, 0) * 14px); }
+.file-tree-group.nested { margin-left: 14px; border-left: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); }
+.file-tree-group.nested > .file-tree-node > .explorer-row { padding-left: 7px; }
 .explorer-row.folder { color: var(--app-muted); }
 .explorer-row.folder:hover { color: var(--app-accent-strong); }
 .explorer-row.folder.drop-target { background: color-mix(in srgb, var(--app-accent) 18%, var(--sidebar-background)); color: var(--app-accent-strong); box-shadow: inset 2px 0 0 var(--app-accent); }
@@ -314,7 +316,7 @@
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   color: var(--app-subtle);
   padding: 2px 4px;
-  font: 800 0.52rem/1 var(--font-mono);
+  font: 800 0.6rem/1 var(--font-mono);
   letter-spacing: 0.06em;
 }
 

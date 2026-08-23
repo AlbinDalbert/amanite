@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
 
 type Props = {
@@ -20,10 +20,48 @@ type Props = {
 
 type Menu = { kind?: "folder" | "page"; path?: string; x: number; y: number };
 
+export type ExplorerEntry =
+  | { kind: "folder"; path: string; children: ExplorerEntry[] }
+  | { kind: "page"; path: string; page: FractalPage };
+
+export function compareExplorerEntries(a: ExplorerEntry, b: ExplorerEntry) {
+  const rank = (entry: ExplorerEntry) => entry.kind === "folder" ? 0 : entry.page.kind === "native" ? 1 : 2;
+  return rank(a) - rank(b) || a.path.localeCompare(b.path, undefined, { sensitivity: "base", numeric: true });
+}
+
+export function buildExplorerTree(folders: string[], pages: FractalPage[]) {
+  const roots: ExplorerEntry[] = [];
+  const folderNodes = new Map<string, Extract<ExplorerEntry, { kind: "folder" }>>();
+  const allFolders = new Set(folders);
+  for (const page of pages) {
+    const parts = page.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) allFolders.add(parts.slice(0, index).join("/"));
+  }
+  for (const path of [...allFolders].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))) {
+    const node: Extract<ExplorerEntry, { kind: "folder" }> = { kind: "folder", path, children: [] };
+    folderNodes.set(path, node);
+    const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
+    const parent = parentPath ? folderNodes.get(parentPath) : null;
+    (parent?.children ?? roots).push(node);
+  }
+  for (const page of pages) {
+    const parentPath = page.path.includes("/") ? page.path.slice(0, page.path.lastIndexOf("/")) : null;
+    const parent = parentPath ? folderNodes.get(parentPath) : null;
+    (parent?.children ?? roots).push({ kind: "page", path: page.path, page });
+  }
+  const sort = (entries: ExplorerEntry[]) => {
+    entries.sort(compareExplorerEntries);
+    for (const entry of entries) if (entry.kind === "folder") sort(entry.children);
+  };
+  sort(roots);
+  return roots;
+}
+
 function FileExplorer(props: Props) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const tree = useMemo(() => buildExplorerTree(props.folders, props.pages), [props.folders, props.pages]);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -39,10 +77,6 @@ function FileExplorer(props: Props) {
   }
 
   function run(action: () => void) { setMenu(null); action(); }
-  function isHidden(path: string) {
-    const parts = path.split("/");
-    return parts.slice(0, -1).some((_, index) => collapsedFolders.has(parts.slice(0, index + 1).join("/")));
-  }
   function toggleFolder(path: string) {
     setCollapsedFolders((current) => {
       const next = new Set(current);
@@ -59,6 +93,41 @@ function FileExplorer(props: Props) {
     if (pagePath) props.onDropPage(pagePath, folder);
   }
 
+  function renderEntries(entries: ExplorerEntry[]): ReactNode {
+    return entries.map((entry) => entry.kind === "folder" ? (
+      <li className="file-tree-node folder-node" key={`folder:${entry.path}`} role="treeitem" aria-expanded={!collapsedFolders.has(entry.path)}>
+        <button
+          className={dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}
+          onClick={() => toggleFolder(entry.path)}
+          onContextMenu={(event) => openMenu(event, entry.path, "folder")}
+          onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDropTarget(entry.path); }}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={(event) => dropPage(event, entry.path)}
+          title={entry.path}
+          type="button"
+        >
+          <span className={collapsedFolders.has(entry.path) ? "explorer-twist" : "explorer-twist open"} /><span className="explorer-icon folder" /><span className="explorer-name">{entry.path.split("/").at(-1)}</span>
+        </button>
+        {!collapsedFolders.has(entry.path) && entry.children.length ? <ul className="file-tree-group nested" role="group">{renderEntries(entry.children)}</ul> : null}
+      </li>
+    ) : (
+      <li className="file-tree-node" key={entry.path} role="treeitem" aria-selected={entry.path === props.activePagePath}>
+        <button
+          className={entry.path === props.activePagePath ? "explorer-row page active" : "explorer-row page"}
+          draggable={!props.isBusy}
+          onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-amanite-page", entry.path); }}
+          onDragEnd={() => setDropTarget(null)}
+          onClick={() => props.onSelectPage(entry.path)}
+          onContextMenu={(event) => openMenu(event, entry.path, "page")}
+          title={entry.path}
+          type="button"
+        >
+          <span className="explorer-twist" /><span className={`explorer-icon page ${entry.page.kind}`} /><span className="explorer-name">{entry.page.title || entry.path.split("/").at(-1)}</span><span className={`explorer-kind ${entry.page.kind}`}>{entry.page.kind === "native" ? "F" : "HTML"}</span>
+        </button>
+      </li>
+    ));
+  }
+
   return (
     <div
       className={dropTarget === "" ? "file-explorer-surface root-drop-target" : "file-explorer-surface"}
@@ -68,40 +137,7 @@ function FileExplorer(props: Props) {
       onDrop={(event) => dropPage(event)}
     >
       <ul className="file-tree-group root" role="tree" aria-label="Project pages">
-        {[...props.folders.map((path) => ({ kind: "folder" as const, path })), ...props.pages.map((page) => ({ kind: "page" as const, path: page.path, page }))]
-          .sort((a, b) => a.path.localeCompare(b.path))
-          .filter((entry) => !isHidden(entry.path))
-          .map((entry) => entry.kind === "folder" ? (
-          <li className="file-tree-node" key={`folder:${entry.path}`} role="treeitem" style={{ "--tree-depth": entry.path.split("/").length - 1 } as CSSProperties}>
-            <button
-              className={dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}
-              onClick={() => toggleFolder(entry.path)}
-              onContextMenu={(event) => openMenu(event, entry.path, "folder")}
-              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDropTarget(entry.path); }}
-              onDragLeave={() => setDropTarget(null)}
-              onDrop={(event) => dropPage(event, entry.path)}
-              title={entry.path}
-              type="button"
-            >
-              <span className={collapsedFolders.has(entry.path) ? "explorer-twist" : "explorer-twist open"} /><span className="explorer-icon folder" /><span className="explorer-name">{entry.path.split("/").at(-1)}</span>
-            </button>
-          </li>
-        ) : (
-          <li className="file-tree-node" key={entry.path} role="treeitem" aria-selected={entry.path === props.activePagePath} style={{ "--tree-depth": entry.path.split("/").length - 1 } as CSSProperties}>
-            <button
-              className={entry.path === props.activePagePath ? "explorer-row page active" : "explorer-row page"}
-              draggable={!props.isBusy}
-              onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-amanite-page", entry.path); }}
-              onDragEnd={() => setDropTarget(null)}
-              onClick={() => props.onSelectPage(entry.path)}
-              onContextMenu={(event) => openMenu(event, entry.path, "page")}
-              title={entry.path}
-              type="button"
-            >
-              <span className="explorer-twist" /><span className={`explorer-icon page ${entry.page.kind}`} /><span className="explorer-name">{entry.page.title || entry.path.split("/").at(-1)}</span><span className={`explorer-kind ${entry.page.kind}`}>{entry.page.kind === "native" ? "F" : "HTML"}</span>
-            </button>
-          </li>
-        ))}
+        {renderEntries(tree)}
       </ul>
       {menu ? (
         <div className="file-context-menu" role="menu" style={{ left: menu.x, top: menu.y } as CSSProperties}>

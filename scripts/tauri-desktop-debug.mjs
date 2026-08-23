@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -292,6 +292,38 @@ class DesktopWebDriverClient {
     });
   }
 
+  async ctrlW() {
+    await this.request("POST", this.sessionPath("/actions"), {
+      actions: [{
+        type: "key",
+        id: "keyboard",
+        actions: [
+          { type: "keyDown", value: ctrlKey },
+          { type: "keyDown", value: "w" },
+          { type: "keyUp", value: "w" },
+          { type: "keyUp", value: ctrlKey }
+        ]
+      }]
+    });
+  }
+
+  async ctrlShiftT() {
+    await this.request("POST", this.sessionPath("/actions"), {
+      actions: [{
+        type: "key",
+        id: "keyboard",
+        actions: [
+          { type: "keyDown", value: ctrlKey },
+          { type: "keyDown", value: "\uE008" },
+          { type: "keyDown", value: "t" },
+          { type: "keyUp", value: "t" },
+          { type: "keyUp", value: "\uE008" },
+          { type: "keyUp", value: ctrlKey }
+        ]
+      }]
+    });
+  }
+
   async executeScript(script, args = []) {
     const json = await this.request("POST", this.sessionPath("/execute/sync"), { script, args });
     return json.value;
@@ -327,13 +359,15 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
 
   const runSlug = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const projectName = `Desktop WebDriver ${runSlug}`;
+  const projectDirectory = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const activeProjectRoot = join(projectRoot, projectDirectory);
 
   await driver.setValue('input[placeholder="Field notes"]', projectName);
   await driver.click("button.primary-action");
 
   await driver.find(".workspace", 30_000);
-  await driver.click(".empty-project .primary-action");
-  await driver.find(".rich-content-editable", 30_000);
+  await driver.click(".editor-group-empty .primary-action");
+  await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
 
   await driver.click('.explorer-header button[title="Create folder"]');
@@ -349,8 +383,8 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.create-page-dialog .primary-action');
   await driver.find('[title="Field Notes/inside-folder.fractal.html"]', 30_000);
 
-  await driver.setValue(".document-title-field input", projectName);
-  await driver.setValue(".rich-content-editable", "Saved from the desktop WebDriver smoke test.");
+  await driver.setValue(".editor-tab-panel.active .document-title-field input", projectName);
+  await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved from the desktop WebDriver smoke test.");
   await driver.find(".save-state.unsaved");
   await driver.ctrlS();
   await driver.find(".save-state.saved");
@@ -374,22 +408,22 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     throw new Error(`Removed native controls are still visible: ${JSON.stringify(removedNativeControls)}`);
   }
 
-  await driver.setValue(".rich-content-editable", "Index");
-  await driver.find('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
+  await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Index");
+  await driver.find('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
   const derivedLinkShape = await driver.executeScript(`
-    const derived = document.querySelector('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
+    const derived = document.querySelector('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
     return { href: derived?.getAttribute('href'), role: derived?.getAttribute('role'), tagName: derived?.tagName };
   `);
   if (derivedLinkShape.href || derivedLinkShape.role !== "link" || derivedLinkShape.tagName !== "SPAN") {
     throw new Error(`Derived link became an anchor: ${JSON.stringify(derivedLinkShape)}`);
   }
-  await driver.click('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
-  await driver.find('.workspace-tab.active button[title="index.fractal.html"]', 30_000);
+  await driver.click('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
+  await driver.find('.editor-group-tab.active button[title="index.fractal.html"]', 30_000);
 
   await driver.click('[title="my-file.fractal.html"]');
-  await driver.find('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
+  await driver.find('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
   const derivedAfterReload = await driver.executeScript(`
-    const editor = document.querySelector('.rich-content-editable');
+    const editor = document.querySelector('.editor-tab-panel.active .rich-content-editable');
     return {
       derived: Boolean(editor?.querySelector('.rich-derived-link[data-amanite-derived-target="index.fractal.html"]')),
       explicit: Boolean(editor?.querySelector('a[href]'))
@@ -398,36 +432,82 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   if (!derivedAfterReload.derived || derivedAfterReload.explicit) {
     throw new Error(`Derived link persisted as an explicit link: ${JSON.stringify(derivedAfterReload)}`);
   }
-  await driver.selectAll(".rich-content-editable");
-  await driver.sendKeys(".rich-content-editable", "@Ind");
+  await driver.selectAll(".editor-tab-panel.active .rich-content-editable");
+  await driver.sendKeys(".editor-tab-panel.active .rich-content-editable", "@Ind");
   await driver.find(".page-link-menu button", 30_000);
   await takeScreenshot(driver, screenshotsDir, "04a-inline-page-link-picker");
   await driver.click(".page-link-menu button", 30_000);
-  await driver.find('.rich-content-editable a.rich-link[href]', 30_000);
+  await driver.find('.editor-tab-panel.active .rich-content-editable a.rich-link[href]', 30_000);
   const acceptedLink = await driver.executeScript(`
-    const anchor = document.querySelector('.rich-content-editable a.rich-link[href]');
+    const anchor = document.querySelector('.editor-tab-panel.active .rich-content-editable a.rich-link[href]');
     const dispatched = anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     return { dispatched, href: anchor.getAttribute('href') };
   `);
   if (!acceptedLink.href || acceptedLink.dispatched) throw new Error(`Accepted link was not handled: ${JSON.stringify(acceptedLink)}`);
-  await driver.find('.workspace-tab.active button[title="index.fractal.html"]', 30_000);
+  await driver.find('.editor-group-tab.active button[title="index.fractal.html"]', 30_000);
   await driver.click('[title="my-file.fractal.html"]');
-  await driver.find(".rich-content-editable", 30_000);
+  await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
+
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) {
+    await driver.click('.explorer-header button[title="Create page"]');
+    await driver.setValue(".create-page-dialog input", title);
+    await driver.click(".create-page-dialog .primary-action");
+    await driver.find(`[title="${title.toLowerCase()}.fractal.html"]`, 30_000);
+  }
 
   await driver.executeScript(`
-    const tab = document.querySelector('.workspace-tab [title="index.fractal.html"]')?.closest('.workspace-tab');
-    tab?.querySelector('.workspace-tab-split')?.click();
+    const tab = document.querySelector('.editor-group[data-group-id="left"] [title="index.fractal.html"]')?.closest('.editor-group-tab');
+    const transfer = new DataTransfer();
+    window.__amaniteSmokeTransfer = transfer;
+    tab?.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
   `);
-  await driver.find(".editor-stage.split", 30_000);
-  await driver.find(".editor-pane.secondary .rich-content-editable", 30_000);
-  await driver.setValue(".editor-pane.secondary .rich-content-editable", "Written in the right editor pane.");
-  await driver.find(".secondary-pane-controls small.unsaved");
+  await driver.find(".create-group-drop-zone", 30_000);
+  await driver.executeScript(`
+    const target = document.querySelector('.create-group-drop-zone');
+    const transfer = window.__amaniteSmokeTransfer;
+    target?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target?.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  `);
+  await driver.find('.editor-groups.split .editor-group[data-group-id="right"] [title="index.fractal.html"]', 30_000);
+
+  await driver.executeScript(`
+    const tab = document.querySelector('.editor-group[data-group-id="left"] [title="my-file.fractal.html"]')?.closest('.editor-group-tab');
+    const target = document.querySelector('.editor-group[data-group-id="right"] .editor-group-tabs');
+    const transfer = new DataTransfer();
+    tab?.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target?.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    tab?.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+  `);
+  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
+  const groupCounts = await driver.executeScript(`
+    return {
+      left: document.querySelectorAll('.editor-group[data-group-id="left"] .editor-group-tab').length,
+      right: document.querySelectorAll('.editor-group[data-group-id="right"] .editor-group-tab').length
+    };
+  `);
+  if (groupCounts.left < 4 || groupCounts.right !== 2) throw new Error(`Unexpected editor group tab counts: ${JSON.stringify(groupCounts)}`);
+
+  await driver.setValue('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable', "Local edit before an external change.");
+  const externalPagePath = join(activeProjectRoot, "pages", "my-file.fractal.html");
+  const externalSource = await readFile(externalPagePath, "utf8");
+  await writeFile(externalPagePath, externalSource.replace("</main>", "<p>External edit detected.</p></main>"));
+  await driver.find('.editor-group[data-group-id="right"] .document-buffer-alert.conflict', 10_000);
+  await driver.click('.editor-group[data-group-id="right"] .document-buffer-actions button:first-child');
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  await driver.setValue('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', "Written in the right editor group.");
+  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab-state.dirty');
   await takeScreenshot(driver, screenshotsDir, "04b-split-pane");
-  await driver.click('.secondary-pane-controls button[aria-label="Close right editor pane"]');
-  await driver.find(".editor-stage:not(.split)", 30_000);
+  await driver.ctrlW();
+  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="index.fractal.html"]', 30_000);
+  await driver.ctrlShiftT();
+  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
+  await driver.click('.editor-group[data-group-id="right"] .editor-group-close');
+  await driver.find(".editor-groups:not(.split)", 30_000);
   await takeScreenshot(driver, screenshotsDir, "04c-split-pane-closed");
 
-  await driver.click(".editor-inspector-toggle");
+  await driver.click(".editor-tab-panel.active .editor-inspector-toggle");
   await driver.find(".fractal-inspector", 10_000);
   await takeScreenshot(driver, screenshotsDir, "05-inspector");
 
@@ -448,7 +528,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".settings-back");
   await driver.find(".workspace");
 
-  await driver.click(".document-status-bar button:last-child");
+  await driver.click(".editor-tab-panel.active .document-status-bar button:last-child");
   await driver.find(".app-shell.focus-mode");
   const focusToolbarState = await driver.executeScript(`
     return {
@@ -459,23 +539,30 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   if (focusToolbarState.editor !== "none" || focusToolbarState.workspaceOpacity !== "0") {
     throw new Error(`Focus mode left a toolbar visible: ${JSON.stringify(focusToolbarState)}`);
   }
-  await driver.click(".document-status-bar button:last-child");
+  await driver.click(".editor-tab-panel.active .document-status-bar button:last-child");
   await driver.find(".app-shell:not(.focus-mode)");
 
-  await driver.setValue(".rich-content-editable", "Saved during a page switch.");
+  const editedPath = await driver.executeScript(`return document.querySelector('.editor-group.focused .editor-group-tab.active button[title]')?.getAttribute('title');`);
+  if (!editedPath) throw new Error("Focused editor group did not expose an active tab.");
+  await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved during a page switch.");
   await driver.find(".save-state.unsaved");
   await driver.click('[title="index.fractal.html"]');
+  await driver.find('.editor-group-tab.active [title="index.fractal.html"]');
+  await driver.click(`[title="${editedPath}"]`);
+  const switchedText = await driver.text(".editor-tab-panel.active .rich-content-editable");
+  if (!switchedText.includes("Saved during a page switch.")) {
+    throw new Error(`Page switch did not preserve the dirty buffer: ${switchedText}`);
+  }
+  await driver.ctrlS();
   await driver.find(".save-state.saved");
   await driver.click('[title="my-file.fractal.html"]');
-  const switchedText = await driver.text(".rich-content-editable");
-  if (!switchedText.includes("Saved during a page switch.")) {
-    throw new Error(`Page switch did not save the edit: ${switchedText}`);
-  }
-  await takeScreenshot(driver, screenshotsDir, "07-save-before-switch");
+  await takeScreenshot(driver, screenshotsDir, "07-buffer-after-switch");
 
-  const projectDirectory = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const activeProjectRoot = join(projectRoot, projectDirectory);
   const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title></head><body><main data-fractal-document><h1>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
+  await driver.executeScript(`
+    const tab = document.querySelector('.editor-group-tab [title="index.fractal.html"]')?.closest('.editor-group-tab');
+    tab?.querySelector('.editor-group-tab-close')?.click();
+  `);
   await driver.executeScript(`
     const [projectRoot, pagePath, source] = arguments;
     const key = "amanite.page-draft.v1:" + encodeURIComponent(projectRoot + "\\u0000" + pagePath);
@@ -485,7 +572,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".confirm-dialog");
   await driver.click(".confirm-dialog .primary-action");
   await driver.find(".save-state.unsaved");
-  const recoveredText = await driver.text(".rich-content-editable");
+  const recoveredText = await driver.text(".editor-tab-panel.active .rich-content-editable");
   if (!recoveredText.includes("Recovered from Amanite local storage.")) {
     throw new Error(`Draft recovery returned unexpected text: ${recoveredText}`);
   }
