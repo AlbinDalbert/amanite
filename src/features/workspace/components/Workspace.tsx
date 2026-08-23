@@ -13,7 +13,7 @@ type WorkspaceProps = {
   project: FractalProject;
   onChangePageSource: (source: string) => void;
   onCloseRequest: () => void;
-  onCreatePage: (title: string) => void;
+  onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFolder: (folderPath: string) => void;
   onDeletePage: (pagePath: string) => void;
   onDeleteFolder: (folderPath: string) => void;

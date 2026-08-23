@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
 
 type Props = {
@@ -6,11 +6,12 @@ type Props = {
   isBusy: boolean;
   folders: string[];
   pages: FractalPage[];
-  onCreateFolder: () => void;
-  onCreatePage: () => void;
+  onCreateFolder: (parent?: string) => void;
+  onCreatePage: (parent?: string) => void;
   onDeletePage: (path: string) => void;
   onDeleteFolder: (path: string) => void;
   onMovePage: (path: string) => void;
+  onDropPage: (path: string, folder?: string) => void;
   onSelectPage: (path: string) => void;
   onValidate: () => void;
 };
@@ -19,6 +20,8 @@ type Menu = { kind?: "folder" | "page"; path?: string; x: number; y: number };
 
 function FileExplorer(props: Props) {
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -34,22 +37,60 @@ function FileExplorer(props: Props) {
   }
 
   function run(action: () => void) { setMenu(null); action(); }
+  function isHidden(path: string) {
+    const parts = path.split("/");
+    return parts.slice(0, -1).some((_, index) => collapsedFolders.has(parts.slice(0, index + 1).join("/")));
+  }
+  function toggleFolder(path: string) {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
+  }
+
+  function dropPage(event: DragEvent, folder?: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    const pagePath = event.dataTransfer.getData("application/x-amanite-page");
+    setDropTarget(null);
+    if (pagePath) props.onDropPage(pagePath, folder);
+  }
 
   return (
-    <div className="file-explorer-surface" onContextMenu={(event) => openMenu(event)}>
+    <div
+      className={dropTarget === "" ? "file-explorer-surface root-drop-target" : "file-explorer-surface"}
+      onContextMenu={(event) => openMenu(event)}
+      onDragLeave={(event) => { if (event.currentTarget === event.target) setDropTarget(null); }}
+      onDragOver={(event) => { event.preventDefault(); setDropTarget(""); }}
+      onDrop={(event) => dropPage(event)}
+    >
       <ul className="file-tree-group root" role="tree" aria-label="Project pages">
         {[...props.folders.map((path) => ({ kind: "folder" as const, path })), ...props.pages.map((page) => ({ kind: "page" as const, path: page.path, page }))]
           .sort((a, b) => a.path.localeCompare(b.path))
+          .filter((entry) => !isHidden(entry.path))
           .map((entry) => entry.kind === "folder" ? (
           <li className="file-tree-node" key={`folder:${entry.path}`} role="treeitem" style={{ "--tree-depth": entry.path.split("/").length - 1 } as CSSProperties}>
-            <button className="explorer-row folder" onContextMenu={(event) => openMenu(event, entry.path, "folder")} title={entry.path} type="button">
-              <span className="explorer-twist open">⌄</span><span className="explorer-icon folder" /><span className="explorer-name">{entry.path.split("/").at(-1)}</span>
+            <button
+              className={dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}
+              onClick={() => toggleFolder(entry.path)}
+              onContextMenu={(event) => openMenu(event, entry.path, "folder")}
+              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDropTarget(entry.path); }}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={(event) => dropPage(event, entry.path)}
+              title={entry.path}
+              type="button"
+            >
+              <span className={collapsedFolders.has(entry.path) ? "explorer-twist" : "explorer-twist open"} /><span className="explorer-icon folder" /><span className="explorer-name">{entry.path.split("/").at(-1)}</span>
             </button>
           </li>
         ) : (
           <li className="file-tree-node" key={entry.path} role="treeitem" aria-selected={entry.path === props.activePagePath} style={{ "--tree-depth": entry.path.split("/").length - 1 } as CSSProperties}>
             <button
               className={entry.path === props.activePagePath ? "explorer-row page active" : "explorer-row page"}
+              draggable={!props.isBusy}
+              onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-amanite-page", entry.path); }}
+              onDragEnd={() => setDropTarget(null)}
               onClick={() => props.onSelectPage(entry.path)}
               onContextMenu={(event) => openMenu(event, entry.path, "page")}
               title={entry.path}
@@ -70,11 +111,13 @@ function FileExplorer(props: Props) {
             <div className="file-context-separator" />
           </> : null}
           {menu.kind === "folder" && menu.path ? <>
+            <button disabled={props.isBusy} onClick={() => run(() => props.onCreatePage(menu.path))} role="menuitem">New page here</button>
+            <button disabled={props.isBusy} onClick={() => run(() => props.onCreateFolder(menu.path))} role="menuitem">New subfolder</button>
             <button className="danger" disabled={props.isBusy} onClick={() => run(() => props.onDeleteFolder(menu.path!))} role="menuitem">Delete folder</button>
             <div className="file-context-separator" />
           </> : null}
-          <button disabled={props.isBusy} onClick={() => run(props.onCreatePage)} role="menuitem">Create page</button>
-          <button disabled={props.isBusy} onClick={() => run(props.onCreateFolder)} role="menuitem">Create folder</button>
+          {menu.kind !== "folder" ? <button disabled={props.isBusy} onClick={() => run(() => props.onCreatePage())} role="menuitem">Create page</button> : null}
+          {menu.kind !== "folder" ? <button disabled={props.isBusy} onClick={() => run(() => props.onCreateFolder())} role="menuitem">Create folder</button> : null}
           <div className="file-context-separator" />
           <button disabled={props.isBusy} onClick={() => run(props.onValidate)} role="menuitem">Validate project</button>
         </div>

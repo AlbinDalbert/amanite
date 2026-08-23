@@ -132,14 +132,14 @@ export function useFractalSession() {
     }
   }, [activeProject, hasUnsavedPageChanges, isBusy, withBusy]);
 
-  const createProjectPage = useCallback(async (title: string) => {
+  const createProjectPage = useCallback(async (title: string, folderPath?: string) => {
     if (!activeProject || isBusy || !title.trim()) return;
     let discardCurrentDraft = false;
     if (hasUnsavedPageChanges) {
       if (!(await confirm("Discard unsaved changes and create a page?", "Discard changes"))) return;
       discardCurrentDraft = true;
     }
-    const project = await withBusy("page", () => fractalClient.createPage(activeProject, title.trim()));
+    const project = await withBusy("page", () => fractalClient.createPage(activeProject, title.trim(), folderPath));
     if (project) {
       if (discardCurrentDraft) discardActiveDraft();
       await acceptLoadedProject(project);

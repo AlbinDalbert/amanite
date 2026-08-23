@@ -8,7 +8,7 @@ type SidebarProps = {
   folders: string[];
   pages: FractalPage[];
   projectName: string;
-  onCreatePage: (title: string) => void;
+  onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFolder: (folderPath: string) => void;
   onDeletePage: (pagePath: string) => void;
   onDeleteFolder: (folderPath: string) => void;
@@ -20,25 +20,28 @@ type SidebarProps = {
 
 function Sidebar(props: SidebarProps) {
   const [createTitle, setCreateTitle] = useState<string | null>(null);
-  const [createFolderPath, setCreateFolderPath] = useState<string | null>(null);
+  const [createParent, setCreateParent] = useState<string | null>(null);
+  const [createFolderName, setCreateFolderName] = useState<string | null>(null);
+  const [createFolderParent, setCreateFolderParent] = useState<string | null>(null);
   const [movePath, setMovePath] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isCreateDialogOpen = createTitle !== null;
 
   useEffect(() => {
-    if (!isCreateDialogOpen && createFolderPath === null && movePath === null) return;
+    if (!isCreateDialogOpen && createFolderName === null && movePath === null) return;
     const frame = requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     });
     return () => cancelAnimationFrame(frame);
-  }, [createFolderPath, isCreateDialogOpen, movePath]);
+  }, [createFolderName !== null, isCreateDialogOpen, movePath]);
 
   function submitCreate(event: FormEvent) {
     event.preventDefault();
-    if (createTitle?.trim()) props.onCreatePage(createTitle.trim());
+    if (createTitle?.trim()) props.onCreatePage(createTitle.trim(), createParent ?? undefined);
     setCreateTitle(null);
+    setCreateParent(null);
   }
 
   function submitMove(event: FormEvent) {
@@ -49,25 +52,34 @@ function Sidebar(props: SidebarProps) {
 
   function submitCreateFolder(event: FormEvent) {
     event.preventDefault();
-    if (createFolderPath?.trim()) props.onCreateFolder(createFolderPath.trim());
-    setCreateFolderPath(null);
+    if (createFolderName?.trim()) props.onCreateFolder([createFolderParent, createFolderName.trim()].filter(Boolean).join("/"));
+    setCreateFolderName(null);
+    setCreateFolderParent(null);
   }
+
+  function startCreatePage(folder?: string) { setCreateParent(folder ?? null); setCreateTitle("Untitled"); }
+  function startCreateFolder(folder?: string) { setCreateFolderParent(folder ?? null); setCreateFolderName("New folder"); }
 
   return (
     <aside className="sidebar" aria-label="File explorer">
       <div className="brand"><span className="brand-mark" aria-hidden="true" /><div><h1>Amanite</h1><p>{props.projectName}</p></div></div>
-      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => setCreateFolderPath("New folder")} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => setCreateTitle("Untitled")} title="Create page" type="button">+</button></div></div>
+      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button">+</button></div></div>
       <nav className="file-explorer" aria-label="Project files">
         <FileExplorer
           activePagePath={props.activePagePath}
           isBusy={props.isBusy}
           folders={props.folders}
           pages={props.pages}
-          onCreateFolder={() => setCreateFolderPath("New folder")}
-          onCreatePage={() => setCreateTitle("Untitled")}
+          onCreateFolder={startCreateFolder}
+          onCreatePage={startCreatePage}
           onDeletePage={props.onDeletePage}
           onDeleteFolder={props.onDeleteFolder}
           onMovePage={(path) => { setMovePath(path); setDestination(path); }}
+          onDropPage={(path, folder) => {
+            const fileName = path.split("/").at(-1)!;
+            const nextPath = folder ? `${folder}/${fileName}` : fileName;
+            if (nextPath !== path) props.onMovePage(path, nextPath);
+          }}
           onSelectPage={props.onSelectPage}
           onValidate={props.onValidate}
         />
@@ -86,13 +98,13 @@ function Sidebar(props: SidebarProps) {
           </form>
         </div>
       ) : null}
-      {createFolderPath !== null ? (
-        <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setCreateFolderPath(null)}>
+      {createFolderName !== null ? (
+        <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setCreateFolderName(null)}>
           <form className="create-page-dialog" onSubmit={submitCreateFolder} role="dialog" aria-modal="true">
             <div className="dialog-header"><p className="dialog-kicker">New directory</p><h2>Create folder</h2></div>
-            <label className="dialog-field"><span>Folder path</span><input ref={inputRef} value={createFolderPath} onChange={(event) => setCreateFolderPath(event.currentTarget.value)} /></label>
-            <p className="dialog-note">Use slashes to create nested folders.</p>
-            <div className="dialog-actions"><button className="ghost-action" onClick={() => setCreateFolderPath(null)} type="button">Cancel</button><button className="primary-action" type="submit">Create</button></div>
+            <label className="dialog-field"><span>Name</span><input ref={inputRef} value={createFolderName} onChange={(event) => setCreateFolderName(event.currentTarget.value)} /></label>
+            <p className="dialog-note">{createFolderParent ? `Inside ${createFolderParent}` : "At the project root"}</p>
+            <div className="dialog-actions"><button className="ghost-action" onClick={() => setCreateFolderName(null)} type="button">Cancel</button><button className="primary-action" type="submit">Create</button></div>
           </form>
         </div>
       ) : null}

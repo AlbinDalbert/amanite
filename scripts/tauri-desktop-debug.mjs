@@ -313,6 +313,19 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
 
+  await driver.click('.explorer-header button[title="Create folder"]');
+  await driver.setValue('.create-page-dialog input', "Field Notes");
+  await driver.click('.create-page-dialog .primary-action');
+  await driver.find('.explorer-row.folder[title="Field Notes"]', 30_000);
+  await driver.executeScript(`
+    const row = document.querySelector('.explorer-row.folder[title="Field Notes"]');
+    row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
+  `);
+  await driver.click('.file-context-menu button:nth-of-type(1)');
+  await driver.setValue('.create-page-dialog input', "Inside Folder");
+  await driver.click('.create-page-dialog .primary-action');
+  await driver.find('[title="Field Notes/inside-folder.fractal.html"]', 30_000);
+
   await driver.setValue(".document-title-field input", projectName);
   await driver.setValue(".rich-content-editable", "Saved from the desktop WebDriver smoke test.");
   await driver.find(".save-state.unsaved");

@@ -294,11 +294,20 @@ fn fractal_write_page(
 }
 
 #[tauri::command]
-fn fractal_create_page(project_root: String, title: String) -> Result<FractalProject, String> {
+fn fractal_create_page(
+    project_root: String,
+    title: String,
+    folder_path: Option<String>,
+) -> Result<FractalProject, String> {
     let mut project = open_mutable_project(&project_root)?;
-    let mutation = project
-        .create_page(&title)
-        .map_err(|error| format!("Could not create page: {error}"))?;
+    let mutation = if let Some(folder_path) = folder_path.filter(|path| !path.trim().is_empty()) {
+        let folder = relative_folder_path(&folder_path)?;
+        let file_name = format!("{}.fractal.html", project_directory_name(&title)?);
+        project.create_page_at(folder.join(file_name), &title)
+    } else {
+        project.create_page(&title)
+    }
+    .map_err(|error| format!("Could not create page: {error}"))?;
     let path = mutation
         .changed
         .first()

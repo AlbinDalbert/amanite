@@ -29,8 +29,9 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       source
     }),
-  createPage: (project, title) =>
+  createPage: (project, title, folderPath) =>
     invokeFractal<FractalProject>("fractal_create_page", {
+      folderPath,
       projectRoot: project.rootPath,
       title
     }),
