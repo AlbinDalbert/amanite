@@ -10,7 +10,9 @@ It follows Fractal's current contract directly:
 - links, backlinks, iframes, and iframe backlinks are derived when a project is opened;
 - there is no generated index, graph store, note primitive, metadata schema, theme contract, or sync step.
 
-Amanite can create and open projects, create/read/write/move/delete pages, inspect links and iframe references, and run Fractal validation. Native documents use the rich editor. Raw HTML uses a source editor so Amanite does not normalize author-owned markup. Both persist as complete HTML through Fractal.
+Amanite can create and open projects, manage page folders, create/read/write/move/delete pages, inspect links and iframe references, and run Fractal validation. Native `.fractal.html` documents use the rich editor. Ordinary `.html` files open as rendered documents and can be toggled to their complete HTML source. Internal links in rendered documents open their Fractal target in Amanite. Both editors persist complete HTML through Fractal. Amanite creates folders directly; when deleting one, it asks Fractal to delete each contained page before removing the directory.
+
+Amanite keeps temporary recovery drafts for unsaved pages and local appearance preferences in the desktop webview. Recovery drafts contain the same complete HTML source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth.
 
 ## Development
 
@@ -45,7 +47,7 @@ Artifacts are written below `artifacts/tauri-webdriver/`. See [`docs/tauri-webdr
 ```text
 src/app/                  session orchestration
 src/lib/fractal/          typed Tauri client and DTOs
-src/features/editor/      native rich editor, raw source editor, and reference inspector
+src/features/editor/      native rich editor, rendered HTML, source editor, and reference inspector
 src/features/workspace/   page list and workspace shell
 src-tauri/src/lib.rs      thin adapter over fractal::Project
 ```

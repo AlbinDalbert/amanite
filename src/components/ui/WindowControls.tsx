@@ -5,6 +5,7 @@ type WindowCommand = "close" | "fullscreen" | "minimize";
 
 type WindowControlsProps = {
   className?: string;
+  onCloseRequest?: () => void;
 };
 
 function hasTauriRuntime() {
@@ -70,7 +71,7 @@ export function handleWindowDragMouseDown(event: MouseEvent<HTMLElement>) {
   void appWindow.startDragging().catch(() => undefined);
 }
 
-function WindowControls({ className }: WindowControlsProps) {
+function WindowControls({ className, onCloseRequest }: WindowControlsProps) {
   const classNames = className ? `window-controls ${className}` : "window-controls";
 
   return (
@@ -96,7 +97,7 @@ function WindowControls({ className }: WindowControlsProps) {
       <button
         aria-label="Close window"
         className="window-control close"
-        onClick={() => runWindowCommandSafely("close")}
+        onClick={() => onCloseRequest ? onCloseRequest() : runWindowCommandSafely("close")}
         title="Close"
         type="button"
       >

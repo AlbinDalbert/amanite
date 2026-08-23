@@ -9,13 +9,18 @@ type WorkspaceProps = {
   error: string | null;
   hasUnsavedPageChanges: boolean;
   isBusy: boolean;
+  saveState: "saved" | "saving" | "unsaved";
   project: FractalProject;
   onChangePageSource: (source: string) => void;
+  onCloseRequest: () => void;
   onCreatePage: (title: string) => void;
+  onCreateFolder: (folderPath: string) => void;
   onDeletePage: (pagePath: string) => void;
+  onDeleteFolder: (folderPath: string) => void;
   onDismissStatus: () => void;
   onMovePage: (pagePath: string, destination: string) => void;
   onOpenPage: (pagePath: string) => void;
+  onOpenSettings: () => void;
   onSavePage: () => void;
   onValidate: () => void;
 };
@@ -30,10 +35,14 @@ function Workspace(props: WorkspaceProps) {
         activePagePath={project.activePagePath ?? null}
         isBusy={props.isBusy}
         pages={project.pages}
+        folders={project.folders}
         projectName={project.name}
         onCreatePage={props.onCreatePage}
+        onCreateFolder={props.onCreateFolder}
         onDeletePage={props.onDeletePage}
+        onDeleteFolder={props.onDeleteFolder}
         onMovePage={props.onMovePage}
+        onOpenSettings={props.onOpenSettings}
         onSelectPage={props.onOpenPage}
         onValidate={props.onValidate}
       />
@@ -42,6 +51,10 @@ function Workspace(props: WorkspaceProps) {
           activePagePath={project.activePagePath}
           activePageTitle={activePage?.title}
           activePageKind={activePage?.kind}
+          isBusy={props.isBusy}
+          onCloseRequest={props.onCloseRequest}
+          saveState={props.saveState}
+          onSave={props.onSavePage}
         />
         <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />
         <div className="editor-stage">

@@ -11,6 +11,7 @@ struct FractalProject {
     name: String,
     root_path: String,
     pages: Vec<fractal::Page>,
+    folders: Vec<String>,
     active_page_path: Option<String>,
     active_page_source: Option<String>,
     active_page_links: Vec<fractal::Link>,
@@ -134,7 +135,7 @@ fn list_project_summaries(root: &Path) -> Result<Vec<FractalProjectSummary>, Str
             projects.push(project_summary(path)?);
         }
     }
-    projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    projects.sort_by_key(|project| project.name.to_lowercase());
     Ok(projects)
 }
 
@@ -183,10 +184,12 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         None => (None, vec![], vec![], vec![], vec![]),
     };
 
+    let folders = list_page_folders(&root)?;
     Ok(FractalProject {
         name: project.manifest().name.clone(),
         root_path: root.to_string_lossy().into(),
         pages,
+        folders,
         active_page_path: active_path,
         active_page_source,
         active_page_links,
@@ -194,6 +197,50 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_iframes,
         active_page_iframe_backlinks,
     })
+}
+
+fn relative_folder_path(value: &str) -> Result<PathBuf, String> {
+    let path = Path::new(value.trim().trim_matches('/'));
+    if path.as_os_str().is_empty()
+        || path.extension().is_some()
+        || !path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err("Choose a folder name without an extension or parent path.".into());
+    }
+    Ok(path.to_path_buf())
+}
+
+fn list_page_folders(project_root: &Path) -> Result<Vec<String>, String> {
+    fn visit(root: &Path, directory: &Path, folders: &mut Vec<String>) -> Result<(), String> {
+        let entries = fs::read_dir(directory)
+            .map_err(|error| format!("Could not read folder {}: {error}", directory.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("Could not read folder entry: {error}"))?;
+            if entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+            {
+                let path = entry.path();
+                folders.push(
+                    path.strip_prefix(root)
+                        .map_err(|error| error.to_string())?
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+                visit(root, &path, folders)?;
+            }
+        }
+        Ok(())
+    }
+
+    let pages_root = project_root.join("pages");
+    let mut folders = vec![];
+    visit(&pages_root, &pages_root, &mut folders)?;
+    folders.sort_by_key(|folder| folder.to_lowercase());
+    Ok(folders)
 }
 
 fn open_mutable_project(root: &str) -> Result<fractal::Project, String> {
@@ -257,6 +304,57 @@ fn fractal_create_page(project_root: String, title: String) -> Result<FractalPro
         .first()
         .ok_or("Fractal did not return the new page path.")?;
     read_project(PathBuf::from(project_root), Some(&path.to_string_lossy()))
+}
+
+#[tauri::command]
+fn fractal_create_folder(
+    project_root: String,
+    folder_path: String,
+    active_page_path: Option<String>,
+) -> Result<FractalProject, String> {
+    let relative = relative_folder_path(&folder_path)?;
+    let root = PathBuf::from(&project_root);
+    open_mutable_project(&project_root)?;
+    let destination = root.join("pages").join(relative);
+    if destination.exists() {
+        return Err("That folder already exists.".into());
+    }
+    fs::create_dir_all(&destination)
+        .map_err(|error| format!("Could not create folder: {error}"))?;
+    read_project(root, active_page_path.as_deref())
+}
+
+#[tauri::command]
+fn fractal_delete_folder(
+    project_root: String,
+    folder_path: String,
+    active_page_path: Option<String>,
+) -> Result<FractalProject, String> {
+    let relative = relative_folder_path(&folder_path)?;
+    let prefix = format!("{}/", relative.to_string_lossy().replace('\\', "/"));
+    let root = PathBuf::from(&project_root);
+    let mut project = open_mutable_project(&project_root)?;
+    let page_paths = project
+        .pages()
+        .into_iter()
+        .map(|page| page.path)
+        .filter(|path| path.starts_with(&prefix))
+        .collect::<Vec<_>>();
+    for page_path in &page_paths {
+        project
+            .delete_page(page_path)
+            .map_err(|error| format!("Could not delete {page_path}: {error}"))?;
+    }
+    let destination = root.join("pages").join(&relative);
+    if !destination.is_dir() {
+        return Err("That folder does not exist.".into());
+    }
+    fs::remove_dir_all(&destination)
+        .map_err(|error| format!("Could not delete folder: {error}"))?;
+    let active = active_page_path
+        .as_deref()
+        .filter(|path| !path.starts_with(&prefix));
+    read_project(root, active)
 }
 
 #[tauri::command]
@@ -336,6 +434,8 @@ pub fn run() {
             fractal_open_page,
             fractal_write_page,
             fractal_create_page,
+            fractal_create_folder,
+            fractal_delete_folder,
             fractal_move_page,
             fractal_delete_page,
             fractal_validate_project,

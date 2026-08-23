@@ -3,6 +3,8 @@
   --font-body: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
   --font-document: "Cormorant Garamond", Georgia, serif;
+  --document-text-size: 1.17rem;
+  --noise-opacity: 0.28;
 
   --bg: #090805;
   --bg-deep: #020201;
@@ -67,6 +69,51 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
+
+:root[data-color-theme="moss"] {
+  --border: #29382d;
+  --border-strong: #536d57;
+  --surface: #0e1510;
+  --surface-2: #142019;
+  --surface-3: #1d2d22;
+  --surface-hot: #263c2b;
+  --text: #dce7d9;
+  --text-strong: #f2faee;
+  --muted: #94a791;
+  --dim: #536551;
+  --signal: #8fbd73;
+  --signal-strong: #c7e99d;
+  --signal-deep: #43613c;
+  --signal-soft: rgb(143 189 115 / 14%);
+  --signal-glow: rgb(143 189 115 / 30%);
+  --ember: #b87945;
+  --ember-soft: rgb(184 121 69 / 14%);
+  --sidebar-background: #050906;
+}
+
+:root[data-color-theme="ink"] {
+  --border: #29323d;
+  --border-strong: #526478;
+  --surface: #0d1117;
+  --surface-2: #141b24;
+  --surface-3: #1b2632;
+  --surface-hot: #243344;
+  --text: #dde5ed;
+  --text-strong: #f4f8fb;
+  --muted: #93a2b1;
+  --dim: #526170;
+  --signal: #79a8cb;
+  --signal-strong: #b8d9ef;
+  --signal-deep: #3c607c;
+  --signal-soft: rgb(121 168 203 / 14%);
+  --signal-glow: rgb(121 168 203 / 28%);
+  --ember: #9d6d69;
+  --ember-soft: rgb(157 109 105 / 14%);
+  --sidebar-background: #05070a;
+}
+
+:root[data-document-font="book"] { --font-document: Georgia, "Times New Roman", serif; }
+:root[data-document-font="sans"] { --font-document: "Bricolage Grotesque", ui-sans-serif, sans-serif; }
 
 * {
   box-sizing: border-box;

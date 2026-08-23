@@ -274,6 +274,17 @@ class DesktopWebDriverClient {
     });
   }
 
+  async executeScript(script, args = []) {
+    const json = await this.request("POST", this.sessionPath("/execute/sync"), { script, args });
+    return json.value;
+  }
+
+  async text(selector, timeout) {
+    const id = await this.find(selector, timeout);
+    const json = await this.request("GET", this.sessionPath(`/element/${id}/text`));
+    return json.value;
+  }
+
   async screenshot() {
     const json = await this.request("GET", this.sessionPath("/screenshot"));
     return json.value;
@@ -287,7 +298,7 @@ async function takeScreenshot(driver, screenshotsDir, name) {
   console.log(`screenshot: ${path}`);
 }
 
-async function runSmoke(driver, screenshotsDir) {
+async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".start-screen");
   await takeScreenshot(driver, screenshotsDir, "01-start-screen");
 
@@ -304,10 +315,12 @@ async function runSmoke(driver, screenshotsDir) {
 
   await driver.setValue(".document-title-field input", projectName);
   await driver.setValue(".rich-content-editable", "Saved from the desktop WebDriver smoke test.");
+  await driver.find(".save-state.unsaved");
   await driver.ctrlS();
+  await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "03-after-edit-save-shortcut");
 
-  await driver.click(".explorer-header button");
+  await driver.click('.explorer-header button[title="Create page"]');
   await driver.setValue(".create-page-dialog input", "My file");
   await driver.click(".create-page-dialog .primary-action");
   await driver.find('[title="my-file.fractal.html"]', 30_000);
@@ -316,6 +329,44 @@ async function runSmoke(driver, screenshotsDir) {
   await driver.click(".editor-inspector-toggle");
   await driver.find(".fractal-inspector", 10_000);
   await takeScreenshot(driver, screenshotsDir, "05-inspector");
+
+  await driver.click(".sidebar-settings");
+  await driver.find(".settings-screen");
+  await driver.click(".theme-option.moss");
+  await takeScreenshot(driver, screenshotsDir, "06-settings");
+  await driver.click(".settings-footer .ghost-action");
+  await driver.click(".settings-back");
+  await driver.find(".workspace");
+
+  await driver.setValue(".rich-content-editable", "Unsaved close guard check.");
+  await driver.find(".save-state.unsaved");
+  await driver.click(".window-control.close");
+  await driver.find(".confirm-dialog");
+  await driver.click(".confirm-dialog .ghost-action");
+  await driver.find(".workspace");
+  await driver.ctrlS();
+  await driver.find(".save-state.saved");
+  await takeScreenshot(driver, screenshotsDir, "07-close-guard-cancelled");
+
+  const projectDirectory = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const activeProjectRoot = join(projectRoot, projectDirectory);
+  const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title></head><body><main data-fractal-document><h1>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
+  await driver.executeScript(`
+    const [projectRoot, pagePath, source] = arguments;
+    const key = "amanite.page-draft.v1:" + encodeURIComponent(projectRoot + "\\u0000" + pagePath);
+    localStorage.setItem(key, JSON.stringify({ pagePath, projectRoot, source, updatedAt: new Date().toISOString(), version: 1 }));
+  `, [activeProjectRoot, "index.fractal.html", recoverySource]);
+  await driver.click('[title="index.fractal.html"]');
+  await driver.find(".confirm-dialog");
+  await driver.click(".confirm-dialog .primary-action");
+  await driver.find(".save-state.unsaved");
+  const recoveredText = await driver.text(".rich-content-editable");
+  if (!recoveredText.includes("Recovered from Amanite local storage.")) {
+    throw new Error(`Draft recovery returned unexpected text: ${recoveredText}`);
+  }
+  await driver.ctrlS();
+  await driver.find(".save-state.saved");
+  await takeScreenshot(driver, screenshotsDir, "08-recovered-draft");
 }
 
 function startApp({ appBinary, artifactsDir, port, projectRoot }) {
@@ -436,7 +487,7 @@ async function main() {
     await waitForWebDriver(options.port, appProcess);
     driver = new DesktopWebDriverClient(options.port);
     await driver.createSession();
-    await runSmoke(driver, artifactsDir);
+    await runSmoke(driver, artifactsDir, projectRoot);
 
     if (options.keepOpen) {
       await waitForEnter();

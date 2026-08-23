@@ -9,11 +9,17 @@ import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
+import { CodeNode } from "@lexical/code";
+import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
+import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
+import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin";
+import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { $getRoot } from "lexical";
-import { type PointerEvent, useMemo } from "react";
+import { type PointerEvent, useEffect, useMemo } from "react";
 import { editorLexicalTheme } from "./editorLexicalTheme";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
+import { IframeNode, ImageNode } from "./MediaNodes";
 
 type Props = {
   bodyHtml: string;
@@ -26,6 +32,12 @@ type Props = {
 };
 
 type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "title" | "onChangeBody" | "onChangeTitle">;
+
+function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => editor.setEditable(!isBusy), [editor, isBusy]);
+  return null;
+}
 
 function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
@@ -57,8 +69,11 @@ function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChange
             ErrorBoundary={LexicalErrorBoundary}
           />
           <HistoryPlugin />
+          <EditableStatePlugin isBusy={isBusy} />
           <ListPlugin />
           <LinkPlugin />
+          <HorizontalRulePlugin />
+          <TablePlugin />
           <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} />
         </div>
       </div>
@@ -69,7 +84,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChange
 function RichDocumentEditor({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
   const config = useMemo(() => ({
     namespace: `amanite-${pagePath}`,
-    nodes: [HeadingNode, LinkNode, ListItemNode, ListNode, QuoteNode],
+    nodes: [CodeNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
     onError(error: Error) { throw error; },
     theme: editorLexicalTheme
   }), [pagePath]);
@@ -78,7 +93,7 @@ function RichDocumentEditor({ bodyHtml, isBusy, pagePath, title, onChangeBody, o
     <section className="rich-document-shell" aria-label="Rich text editor">
       <LexicalComposer initialConfig={config} key={pagePath}>
         <header className="rich-editor-header">
-          <EditorToolbar />
+          <EditorToolbar disabled={isBusy} />
           <span className="toolbar-divider" />
           <button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button>
         </header>

@@ -1,16 +1,21 @@
-import { useEffect, useRef } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useRef, useState } from "react";
 import UniversalContextMenu, {
   type UniversalContextMenuAction
 } from "@/components/ui/UniversalContextMenu";
 import StartScreen from "@/features/project-open/components/StartScreen";
+import SettingsScreen from "@/features/settings/components/SettingsScreen";
 import Workspace from "@/features/workspace/components/Workspace";
 import { fractalClient } from "@/lib/fractal/client";
 import { useFractalSession } from "./useFractalSession";
+import { useAppearanceSettings } from "./useAppearanceSettings";
 
 function ConfirmDialog({
+  confirmLabel,
   message,
   onAnswer
 }: {
+  confirmLabel: string;
   message: string;
   onAnswer: (confirmed: boolean) => void;
 }) {
@@ -66,7 +71,7 @@ function ConfirmDialog({
             ref={continueButtonRef}
             type="button"
           >
-            Continue
+            {confirmLabel}
           </button>
         </div>
       </section>
@@ -76,6 +81,9 @@ function ConfirmDialog({
 
 function App() {
   const session = useFractalSession();
+  const appearance = useAppearanceSettings();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const allowCloseRef = useRef(false);
   const {
     activeProject,
     commandResult,
@@ -85,6 +93,70 @@ function App() {
     isBusy,
     projectCatalog
   } = session;
+  const hasUnsavedRef = useRef(hasUnsavedPageChanges);
+  const requestConfirmationRef = useRef(session.requestConfirmation);
+  const discardActiveDraftRef = useRef(session.discardActiveDraft);
+  const saveActivePageRef = useRef(session.saveActivePage);
+  hasUnsavedRef.current = hasUnsavedPageChanges;
+  requestConfirmationRef.current = session.requestConfirmation;
+  discardActiveDraftRef.current = session.discardActiveDraft;
+  saveActivePageRef.current = session.saveActivePage;
+
+  const requestWindowClose = useCallback(async () => {
+    if (hasUnsavedRef.current) {
+      const shouldDiscard = await requestConfirmationRef.current("Close Amanite and discard unsaved changes?", "Discard and close");
+      if (!shouldDiscard) return;
+      discardActiveDraftRef.current();
+    }
+    allowCloseRef.current = true;
+    if ("__TAURI_INTERNALS__" in window) await getCurrentWindow().close();
+    else window.close();
+  }, []);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+
+    void appWindow.onCloseRequested(async (event) => {
+      if (allowCloseRef.current || !hasUnsavedRef.current) return;
+      event.preventDefault();
+      const shouldDiscard = await requestConfirmationRef.current("Close Amanite and discard unsaved changes?", "Discard and close");
+      if (!shouldDiscard) return;
+      discardActiveDraftRef.current();
+      allowCloseRef.current = true;
+      await appWindow.close();
+    }).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleSaveShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      void saveActivePageRef.current();
+    }
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  }, []);
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasUnsavedPageChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedPageChanges]);
 
   const contextMenuActions: UniversalContextMenuAction[] = activeProject
     ? [
@@ -104,10 +176,18 @@ function App() {
 
   return (
     <UniversalContextMenu actions={contextMenuActions}>
-      {!activeProject ? (
+      {isSettingsOpen ? (
+        <SettingsScreen
+          settings={appearance.settings}
+          onChange={appearance.setSettings}
+          onClose={() => setIsSettingsOpen(false)}
+          onCloseRequest={() => void requestWindowClose()}
+        />
+      ) : !activeProject ? (
         <StartScreen
           error={error}
           isBusy={isBusy}
+          onCloseRequest={() => void requestWindowClose()}
           projectCatalog={projectCatalog}
           onCreateProject={(projectName) =>
             session.loadProject(() => fractalClient.createProject(projectName))
@@ -115,6 +195,7 @@ function App() {
           onOpenProject={(directoryName) =>
             session.loadProject(() => fractalClient.openProject(directoryName))
           }
+          onOpenSettings={() => setIsSettingsOpen(true)}
           onRefreshProjects={session.refreshProjectCatalog}
         />
       ) : (
@@ -124,12 +205,17 @@ function App() {
           hasUnsavedPageChanges={hasUnsavedPageChanges}
           isBusy={isBusy}
           project={activeProject}
+          saveState={session.saveState}
           onChangePageSource={session.updateActivePageSource}
+          onCloseRequest={() => void requestWindowClose()}
           onCreatePage={session.createProjectPage}
+          onCreateFolder={session.createProjectFolder}
           onDeletePage={session.deleteProjectPage}
+          onDeleteFolder={session.deleteProjectFolder}
           onDismissStatus={session.dismissStatus}
           onMovePage={session.moveProjectPage}
           onOpenPage={session.openProjectPage}
+          onOpenSettings={() => setIsSettingsOpen(true)}
           onSavePage={session.saveActivePage}
           onValidate={session.validateProject}
         />

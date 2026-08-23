@@ -5,12 +5,7 @@
   min-width: 0;
   min-height: 100vh;
   overflow: hidden;
-  background:
-    var(--noise-texture),
-    radial-gradient(circle at 76% 0%, color-mix(in srgb, var(--project-accent) 18%, transparent), transparent 29rem),
-    radial-gradient(circle at 28% 100%, rgba(201, 88, 36, 0.11), transparent 28rem),
-    color-mix(in srgb, var(--project-background) 94%, #000);
-  background-blend-mode: soft-light, normal, normal, normal;
+  background: color-mix(in srgb, var(--project-background) 94%, #000);
 }
 
 .workspace-toolbar {
@@ -88,6 +83,60 @@
 
 .workspace-tab-kind.native { color: var(--app-accent); }
 .workspace-tab-kind.raw { color: #aab4b8; }
+
+.workspace-save-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.save-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--app-subtle);
+  font: 700 0.6rem/1 var(--font-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.save-state i {
+  width: 6px;
+  height: 6px;
+  border: 1px solid currentColor;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.save-state.unsaved { color: var(--app-accent-strong); }
+.save-state.saving { color: var(--success); }
+.save-state.saving i { animation: save-pulse 800ms ease-in-out infinite alternate; }
+
+.workspace-save-button {
+  min-width: 56px;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 46%, var(--app-border));
+  background: color-mix(in srgb, var(--app-accent) 9%, var(--app-panel));
+  color: var(--app-accent-strong);
+  font: 800 0.62rem/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-save-button:hover:not(:disabled),
+.workspace-save-button:focus-visible:not(:disabled) {
+  border-color: var(--app-accent);
+  background: var(--signal-soft);
+}
+
+.workspace-save-button:disabled { color: var(--app-subtle); }
+
+@keyframes save-pulse {
+  from { opacity: 0.32; }
+  to { opacity: 1; }
+}
+
 
 .window-controls {
   display: flex;

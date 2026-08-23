@@ -9,7 +9,9 @@ type StartScreenProps = {
   isBusy: boolean;
   projectCatalog: FractalProjectCatalog | null;
   onCreateProject: (projectName: string) => void;
+  onCloseRequest: () => void;
   onOpenProject: (directoryName: string) => void;
+  onOpenSettings: () => void;
   onRefreshProjects: () => void;
 };
 
@@ -18,7 +20,9 @@ function StartScreen({
   isBusy,
   projectCatalog,
   onCreateProject,
+  onCloseRequest,
   onOpenProject,
+  onOpenSettings,
   onRefreshProjects
 }: StartScreenProps) {
   const [projectName, setProjectName] = useState("");
@@ -47,7 +51,8 @@ function StartScreen({
         data-tauri-drag-region
         onMouseDown={handleWindowDragMouseDown}
       >
-        <WindowControls />
+        <button className="start-settings-button" onClick={onOpenSettings} type="button">Settings</button>
+        <WindowControls onCloseRequest={onCloseRequest} />
       </div>
 
       <section className="start-panel" aria-labelledby="start-title">

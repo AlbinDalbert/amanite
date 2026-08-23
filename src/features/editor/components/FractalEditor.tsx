@@ -3,6 +3,7 @@ import type { FractalBacklink, FractalIframe, FractalIframeBacklink, FractalLink
 import InspectorPanel from "./InspectorPanel";
 import { readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
 import RawHtmlEditor from "./RawHtmlEditor";
+import RenderedHtmlPage from "./RenderedHtmlPage";
 import RichDocumentEditor from "./RichDocumentEditor";
 
 type FractalEditorProps = {
@@ -21,9 +22,13 @@ type FractalEditorProps = {
 
 function FractalEditor({ backlinks, isBusy, iframeBacklinks, iframes, kind, links, pagePath, source, onChangeSource, onNavigatePage, onSave }: FractalEditorProps) {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  const [isSourceMode, setIsSourceMode] = useState(false);
   const page = useMemo(() => readEditablePage(source), [source]);
 
-  useEffect(() => setIsInspectorOpen(false), [pagePath]);
+  useEffect(() => {
+    setIsInspectorOpen(false);
+    setIsSourceMode(false);
+  }, [pagePath]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
@@ -48,12 +53,22 @@ function FractalEditor({ backlinks, isBusy, iframeBacklinks, iframes, kind, link
           }
           onToggleInspector={() => setIsInspectorOpen((open) => !open)}
         />
-      ) : (
+      ) : isSourceMode ? (
         <RawHtmlEditor
           isBusy={isBusy}
           pagePath={pagePath}
           source={source}
           onChangeSource={onChangeSource}
+          onPreview={() => setIsSourceMode(false)}
+          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+        />
+      ) : (
+        <RenderedHtmlPage
+          links={links}
+          pagePath={pagePath}
+          source={source}
+          onEditSource={() => setIsSourceMode(true)}
+          onNavigatePage={onNavigatePage}
           onToggleInspector={() => setIsInspectorOpen((open) => !open)}
         />
       )}

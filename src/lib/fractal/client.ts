@@ -34,6 +34,18 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       title
     }),
+  createFolder: (project, folderPath) =>
+    invokeFractal<FractalProject>("fractal_create_folder", {
+      activePagePath: project.activePagePath,
+      folderPath,
+      projectRoot: project.rootPath
+    }),
+  deleteFolder: (project, folderPath) =>
+    invokeFractal<FractalProject>("fractal_delete_folder", {
+      activePagePath: project.activePagePath,
+      folderPath,
+      projectRoot: project.rootPath
+    }),
   movePage: (project, pagePath, destination) =>
     invokeFractal<FractalProject>("fractal_move_page", {
       activePagePath: project.activePagePath,

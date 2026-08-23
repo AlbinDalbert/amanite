@@ -7,11 +7,7 @@
   gap: 22px;
   overflow: hidden;
   border-right: 1px solid color-mix(in srgb, var(--app-border-strong) 76%, transparent);
-  background:
-    var(--noise-texture),
-    radial-gradient(circle at 0% 8%, rgba(242, 173, 50, 0.12), transparent 16rem),
-    var(--sidebar-background);
-  background-blend-mode: soft-light, normal, normal;
+  background: var(--sidebar-background);
   color: var(--app-muted);
   box-shadow: inset -1px 0 0 rgba(255, 217, 120, 0.055);
   padding: 18px 12px;
@@ -33,7 +29,6 @@
   font-weight: 800;
   letter-spacing: 0.09em;
   line-height: 1;
-  text-shadow: 0 0 18px rgba(242, 173, 50, 0.1);
   text-transform: uppercase;
 }
 
@@ -70,6 +65,7 @@
   place-items: center;
   color: var(--app-accent);
 }
+.explorer-header-actions { display: flex; align-items: center; gap: 2px; }
 
 .explorer-header button:hover {
   background: var(--sidebar-hover);
@@ -82,6 +78,25 @@
   min-height: 0;
   overflow: auto;
 }
+
+.sidebar-settings {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+  color: var(--app-muted);
+  padding: 11px 7px 2px;
+  text-align: left;
+}
+
+.sidebar-settings:hover,
+.sidebar-settings:focus-visible { color: var(--app-accent-strong); outline: none; }
+.sidebar-settings > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.sidebar-settings strong { color: inherit; font: 800 0.68rem/1.2 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.sidebar-settings small { overflow: hidden; color: var(--app-subtle); font-size: 0.7rem; text-overflow: ellipsis; white-space: nowrap; }
+.settings-glyph { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--app-border); color: var(--app-accent); }
 
 .file-explorer-surface {
   min-height: 100%;
@@ -266,6 +281,18 @@
   line-height: 1.2;
   text-overflow: ellipsis;
 }
+
+.file-tree-node { padding-left: calc(var(--tree-depth, 0) * 14px); }
+.explorer-row.folder { color: var(--app-muted); }
+.explorer-row.folder:hover { color: var(--app-accent-strong); }
+.explorer-icon.folder {
+  width: 14px;
+  height: 10px;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.explorer-icon.folder::before { position: absolute; top: -4px; left: 1px; width: 6px; height: 3px; border: 1px solid currentColor; border-bottom: 0; content: ""; }
+.explorer-row.folder .explorer-twist::before { transform: rotate(90deg); }
 
 .explorer-kind {
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);

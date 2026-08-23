@@ -13,9 +13,7 @@
   width: min(460px, 100%);
   gap: 18px;
   border: 1px solid var(--app-border-strong);
-  background:
-    radial-gradient(circle at 0% 0%, rgba(242, 173, 50, 0.12), transparent 16rem),
-    linear-gradient(180deg, #161108, #090806);
+  background: linear-gradient(180deg, #161108, #090806);
   color: var(--app-text);
   padding: 22px;
   box-shadow:
@@ -105,4 +103,3 @@
 .dialog-actions .ghost-action {
   min-height: 36px;
 }
-

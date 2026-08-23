@@ -4,7 +4,10 @@ import { $createParagraphNode, $getRoot, type LexicalEditor } from "lexical";
 export const AMANITE_HTML_LOAD_TAG = "amanite-html-load";
 
 const ALLOWED_ELEMENTS = new Set([
-  "a", "blockquote", "br", "code", "em", "h1", "h2", "h3", "li", "ol", "p", "pre", "s", "strong", "u", "ul"
+  "a", "abbr", "b", "blockquote", "br", "caption", "cite", "code", "col", "colgroup", "del", "em",
+  "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "iframe", "img", "ins",
+  "kbd", "li", "mark", "ol", "p", "pre", "q", "s", "samp", "small", "span", "strong", "sub", "sup",
+  "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var"
 ]);
 
 function unwrap(element: Element) {
@@ -24,7 +27,14 @@ export function cleanEditorHtml(html: string) {
       continue;
     }
     for (const attribute of Array.from(element.attributes)) {
-      if (tag !== "a" || attribute.name !== "href") element.removeAttribute(attribute.name);
+      const allowed = tag === "a" ? ["href", "title"]
+        : tag === "img" ? ["src", "alt", "title", "width", "height"]
+        : tag === "iframe" ? ["src", "srcdoc", "title", "sandbox", "width", "height"]
+        : tag === "time" ? ["datetime"]
+        : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
+        : tag === "col" || tag === "colgroup" ? ["span"]
+        : [];
+      if (!allowed.includes(attribute.name)) element.removeAttribute(attribute.name);
     }
   }
   return template.innerHTML || "<p></p>";

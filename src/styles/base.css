@@ -3,21 +3,18 @@ body {
   min-height: 100vh;
   margin: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 80% 4%, rgba(242, 173, 50, 0.2), transparent 29rem),
-    radial-gradient(circle at 15% 88%, rgba(201, 88, 36, 0.14), transparent 34rem),
-    var(--bg-deep);
+  background: var(--bg-deep);
 }
 
 body::before {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 1000;
   pointer-events: none;
   content: "";
   background-image: var(--noise-texture);
   mix-blend-mode: soft-light;
-  opacity: 0.28;
+  opacity: var(--noise-opacity);
 }
 
 #root {
