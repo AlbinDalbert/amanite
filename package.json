@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:build:appimage": "NO_STRIP=1 tauri build --bundles appimage",
     "tauri:webdriver:doctor": "node scripts/tauri-desktop-debug.mjs --doctor",
     "tauri:webdriver:smoke": "node scripts/tauri-desktop-debug.mjs",
     "tauri:webdriver:open": "node scripts/tauri-desktop-debug.mjs --keep-open"

@@ -946,6 +946,7 @@ dependencies = [
 [[package]]
 name = "fractal"
 version = "0.1.0"
+source = "git+https://github.com/AlbinDalbert/fractal?branch=main#795f98f4a4880b0287c30c37bbd031ea154e60f8"
 dependencies = [
  "brik",
  "serde",

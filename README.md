@@ -1,6 +1,6 @@
 # Amanite
 
-Amanite is a small Tauri desktop editor for [Fractal](../fractal) projects.
+Amanite is a small Tauri desktop editor for [Fractal](https://github.com/AlbinDalbert/fractal) projects.
 
 It follows Fractal's current contract directly:
 
@@ -27,6 +27,23 @@ pnpm install
 pnpm run build
 pnpm run tauri:dev
 ```
+
+The Fractal Rust crate is fetched from its `main` branch on GitHub during the
+Rust build. A sibling Fractal checkout is not required.
+
+## Install on Linux
+
+Build the AppImage with:
+
+```sh
+pnpm install
+pnpm run tauri:build:appimage
+```
+
+The package is written to `src-tauri/target/release/bundle/appimage/`. The
+`NO_STRIP=1` setting works around an incompatibility between linuxdeploy's
+bundled `strip` and newer Arch ELF files. Make the AppImage executable and
+launch it directly, or copy it to a directory on your `PATH`.
 
 Amanite stores projects in the platform app-data directory by default. Override the project library with:
 
