@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::{
     env, fs, io,
     path::{Component, Path, PathBuf},
+    process::Command,
+    time::UNIX_EPOCH,
 };
 use tauri::{AppHandle, Manager};
 
@@ -18,6 +20,9 @@ struct FractalProject {
     active_page_backlinks: Vec<fractal::Backlink>,
     active_page_iframes: Vec<fractal::Iframe>,
     active_page_iframe_backlinks: Vec<fractal::IframeBacklink>,
+    active_page_derived_links: Vec<fractal::DerivedLink>,
+    active_page_link_suggestions: Vec<fractal::LinkSuggestion>,
+    active_page_modified_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -161,6 +166,9 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
+        active_page_derived_links,
+        active_page_link_suggestions,
+        active_page_modified_ms,
     ) = match active_path.as_deref() {
         Some(path) => (
             Some(
@@ -180,8 +188,15 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
             project
                 .iframe_backlinks(path)
                 .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
+            project
+                .derived_links(path)
+                .map_err(|error| format!("Could not derive links for {path}: {error}"))?,
+            project
+                .suggest_links(path)
+                .map_err(|error| format!("Could not suggest links for {path}: {error}"))?,
+            page_modified_ms(&root, path)?,
         ),
-        None => (None, vec![], vec![], vec![], vec![]),
+        None => (None, vec![], vec![], vec![], vec![], vec![], vec![], None),
     };
 
     let folders = list_page_folders(&root)?;
@@ -196,7 +211,24 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
+        active_page_derived_links,
+        active_page_link_suggestions,
+        active_page_modified_ms,
     })
+}
+
+fn page_modified_ms(project_root: &Path, page_path: &str) -> Result<Option<u64>, String> {
+    let modified = fs::metadata(project_root.join("pages").join(page_path))
+        .map_err(|error| format!("Could not inspect {page_path}: {error}"))?
+        .modified()
+        .map_err(|error| format!("Could not inspect modification time for {page_path}: {error}"))?;
+    Ok(Some(
+        modified
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+    ))
 }
 
 fn relative_folder_path(value: &str) -> Result<PathBuf, String> {
@@ -276,6 +308,11 @@ fn fractal_open_project(app: AppHandle, directory_name: String) -> Result<Fracta
 }
 
 #[tauri::command]
+fn fractal_open_project_path(project_root: String) -> Result<FractalProject, String> {
+    read_project(PathBuf::from(project_root), None)
+}
+
+#[tauri::command]
 fn fractal_open_page(project_root: String, page_path: String) -> Result<FractalProject, String> {
     read_project(PathBuf::from(project_root), Some(&page_path))
 }
@@ -291,6 +328,80 @@ fn fractal_write_page(
         .write_page(&page_path, &source)
         .map_err(|error| format!("Could not write {page_path}: {error}"))?;
     read_project(PathBuf::from(project_root), Some(&page_path))
+}
+
+#[tauri::command]
+fn fractal_search_project(
+    project_root: String,
+    query: String,
+) -> Result<Vec<fractal::SearchResult>, String> {
+    let project = open_mutable_project(&project_root)?;
+    Ok(project.search(&query))
+}
+
+#[tauri::command]
+fn fractal_insert_link(
+    project_root: String,
+    page_path: String,
+    text: String,
+    target: String,
+) -> Result<FractalProject, String> {
+    let mut project = open_mutable_project(&project_root)?;
+    project
+        .insert_link(&page_path, &text, &target)
+        .map_err(|error| format!("Could not link {text}: {error}"))?;
+    read_project(PathBuf::from(project_root), Some(&page_path))
+}
+
+#[tauri::command]
+fn fractal_page_modified_ms(
+    project_root: String,
+    page_path: String,
+) -> Result<Option<u64>, String> {
+    let root = PathBuf::from(project_root)
+        .canonicalize()
+        .map_err(|error| format!("Could not open project: {error}"))?;
+    open_mutable_project(root.to_string_lossy().as_ref())?;
+    page_modified_ms(&root, &page_path)
+}
+
+#[tauri::command]
+fn fractal_reveal_page(project_root: String, page_path: Option<String>) -> Result<(), String> {
+    let root = PathBuf::from(project_root)
+        .canonicalize()
+        .map_err(|error| format!("Could not open project: {error}"))?;
+    open_mutable_project(root.to_string_lossy().as_ref())?;
+    let target = page_path
+        .map(|path| root.join("pages").join(path))
+        .unwrap_or(root);
+    if !target.exists() {
+        return Err(format!(
+            "Could not reveal {} because it does not exist.",
+            target.display()
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        command.arg(format!("/select,{}", target.display()));
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg("-R").arg(&target);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(target.parent().unwrap_or(&target));
+        command
+    };
+    command
+        .spawn()
+        .map_err(|error| format!("Could not open the file manager: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -313,6 +424,34 @@ fn fractal_create_page(
         .first()
         .ok_or("Fractal did not return the new page path.")?;
     read_project(PathBuf::from(project_root), Some(&path.to_string_lossy()))
+}
+
+#[tauri::command]
+fn fractal_import_native_page(
+    project_root: String,
+    title: String,
+    source: String,
+    folder_path: Option<String>,
+) -> Result<FractalProject, String> {
+    let mut project = open_mutable_project(&project_root)?;
+    let file_name = format!("{}.fractal.html", project_directory_name(&title)?);
+    let destination = match folder_path.filter(|path| !path.trim().is_empty()) {
+        Some(folder) => relative_folder_path(&folder)?.join(file_name),
+        None => PathBuf::from(file_name),
+    };
+    let mutation = project
+        .create_page_at(&destination, &title)
+        .map_err(|error| format!("Could not create imported page: {error}"))?;
+    let page_path = mutation
+        .changed
+        .first()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .ok_or("Fractal did not return the imported page path.")?;
+    if let Err(error) = project.write_page(&page_path, &source) {
+        let _ = project.delete_page(&page_path);
+        return Err(format!("Could not import native HTML: {error}"));
+    }
+    read_project(PathBuf::from(project_root), Some(&page_path))
 }
 
 #[tauri::command]
@@ -431,7 +570,7 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     dotenvy::dotenv().ok();
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "webdriver")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
 
@@ -440,9 +579,15 @@ pub fn run() {
             fractal_list_projects,
             fractal_create_project,
             fractal_open_project,
+            fractal_open_project_path,
             fractal_open_page,
             fractal_write_page,
+            fractal_search_project,
+            fractal_insert_link,
+            fractal_page_modified_ms,
+            fractal_reveal_page,
             fractal_create_page,
+            fractal_import_native_page,
             fractal_create_folder,
             fractal_delete_folder,
             fractal_move_page,

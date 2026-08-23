@@ -14,24 +14,28 @@ import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
 import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
-import { $getRoot } from "lexical";
-import { type PointerEvent, useEffect, useMemo } from "react";
+import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin";
+import { $getRoot, $insertNodes } from "lexical";
+import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo } from "react";
+import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import { editorLexicalTheme } from "./editorLexicalTheme";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
-import { IframeNode, ImageNode } from "./MediaNodes";
+import { $createImageNode, IframeNode, ImageNode } from "./MediaNodes";
 
 type Props = {
   bodyHtml: string;
   isBusy: boolean;
   pagePath: string;
+  pages: FractalPage[];
+  spellCheck: boolean;
   title: string;
   onChangeBody: (html: string) => void;
   onChangeTitle: (title: string) => void;
   onToggleInspector: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "title" | "onChangeBody" | "onChangeTitle">;
+type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle">;
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
@@ -39,7 +43,21 @@ function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   return null;
 }
 
-function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
+export function resolveEditorLinkTarget(href: string, links: FractalLink[], pagePath: string, pages: FractalPage[]) {
+  const link = links.find((candidate) => candidate.href === href
+    || (!/^[a-z][a-z0-9+.-]*:/i.test(candidate.href) && `https://${candidate.href}` === href));
+  if (link?.target.kind === "internal") return link.target.value;
+  if (link?.target.kind === "internal_file" && link.target.value.toLowerCase().endsWith(".html")) return link.target.value;
+  try {
+    const base = new URL(pagePath, "https://amanite.local/");
+    const resolved = decodeURIComponent(new URL(href, base).pathname.replace(/^\//, ""));
+    return pages.some((page) => page.path === resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function WritingArea({ bodyHtml, isBusy, pagePath, spellCheck, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
@@ -55,22 +73,42 @@ function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChange
     });
   }
 
+  function insertImageFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => editor.update(() => $insertNodes([$createImageNode(String(reader.result), file.name.replace(/\.[^.]+$/, ""))]));
+    reader.readAsDataURL(file);
+  }
+
+  function handlePaste(event: ClipboardEvent) {
+    const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
+    if (!image) return;
+    event.preventDefault();
+    insertImageFile(image);
+  }
+
+  function handleDrop(event: DragEvent) {
+    const image = Array.from(event.dataTransfer.files).find((file) => file.type.startsWith("image/"));
+    if (!image) return;
+    event.preventDefault();
+    insertImageFile(image);
+  }
+
   return (
     <article className="rich-page-canvas">
       <div className="rich-page-column" onPointerDown={handlePointerDown}>
         <label className="document-title-field">
-          <span>Document title</span>
-          <input disabled={isBusy} onChange={(event) => onChangeTitle(event.currentTarget.value)} placeholder="Untitled" value={title} />
+          <input aria-label="Document title" disabled={isBusy} onChange={(event) => onChangeTitle(event.currentTarget.value)} placeholder="Untitled" value={title} />
         </label>
         <div className="rich-body-frame">
           <RichTextPlugin
-            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" />}
+            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" onDrop={handleDrop} onPaste={handlePaste} spellCheck={spellCheck} />}
             placeholder={<div className="rich-placeholder">Start writing…</div>}
             ErrorBoundary={LexicalErrorBoundary}
           />
           <HistoryPlugin />
           <EditableStatePlugin isBusy={isBusy} />
           <ListPlugin />
+          <TabIndentationPlugin />
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
@@ -81,7 +119,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChange
   );
 }
 
-function RichDocumentEditor({ bodyHtml, isBusy, pagePath, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
   const config = useMemo(() => ({
     namespace: `amanite-${pagePath}`,
     nodes: [CodeNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
@@ -93,7 +131,7 @@ function RichDocumentEditor({ bodyHtml, isBusy, pagePath, title, onChangeBody, o
     <section className="rich-document-shell" aria-label="Rich text editor">
       <LexicalComposer initialConfig={config} key={pagePath}>
         <header className="rich-editor-header">
-          <EditorToolbar disabled={isBusy} />
+          <EditorToolbar disabled={isBusy} pagePath={pagePath} pages={pages} />
           <span className="toolbar-divider" />
           <button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button>
         </header>
@@ -101,6 +139,7 @@ function RichDocumentEditor({ bodyHtml, isBusy, pagePath, title, onChangeBody, o
           bodyHtml={bodyHtml}
           isBusy={isBusy}
           pagePath={pagePath}
+          spellCheck={spellCheck}
           title={title}
           onChangeBody={onChangeBody}
           onChangeTitle={onChangeTitle}

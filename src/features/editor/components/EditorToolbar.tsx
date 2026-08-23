@@ -1,25 +1,39 @@
 import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND, $isListNode } from "@lexical/list";
 import { TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $createCodeNode, $isCodeNode } from "@lexical/code";
-import { INSERT_TABLE_COMMAND } from "@lexical/table";
+import { $deleteTableColumnAtSelection, $deleteTableRowAtSelection, $insertTableColumnAtSelection, $insertTableRowAtSelection, INSERT_TABLE_COMMAND } from "@lexical/table";
 import { INSERT_HORIZONTAL_RULE_COMMAND } from "@lexical/react/LexicalHorizontalRuleNode";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $setBlocksType } from "@lexical/selection";
-import { $createParagraphNode, $getSelection, $insertNodes, $isRangeSelection, FORMAT_TEXT_COMMAND, type TextFormatType } from "lexical";
+import { $createParagraphNode, $getSelection, $insertNodes, $isRangeSelection, $isTextNode, FORMAT_ELEMENT_COMMAND, FORMAT_TEXT_COMMAND, INDENT_CONTENT_COMMAND, OUTDENT_CONTENT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type TextFormatType } from "lexical";
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode, $isQuoteNode, type HeadingTagType } from "@lexical/rich-text";
 import { useCallback, useEffect, useState } from "react";
 import { $createIframeNode, $createImageNode } from "./MediaNodes";
+import type { FractalPage } from "@/lib/fractal/types";
 
 type ButtonProps = { active?: boolean; disabled: boolean; label: string; title: string; onClick: () => void };
 function ToolButton({ active = false, disabled, label, title, onClick }: ButtonProps) {
   return <button aria-pressed={active} className="rich-toolbar-button" disabled={disabled} onClick={onClick} title={title} type="button">{label}</button>;
 }
 
-function EditorToolbar({ disabled }: { disabled: boolean }) {
+function relativeHref(from: string, target: string) {
+  const fromParts = from.split("/");
+  fromParts.pop();
+  const targetParts = target.split("/");
+  while (fromParts.length && targetParts.length && fromParts[0] === targetParts[0]) { fromParts.shift(); targetParts.shift(); }
+  return [...fromParts.map(() => ".."), ...targetParts].join("/") || target.split("/").at(-1)!;
+}
+
+function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pagePath: string; pages: FractalPage[] }) {
   const [editor] = useLexicalComposerContext();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [formats, setFormats] = useState<Record<TextFormatType, boolean>>({} as Record<TextFormatType, boolean>);
   const [blockType, setBlockType] = useState("paragraph");
+  const [isLinkOpen, setIsLinkOpen] = useState(false);
+  const [linkQuery, setLinkQuery] = useState("");
+  const [isIframeOpen, setIsIframeOpen] = useState(false);
+  const [iframeSource, setIframeSource] = useState("");
+  const [iframeTitle, setIframeTitle] = useState("");
 
   const readSelection = useCallback(() => {
     const selection = $getSelection();
@@ -47,6 +61,17 @@ function EditorToolbar({ disabled }: { disabled: boolean }) {
   }, []);
 
   useEffect(() => editor.registerUpdateListener(({ editorState }) => editorState.read(readSelection)), [editor, readSelection]);
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      const root = editor.getRootElement();
+      if (!root?.contains(document.activeElement)) return;
+      event.preventDefault();
+      setIsLinkOpen(true);
+    }
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [editor]);
   const text = (format: TextFormatType) => editor.dispatchCommand(FORMAT_TEXT_COMMAND, format);
   const block = (kind: "paragraph" | "quote" | HeadingTagType) => editor.update(() => {
     const selection = $getSelection();
@@ -59,26 +84,49 @@ function EditorToolbar({ disabled }: { disabled: boolean }) {
     const selection = $getSelection();
     if ($isRangeSelection(selection)) $setBlocksType(selection, () => $createCodeNode());
   });
-  const link = () => {
-    const href = window.prompt("Link address");
-    if (href?.trim()) editor.dispatchCommand(TOGGLE_LINK_COMMAND, href.trim());
+  const applyLink = (href: string) => {
+    if (!href.trim()) return;
+    editor.dispatchCommand(TOGGLE_LINK_COMMAND, href.trim());
+    setIsLinkOpen(false);
+    setLinkQuery("");
   };
   const image = () => {
-    const src = window.prompt("Image source");
-    if (!src?.trim()) return;
-    const alt = window.prompt("Alternative text") ?? "";
-    editor.update(() => $insertNodes([$createImageNode(src.trim(), alt)]));
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => editor.update(() => $insertNodes([$createImageNode(String(reader.result), file.name.replace(/\.[^.]+$/, ""))]));
+      reader.readAsDataURL(file);
+    };
+    input.click();
   };
+  const clearFormatting = () => editor.update(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+    for (const node of selection.getNodes()) if ($isTextNode(node)) { node.setFormat(0); node.setStyle(""); }
+  });
+  const filteredPages = pages.filter((page) => page.path !== pagePath && `${page.title ?? ""} ${page.path}`.toLocaleLowerCase().includes(linkQuery.toLocaleLowerCase())).slice(0, 7);
   const iframe = () => {
-    const src = window.prompt("Iframe source");
-    if (!src?.trim()) return;
-    const title = window.prompt("Iframe title") ?? "";
-    editor.update(() => $insertNodes([$createIframeNode(src.trim(), title, "") ]));
+    setIsIframeOpen(true);
+  };
+  const applyIframe = () => {
+    if (!iframeSource.trim()) return;
+    editor.update(() => $insertNodes([$createIframeNode(iframeSource.trim(), iframeTitle.trim(), "") ]));
+    setIsIframeOpen(false);
+    setIframeSource("");
+    setIframeTitle("");
   };
 
   return (
     <div className={isMoreOpen ? "rich-toolbar-stack more-open" : "rich-toolbar-stack"} aria-label="Text formatting">
       <div className="rich-toolbar" role="toolbar">
+        <div className="rich-toolbar-group">
+          <ToolButton disabled={disabled} label="↶" title="Undo (Ctrl+Z)" onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)} />
+          <ToolButton disabled={disabled} label="↷" title="Redo (Ctrl+Shift+Z)" onClick={() => editor.dispatchCommand(REDO_COMMAND, undefined)} />
+        </div>
         <div className="rich-toolbar-group">
           <ToolButton active={formats.bold} disabled={disabled} label="B" title="Bold" onClick={() => text("bold")} />
           <ToolButton active={formats.italic} disabled={disabled} label="I" title="Italic" onClick={() => text("italic")} />
@@ -111,14 +159,43 @@ function EditorToolbar({ disabled }: { disabled: boolean }) {
           <ToolButton active={formats.highlight} disabled={disabled} label="Mark" title="Highlight" onClick={() => text("highlight")} />
         </div>
         <div className="rich-toolbar-group">
-          <ToolButton disabled={disabled} label="Link" title="Add link" onClick={link} />
+          <ToolButton active={isLinkOpen} disabled={disabled} label="Link" title="Add link (Ctrl+K)" onClick={() => setIsLinkOpen((open) => !open)} />
           <ToolButton disabled={disabled} label="Unlink" title="Remove link" onClick={() => editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)} />
           <ToolButton disabled={disabled} label="Image" title="Add image" onClick={image} />
           <ToolButton disabled={disabled} label="Iframe" title="Add iframe" onClick={iframe} />
           <ToolButton disabled={disabled} label="Table" title="Add 3 by 3 table" onClick={() => editor.dispatchCommand(INSERT_TABLE_COMMAND, { columns: "3", rows: "3", includeHeaders: true })} />
           <ToolButton disabled={disabled} label="Rule" title="Horizontal rule" onClick={() => editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)} />
         </div>
+        <div className="rich-toolbar-group">
+          <ToolButton disabled={disabled} label="+ Row" title="Add table row" onClick={() => editor.update(() => { try { $insertTableRowAtSelection(true); } catch { /* Selection is outside a table. */ } })} />
+          <ToolButton disabled={disabled} label="− Row" title="Delete table row" onClick={() => editor.update(() => { try { $deleteTableRowAtSelection(); } catch { /* Selection is outside a table. */ } })} />
+          <ToolButton disabled={disabled} label="+ Col" title="Add table column" onClick={() => editor.update(() => { try { $insertTableColumnAtSelection(true); } catch { /* Selection is outside a table. */ } })} />
+          <ToolButton disabled={disabled} label="− Col" title="Delete table column" onClick={() => editor.update(() => { try { $deleteTableColumnAtSelection(); } catch { /* Selection is outside a table. */ } })} />
+        </div>
+        <div className="rich-toolbar-group">
+          <ToolButton disabled={disabled} label="←" title="Outdent" onClick={() => editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined)} />
+          <ToolButton disabled={disabled} label="→" title="Indent" onClick={() => editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined)} />
+          <ToolButton disabled={disabled} label="Left" title="Align left" onClick={() => editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "left")} />
+          <ToolButton disabled={disabled} label="Center" title="Align center" onClick={() => editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "center")} />
+          <ToolButton disabled={disabled} label="Clear" title="Clear text formatting" onClick={clearFormatting} />
+        </div>
       </div> : null}
+      {isLinkOpen ? (
+        <div className="link-picker" role="dialog" aria-label="Add link">
+          <label><span>Page or address</span><input autoFocus onChange={(event) => setLinkQuery(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && linkQuery.trim()) applyLink(linkQuery); if (event.key === "Escape") setIsLinkOpen(false); }} placeholder="Search pages or paste a URL" value={linkQuery} /></label>
+          <div className="link-picker-results">
+            {filteredPages.map((page) => <button key={page.path} onClick={() => applyLink(relativeHref(pagePath, page.path))} type="button"><strong>{page.title || page.path}</strong><small>{page.path}</small></button>)}
+            {linkQuery.trim() ? <button className="link-address-result" onClick={() => applyLink(linkQuery)} type="button"><strong>Use address</strong><small>{linkQuery}</small></button> : null}
+          </div>
+        </div>
+      ) : null}
+      {isIframeOpen ? (
+        <form className="link-picker iframe-picker" onSubmit={(event) => { event.preventDefault(); applyIframe(); }} role="dialog" aria-label="Add iframe">
+          <label><span>Iframe source</span><input autoFocus onChange={(event) => setIframeSource(event.currentTarget.value)} placeholder="https://example.com/embed" value={iframeSource} /></label>
+          <label><span>Accessible title</span><input onChange={(event) => setIframeTitle(event.currentTarget.value)} placeholder="Map of Stockholm" value={iframeTitle} /></label>
+          <div className="iframe-picker-actions"><button onClick={() => setIsIframeOpen(false)} type="button">Cancel</button><button disabled={!iframeSource.trim()} type="submit">Insert iframe</button></div>
+        </form>
+      ) : null}
     </div>
   );
 }

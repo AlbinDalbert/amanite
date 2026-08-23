@@ -207,6 +207,8 @@
   text-transform: uppercase;
 }
 
+.section-heading-actions { display: flex; align-items: center; gap: 7px; }
+
 .project-field {
   display: grid;
   gap: 8px;

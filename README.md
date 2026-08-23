@@ -10,9 +10,15 @@ It follows Fractal's current contract directly:
 - links, backlinks, iframes, and iframe backlinks are derived when a project is opened;
 - there is no generated index, graph store, note primitive, metadata schema, theme contract, or sync step.
 
-Amanite can create and open projects, manage page folders, create/read/write/move/delete pages, inspect links and iframe references, and run Fractal validation. Native `.fractal.html` documents use the rich editor. Ordinary `.html` files open as rendered documents and can be toggled to their complete HTML source. Internal links in rendered documents open their Fractal target in Amanite. Both editors persist complete HTML through Fractal. Amanite creates folders directly; when deleting one, it asks Fractal to delete each contained page before removing the directory.
+Amanite can create and open projects, including projects outside its default library. It manages page folders and can create, import, duplicate, read, write, move, reveal, and delete pages. It searches page titles and visible text through Fractal, inspects explicit and derived links, offers explicit link suggestions, inspects iframe references, and runs Fractal validation.
 
-Amanite keeps temporary recovery drafts for unsaved pages and local appearance preferences in the desktop webview. Recovery drafts contain the same complete HTML source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth.
+Native `.fractal.html` documents stay in the rich editor and never expose an HTML source or preview mode in the workspace. The editor has document find and replace, undo and redo, semantic formatting, table controls, local image paste and drop, an internal-page link picker, an outline, counts, reading time, word goals, print support, and a focus mode. Ctrl-click or Cmd-click follows an accepted internal link. Ordinary `.html` files open as rendered documents and can be toggled to their complete HTML source. Derived links are applied to rendered raw pages without changing their files. Both editors persist complete HTML through Fractal.
+
+Amanite saves before changing pages and can autosave after 900 ms without typing. It keeps temporary recovery drafts for unsaved pages and watches the active file for changes made by another program. Recovery drafts contain the same complete HTML source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth. The app can restore the last project and page at launch.
+
+Tabs can be opened beside the current page with their split button or by dragging a tab into the editor. Both panes remain independently editable and save through Fractal. The center divider, project sidebar, and each reference inspector can be resized within practical limits.
+
+Useful shortcuts include `Ctrl/Cmd+S` to save, `Ctrl/Cmd+P` to quick-open, `Ctrl/Cmd+F` to find, `Ctrl/Cmd+H` to replace, `Ctrl/Cmd+K` to insert a link, `Ctrl/Cmd+B` to toggle the sidebar, `Ctrl/Cmd+\` to toggle focus mode, and `Ctrl/Cmd+Shift+T` to reopen a closed tab.
 
 ## Development
 

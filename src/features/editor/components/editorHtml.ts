@@ -10,6 +10,30 @@ const ALLOWED_ELEMENTS = new Set([
   "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var"
 ]);
 
+function allowedAttributes(tag: string) {
+  return tag === "a" ? ["href", "title"]
+    : tag === "img" ? ["src", "alt", "title", "width", "height"]
+    : tag === "iframe" ? ["src", "srcdoc", "title", "sandbox", "width", "height"]
+    : tag === "time" ? ["datetime"]
+    : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
+    : tag === "col" || tag === "colgroup" ? ["span"]
+    : [];
+}
+
+export function richEditorCompatibilityIssues(html: string) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const issues: string[] = [];
+  for (const element of Array.from(template.content.querySelectorAll("*"))) {
+    const tag = element.tagName.toLowerCase();
+    if (!ALLOWED_ELEMENTS.has(tag)) issues.push(`<${tag}>`);
+    for (const attribute of Array.from(element.attributes)) {
+      if (!allowedAttributes(tag).includes(attribute.name)) issues.push(`<${tag}> ${attribute.name}`);
+    }
+  }
+  return [...new Set(issues)];
+}
+
 function unwrap(element: Element) {
   const parent = element.parentNode;
   if (!parent) return;
@@ -27,13 +51,7 @@ export function cleanEditorHtml(html: string) {
       continue;
     }
     for (const attribute of Array.from(element.attributes)) {
-      const allowed = tag === "a" ? ["href", "title"]
-        : tag === "img" ? ["src", "alt", "title", "width", "height"]
-        : tag === "iframe" ? ["src", "srcdoc", "title", "sandbox", "width", "height"]
-        : tag === "time" ? ["datetime"]
-        : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
-        : tag === "col" || tag === "colgroup" ? ["span"]
-        : [];
+      const allowed = allowedAttributes(tag);
       if (!allowed.includes(attribute.name)) element.removeAttribute(attribute.name);
     }
   }

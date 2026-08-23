@@ -11,6 +11,7 @@ type StartScreenProps = {
   onCreateProject: (projectName: string) => void;
   onCloseRequest: () => void;
   onOpenProject: (directoryName: string) => void;
+  onOpenProjectFolder: () => void;
   onOpenSettings: () => void;
   onRefreshProjects: () => void;
 };
@@ -22,6 +23,7 @@ function StartScreen({
   onCreateProject,
   onCloseRequest,
   onOpenProject,
+  onOpenProjectFolder,
   onOpenSettings,
   onRefreshProjects
 }: StartScreenProps) {
@@ -98,14 +100,10 @@ function StartScreen({
           <section className="project-section project-list-section">
             <div className="section-heading">
               <h2>Open project</h2>
-              <button
-                className="ghost-action"
-                disabled={isBusy}
-                onClick={onRefreshProjects}
-                type="button"
-              >
-                Refresh
-              </button>
+              <div className="section-heading-actions">
+                <button className="ghost-action" disabled={isBusy} onClick={onOpenProjectFolder} type="button">Open folder</button>
+                <button className="ghost-action" disabled={isBusy} onClick={onRefreshProjects} type="button">Refresh</button>
+              </div>
             </div>
 
             {projects.length > 0 ? (

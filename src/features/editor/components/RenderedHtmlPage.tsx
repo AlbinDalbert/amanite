@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { FractalLink } from "@/lib/fractal/types";
+import type { FractalDerivedLink, FractalLink } from "@/lib/fractal/types";
 
 type Props = {
   links: FractalLink[];
+  derivedLinks: FractalDerivedLink[];
   pagePath: string;
   source: string;
   onEditSource: () => void;
@@ -10,7 +11,7 @@ type Props = {
   onToggleInspector: () => void;
 };
 
-function RenderedHtmlPage({ links, pagePath, source, onEditSource, onNavigatePage, onToggleInspector }: Props) {
+function RenderedHtmlPage({ derivedLinks, links, pagePath, source, onEditSource, onNavigatePage, onToggleInspector }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -21,10 +22,47 @@ function RenderedHtmlPage({ links, pagePath, source, onEditSource, onNavigatePag
       const document = frame?.contentDocument;
       if (!document) return;
 
+      const derivedStyle = document.createElement("style");
+      derivedStyle.textContent = ".amanite-derived-link { text-decoration: underline dotted; text-underline-offset: .18em; cursor: pointer; }";
+      document.head.append(derivedStyle);
+
+      const root = document.body.querySelector("main[data-fractal-document]") ?? document.body;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+      let node: Node | null;
+      while ((node = walker.nextNode())) textNodes.push(node as Text);
+      for (const link of [...derivedLinks].sort((left, right) =>
+        right.occurrence.start.text_node - left.occurrence.start.text_node || right.occurrence.start.offset - left.occurrence.start.offset
+      )) {
+        if (link.occurrence.start.text_node !== link.occurrence.end.text_node) continue;
+        const textNode = textNodes[link.occurrence.start.text_node];
+        if (!textNode || textNode.parentElement?.closest("a, script, style")) continue;
+        const range = document.createRange();
+        try {
+          range.setStart(textNode, link.occurrence.start.offset);
+          range.setEnd(textNode, link.occurrence.end.offset);
+          const anchor = document.createElement("a");
+          anchor.href = "#";
+          anchor.dataset.amaniteDerivedTarget = link.target;
+          anchor.className = "amanite-derived-link";
+          anchor.title = `Open ${link.target}`;
+          range.surroundContents(anchor);
+        } catch {
+          // A browser-normalized text node can differ from the source ordinal.
+        }
+      }
+
       document.addEventListener("click", (event) => {
         const target = event.target;
         const anchor = target instanceof Element ? target.closest("a[href]") : null;
         if (!(anchor instanceof HTMLAnchorElement)) return;
+
+        const derivedTarget = anchor.dataset.amaniteDerivedTarget;
+        if (derivedTarget) {
+          event.preventDefault();
+          onNavigatePage(derivedTarget);
+          return;
+        }
 
         const href = anchor.getAttribute("href") ?? "";
         const link = links.find((candidate) => candidate.href === href);
@@ -43,7 +81,7 @@ function RenderedHtmlPage({ links, pagePath, source, onEditSource, onNavigatePag
 
     frame.addEventListener("load", handleLoad);
     return () => frame.removeEventListener("load", handleLoad);
-  }, [links, onNavigatePage, source]);
+  }, [derivedLinks, links, onNavigatePage, source]);
 
   return (
     <section className="rendered-page-shell" aria-label="Rendered HTML page">

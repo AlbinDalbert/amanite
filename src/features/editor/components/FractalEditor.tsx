@@ -1,78 +1,242 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import type { FractalBacklink, FractalIframe, FractalIframeBacklink, FractalLink, FractalPageKind } from "@/lib/fractal/types";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import type {
+  FractalBacklink,
+  FractalDerivedLink,
+  FractalIframe,
+  FractalIframeBacklink,
+  FractalLink,
+  FractalLinkSuggestion,
+  FractalPage,
+  FractalPageKind
+} from "@/lib/fractal/types";
+import { countDocument, countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
 import { readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
 import RawHtmlEditor from "./RawHtmlEditor";
 import RenderedHtmlPage from "./RenderedHtmlPage";
-import RichDocumentEditor from "./RichDocumentEditor";
+import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 
 type FractalEditorProps = {
   backlinks: FractalBacklink[];
+  derivedLinks: FractalDerivedLink[];
+  focusMode: boolean;
   isBusy: boolean;
   iframeBacklinks: FractalIframeBacklink[];
   iframes: FractalIframe[];
   kind: FractalPageKind;
+  linkSuggestions: FractalLinkSuggestion[];
   links: FractalLink[];
+  pages: FractalPage[];
   pagePath: string;
   source: string;
+  spellCheck: boolean;
+  wordGoal: number;
   onChangeSource: (source: string) => void;
+  onInsertSuggestedLink: (text: string, target: string) => void;
   onNavigatePage: (pagePath: string) => void;
   onSave: () => void;
+  onToggleFocus: () => void;
 };
 
-function FractalEditor({ backlinks, isBusy, iframeBacklinks, iframes, kind, links, pagePath, source, onChangeSource, onNavigatePage, onSave }: FractalEditorProps) {
+function findInElement(root: Element | null, query: string, matchIndex: number) {
+  if (!root || !query) return;
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const needle = query.toLocaleLowerCase();
+  let seen = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node.parentElement?.closest("script, style")) continue;
+    const text = node.textContent ?? "";
+    let offset = 0;
+    while ((offset = text.toLocaleLowerCase().indexOf(needle, offset)) >= 0) {
+      if (seen++ === matchIndex) {
+        const range = root.ownerDocument.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + query.length);
+        const selection = root.ownerDocument.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        node.parentElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      offset += Math.max(query.length, 1);
+    }
+  }
+}
+
+function FractalEditor(props: FractalEditorProps) {
+  const { backlinks, derivedLinks, focusMode, isBusy, iframeBacklinks, iframes, kind, linkSuggestions, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onInsertSuggestedLink, onNavigatePage, onSave, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [replacement, setReplacement] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const [inspectorWidth, setInspectorWidth] = useState(292);
+  const editorRootRef = useRef<HTMLDivElement>(null);
   const page = useMemo(() => readEditablePage(source), [source]);
+  const counts = useMemo(() => countDocument(source, kind === "native"), [kind, source]);
+  const matchCount = useMemo(
+    () => kind === "raw" && isSourceMode
+      ? (findQuery ? source.toLocaleLowerCase().split(findQuery.toLocaleLowerCase()).length - 1 : 0)
+      : countTextMatches(source, findQuery, kind === "native"),
+    [findQuery, isSourceMode, kind, source]
+  );
+  const outline = useMemo(() => {
+    const document = new DOMParser().parseFromString(page.bodyHtml, "text/html");
+    return Array.from(document.body.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((heading, index) => ({
+      index,
+      label: heading.textContent?.trim() || "Untitled heading",
+      level: Number(heading.tagName.slice(1))
+    }));
+  }, [page.bodyHtml]);
 
   useEffect(() => {
     setIsInspectorOpen(false);
     setIsSourceMode(false);
+    setIsFindOpen(false);
+    setFindQuery("");
+    setCurrentMatch(0);
   }, [pagePath]);
+  useEffect(() => setCurrentMatch((current) => matchCount ? Math.min(current, matchCount - 1) : 0), [matchCount]);
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-      event.preventDefault();
-      onSave();
+  function showMatch(index: number) {
+    if (!matchCount || !findQuery) return;
+    const next = (index + matchCount) % matchCount;
+    setCurrentMatch(next);
+    if (kind === "raw" && isSourceMode) {
+      const textarea = editorRootRef.current?.querySelector<HTMLTextAreaElement>(".raw-source-field textarea");
+      const positions: number[] = [];
+      const lowerSource = source.toLocaleLowerCase();
+      const needle = findQuery.toLocaleLowerCase();
+      let offset = 0;
+      while ((offset = lowerSource.indexOf(needle, offset)) >= 0) { positions.push(offset); offset += Math.max(needle.length, 1); }
+      const start = positions[next];
+      if (textarea && start != null) { textarea.focus(); textarea.setSelectionRange(start, start + findQuery.length); }
+      return;
+    }
+    if (kind === "raw") {
+      const frame = editorRootRef.current?.querySelector<HTMLIFrameElement>(".rendered-page-frame");
+      findInElement(frame?.contentDocument?.body ?? null, findQuery, next);
+    } else {
+      findInElement(editorRootRef.current?.querySelector(".rich-content-editable") ?? null, findQuery, next);
     }
   }
 
+  function replaceAll() {
+    if (!findQuery) return;
+    if (kind === "raw") {
+      const pattern = new RegExp(findQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+      onChangeSource(source.replace(pattern, replacement));
+      setIsSourceMode(true);
+    } else {
+      onChangeSource(replaceDocumentText(source, findQuery, replacement, true));
+    }
+    setCurrentMatch(0);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const key = event.key.toLowerCase();
+    if (key === "s") { event.preventDefault(); onSave(); }
+    else if (key === "f" || key === "h") { event.preventDefault(); setIsFindOpen(true); }
+    else if (key === "`" && kind === "raw") { event.preventDefault(); setIsSourceMode((mode) => !mode); }
+    else if (key === "l" && event.shiftKey) { event.preventDefault(); setIsInspectorOpen((open) => !open); }
+    else if (key === "\\") { event.preventDefault(); onToggleFocus(); }
+  }
+
+  function jumpToHeading(index: number) {
+    editorRootRef.current?.querySelectorAll(".rich-content-editable h1, .rich-content-editable h2, .rich-content-editable h3, .rich-content-editable h4, .rich-content-editable h5, .rich-content-editable h6")[index]
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function printPage() {
+    if (kind === "raw" && !isSourceMode) editorRootRef.current?.querySelector<HTMLIFrameElement>(".rendered-page-frame")?.contentWindow?.print();
+    else window.print();
+  }
+
+  function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const editor = editorRootRef.current;
+    if (!editor) return;
+    const move = (pointerEvent: globalThis.PointerEvent) => {
+      const bounds = editor.getBoundingClientRect();
+      setInspectorWidth(Math.round(Math.min(420, Math.max(230, bounds.right - pointerEvent.clientX))));
+    };
+    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); document.body.classList.remove("resizing-panel"); };
+    document.body.classList.add("resizing-panel");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
+  function handleEditorLinkClick(event: MouseEvent<HTMLDivElement>) {
+    if (kind !== "native" || !(event.ctrlKey || event.metaKey)) return;
+    const target = event.target;
+    const anchor = target instanceof Element ? target.closest("a[href]") : null;
+    if (!anchor) return;
+    const pageTarget = resolveEditorLinkTarget(anchor.getAttribute("href") ?? "", links, pagePath, pages);
+    if (!pageTarget) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigatePage(pageTarget);
+  }
+
   return (
-    <div className={isInspectorOpen ? "fractal-editor inspector-open" : "fractal-editor"} onKeyDown={handleKeyDown}>
-      {kind === "native" ? (
-        <RichDocumentEditor
-          bodyHtml={page.bodyHtml}
-          isBusy={isBusy}
-          pagePath={pagePath}
-          title={page.title}
-          onChangeBody={(bodyHtml) =>
-            onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading))
-          }
-          onChangeTitle={(title) =>
-            onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading))
-          }
-          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+    <div className={isInspectorOpen ? "fractal-editor inspector-open" : "fractal-editor"} onClickCapture={handleEditorLinkClick} onKeyDown={handleKeyDown} ref={editorRootRef} style={{ "--inspector-width": `${inspectorWidth}px` } as CSSProperties}>
+      <div className="fractal-editor-main">
+        {kind === "native" ? (
+          <RichDocumentEditor
+            bodyHtml={page.bodyHtml}
+            isBusy={isBusy}
+            pagePath={pagePath}
+            pages={pages}
+            spellCheck={spellCheck}
+            title={page.title}
+            onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading))}
+            onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading))}
+            onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+          />
+        ) : isSourceMode ? (
+          <RawHtmlEditor
+            isBusy={isBusy}
+            modeLabel="Raw HTML"
+            pagePath={pagePath}
+            source={source}
+            onChangeSource={onChangeSource}
+            onPreview={() => setIsSourceMode(false)}
+            onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+          />
+        ) : (
+          <RenderedHtmlPage derivedLinks={derivedLinks} links={links} pagePath={pagePath} source={source} onEditSource={() => setIsSourceMode(true)} onNavigatePage={onNavigatePage} onToggleInspector={() => setIsInspectorOpen((open) => !open)} />
+        )}
+        <FindBar
+          currentMatch={currentMatch}
+          isOpen={isFindOpen}
+          matchCount={matchCount}
+          query={findQuery}
+          replacement={replacement}
+          onChangeQuery={(query) => { setFindQuery(query); setCurrentMatch(0); }}
+          onChangeReplacement={setReplacement}
+          onClose={() => setIsFindOpen(false)}
+          onNext={(direction) => showMatch(currentMatch + direction)}
+          onReplaceAll={replaceAll}
         />
-      ) : isSourceMode ? (
-        <RawHtmlEditor
-          isBusy={isBusy}
-          pagePath={pagePath}
-          source={source}
-          onChangeSource={onChangeSource}
-          onPreview={() => setIsSourceMode(false)}
-          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
-        />
-      ) : (
-        <RenderedHtmlPage
-          links={links}
-          pagePath={pagePath}
-          source={source}
-          onEditSource={() => setIsSourceMode(true)}
-          onNavigatePage={onNavigatePage}
-          onToggleInspector={() => setIsInspectorOpen((open) => !open)}
-        />
-      )}
-      <InspectorPanel backlinks={backlinks} iframeBacklinks={iframeBacklinks} iframes={iframes} links={links} onNavigatePage={onNavigatePage} />
+        <DocumentStatusBar counts={counts} focusMode={focusMode} wordGoal={wordGoal} onFind={() => setIsFindOpen(true)} onPrint={printPage} onToggleFocus={onToggleFocus} />
+      </div>
+      <InspectorPanel
+        backlinks={backlinks}
+        derivedLinks={derivedLinks}
+        iframeBacklinks={iframeBacklinks}
+        iframes={iframes}
+        linkSuggestions={linkSuggestions}
+        links={links}
+        outline={outline}
+        onInsertSuggestedLink={onInsertSuggestedLink}
+        onNavigateHeading={jumpToHeading}
+        onNavigatePage={onNavigatePage}
+        onResizeReset={() => setInspectorWidth(292)}
+        onResizeStart={startInspectorResize}
+      />
     </div>
   );
 }

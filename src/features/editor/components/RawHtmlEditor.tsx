@@ -5,15 +5,17 @@ type Props = {
   onChangeSource: (source: string) => void;
   onPreview: () => void;
   onToggleInspector: () => void;
+  modeLabel?: string;
+  note?: string;
 };
 
-function RawHtmlEditor({ isBusy, pagePath, source, onChangeSource, onPreview, onToggleInspector }: Props) {
+function RawHtmlEditor({ isBusy, modeLabel = "Raw HTML", note = "Fractal inspects this file but leaves its source under your control.", pagePath, source, onChangeSource, onPreview, onToggleInspector }: Props) {
   return (
     <section className="raw-source-shell" aria-label="Raw HTML source editor">
       <header className="raw-source-header">
         <div>
-          <span className="document-kind-badge raw">Raw HTML</span>
-          <p>Fractal inspects this file but leaves its source under your control.</p>
+          <span className="document-kind-badge raw">{modeLabel}</span>
+          <p>{note}</p>
         </div>
         <div className="rendered-page-actions">
           <button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button>

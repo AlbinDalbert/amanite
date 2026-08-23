@@ -4,6 +4,8 @@
   --font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
   --font-document: "Cormorant Garamond", Georgia, serif;
   --document-text-size: 1.17rem;
+  --document-line-height: 1.72;
+  --document-page-width: 760px;
   --noise-opacity: 0.28;
 
   --bg: #090805;
@@ -110,6 +112,30 @@
   --ember: #9d6d69;
   --ember-soft: rgb(157 109 105 / 14%);
   --sidebar-background: #05070a;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-color-theme="system"] {
+    --bg: #e7dfd2;
+    --bg-deep: #d4c8b7;
+    --surface: #f1eadf;
+    --surface-2: #e6dccd;
+    --surface-3: #d8cbb8;
+    --surface-hot: #c9b99f;
+    --border: #c6b79f;
+    --border-strong: #8b7450;
+    --text: #40372d;
+    --text-strong: #211c17;
+    --muted: #6f6253;
+    --dim: #948472;
+    --signal: #a96310;
+    --signal-strong: #7b4206;
+    --signal-deep: #5b3108;
+    --signal-soft: rgb(169 99 16 / 12%);
+    --signal-glow: rgb(169 99 16 / 20%);
+    --sidebar-background: #ddd2c1;
+    color-scheme: light;
+  }
 }
 
 :root[data-document-font="book"] { --font-document: Georgia, "Times New Roman", serif; }

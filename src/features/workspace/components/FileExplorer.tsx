@@ -10,9 +10,11 @@ type Props = {
   onCreatePage: (parent?: string) => void;
   onDeletePage: (path: string) => void;
   onDeleteFolder: (path: string) => void;
+  onDuplicatePage: (path: string) => void;
   onMovePage: (path: string) => void;
   onDropPage: (path: string, folder?: string) => void;
   onSelectPage: (path: string) => void;
+  onRevealPage: (path?: string) => void;
   onValidate: () => void;
 };
 
@@ -107,6 +109,8 @@ function FileExplorer(props: Props) {
           {menu.kind === "page" && menu.path ? <>
             <button disabled={props.isBusy} onClick={() => run(() => props.onSelectPage(menu.path!))} role="menuitem">Open</button>
             <button disabled={props.isBusy} onClick={() => run(() => props.onMovePage(menu.path!))} role="menuitem">Move</button>
+            <button disabled={props.isBusy} onClick={() => run(() => props.onDuplicatePage(menu.path!))} role="menuitem">Duplicate</button>
+            <button disabled={props.isBusy} onClick={() => run(() => props.onRevealPage(menu.path!))} role="menuitem">Reveal in file manager</button>
             <button className="danger" disabled={props.isBusy} onClick={() => run(() => props.onDeletePage(menu.path!))} role="menuitem">Delete</button>
             <div className="file-context-separator" />
           </> : null}
@@ -120,6 +124,7 @@ function FileExplorer(props: Props) {
           {menu.kind !== "folder" ? <button disabled={props.isBusy} onClick={() => run(() => props.onCreateFolder())} role="menuitem">Create folder</button> : null}
           <div className="file-context-separator" />
           <button disabled={props.isBusy} onClick={() => run(props.onValidate)} role="menuitem">Validate project</button>
+          <button disabled={props.isBusy} onClick={() => run(() => props.onRevealPage())} role="menuitem">Reveal project folder</button>
         </div>
       ) : null}
     </div>

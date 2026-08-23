@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
 import FileExplorer from "./FileExplorer";
 
@@ -9,13 +9,19 @@ type SidebarProps = {
   pages: FractalPage[];
   projectName: string;
   onCreatePage: (title: string, folderPath?: string) => void;
+  onCloseProject: () => void;
   onCreateFolder: (folderPath: string) => void;
   onDeletePage: (pagePath: string) => void;
   onDeleteFolder: (folderPath: string) => void;
+  onDuplicatePage: (pagePath: string) => void;
+  onImportNativePage: (source: string, folderPath?: string) => void;
   onMovePage: (pagePath: string, destination: string) => void;
   onOpenSettings: () => void;
   onSelectPage: (pagePath: string) => void;
+  onRevealPage: (pagePath?: string) => void;
   onValidate: () => void;
+  onResizeStart: (event: PointerEvent<HTMLDivElement>) => void;
+  onResizeReset: () => void;
 };
 
 function Sidebar(props: SidebarProps) {
@@ -25,6 +31,7 @@ function Sidebar(props: SidebarProps) {
   const [createFolderParent, setCreateFolderParent] = useState<string | null>(null);
   const [movePath, setMovePath] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
+  const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isCreateDialogOpen = createTitle !== null;
 
@@ -59,21 +66,36 @@ function Sidebar(props: SidebarProps) {
 
   function startCreatePage(folder?: string) { setCreateParent(folder ?? null); setCreateTitle("Untitled"); }
   function startCreateFolder(folder?: string) { setCreateFolderParent(folder ?? null); setCreateFolderName("New folder"); }
+  function importDocument(folder?: string) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".fractal.html,text/html";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".fractal.html")) return;
+      void file.text().then((source) => props.onImportNativePage(source, folder));
+    };
+    input.click();
+  }
 
   return (
     <aside className="sidebar" aria-label="File explorer">
-      <div className="brand"><span className="brand-mark" aria-hidden="true" /><div><h1>Amanite</h1><p>{props.projectName}</p></div></div>
-      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button">+</button></div></div>
+      <div aria-label="Resize page explorer" className="sidebar-resize-handle" onDoubleClick={props.onResizeReset} onPointerDown={props.onResizeStart} role="separator" />
+      <div className="brand"><span className="brand-mark" aria-hidden="true" /><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
+      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button">⇧</button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button">+</button></div></div>
+      <label className="sidebar-filter"><span aria-hidden="true">⌕</span><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
       <nav className="file-explorer" aria-label="Project files">
         <FileExplorer
           activePagePath={props.activePagePath}
           isBusy={props.isBusy}
           folders={props.folders}
-          pages={props.pages}
+          pages={filter.trim() ? props.pages.filter((page) => `${page.title ?? ""} ${page.path} ${page.text}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())) : props.pages}
           onCreateFolder={startCreateFolder}
           onCreatePage={startCreatePage}
           onDeletePage={props.onDeletePage}
           onDeleteFolder={props.onDeleteFolder}
+          onDuplicatePage={props.onDuplicatePage}
           onMovePage={(path) => { setMovePath(path); setDestination(path); }}
           onDropPage={(path, folder) => {
             const fileName = path.split("/").at(-1)!;
@@ -81,6 +103,7 @@ function Sidebar(props: SidebarProps) {
             if (nextPath !== path) props.onMovePage(path, nextPath);
           }}
           onSelectPage={props.onSelectPage}
+          onRevealPage={props.onRevealPage}
           onValidate={props.onValidate}
         />
       </nav>

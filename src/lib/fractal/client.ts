@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalProject, FractalProjectCatalog } from "./types";
+import type { FractalClient, FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -18,6 +18,8 @@ export const fractalClient: FractalClient = {
     invokeFractal<FractalProject>("fractal_create_project", { projectName }),
   openProject: (directoryName) =>
     invokeFractal<FractalProject>("fractal_open_project", { directoryName }),
+  openProjectPath: (projectRoot) =>
+    invokeFractal<FractalProject>("fractal_open_project_path", { projectRoot }),
   openPage: (project, pagePath) =>
     invokeFractal<FractalProject>("fractal_open_page", {
       pagePath,
@@ -33,6 +35,13 @@ export const fractalClient: FractalClient = {
     invokeFractal<FractalProject>("fractal_create_page", {
       folderPath,
       projectRoot: project.rootPath,
+      title
+    }),
+  importNativePage: (project, title, source, folderPath) =>
+    invokeFractal<FractalProject>("fractal_import_native_page", {
+      folderPath,
+      projectRoot: project.rootPath,
+      source,
       title
     }),
   createFolder: (project, folderPath) =>
@@ -62,6 +71,28 @@ export const fractalClient: FractalClient = {
     }),
   validateProject: (project) =>
     invokeFractal<FractalCommandResult>("fractal_validate_project", {
+      projectRoot: project.rootPath
+    }),
+  searchProject: (project, query) =>
+    invokeFractal<FractalSearchResult[]>("fractal_search_project", {
+      projectRoot: project.rootPath,
+      query
+    }),
+  insertLink: (project, text, target) =>
+    invokeFractal<FractalProject>("fractal_insert_link", {
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath,
+      target,
+      text
+    }),
+  pageModifiedMs: (project) =>
+    invokeFractal<number | null>("fractal_page_modified_ms", {
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath
+    }),
+  revealPage: (project, pagePath) =>
+    invokeFractal<void>("fractal_reveal_page", {
+      pagePath,
       projectRoot: project.rootPath
     })
 };

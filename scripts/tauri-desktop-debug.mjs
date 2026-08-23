@@ -299,6 +299,11 @@ async function takeScreenshot(driver, screenshotsDir, name) {
 }
 
 async function runSmoke(driver, screenshotsDir, projectRoot) {
+  try {
+    await driver.find(".start-screen", 1_000);
+  } catch {
+    await driver.click('.brand > button[title="Close project"]');
+  }
   await driver.find(".start-screen");
   await takeScreenshot(driver, screenshotsDir, "01-start-screen");
 
@@ -339,6 +344,47 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find('[title="my-file.fractal.html"]', 30_000);
   await takeScreenshot(driver, screenshotsDir, "04-created-page");
 
+  const removedNativeControls = await driver.executeScript(`
+    const headerButtons = [...document.querySelectorAll('.rich-editor-header button')].map((button) => button.textContent.trim());
+    return {
+      checklist: headerButtons.includes('☑ List'),
+      preview: headerButtons.includes('Preview'),
+      titleHint: Boolean(document.querySelector('.document-title-field > span'))
+    };
+  `);
+  if (removedNativeControls.checklist || removedNativeControls.preview || removedNativeControls.titleHint) {
+    throw new Error(`Removed native controls are still visible: ${JSON.stringify(removedNativeControls)}`);
+  }
+
+  await driver.setValue(".rich-content-editable", "Index");
+  await driver.ctrlS();
+  await driver.find(".save-state.saved");
+  await driver.click(".editor-inspector-toggle");
+  await driver.click(".link-suggestions button", 30_000);
+  await driver.find('.rich-content-editable a[href]', 30_000);
+  const acceptedLink = await driver.executeScript(`
+    const anchor = document.querySelector('.rich-content-editable a[href]');
+    const dispatched = anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    return { dispatched, href: anchor.getAttribute('href') };
+  `);
+  if (!acceptedLink.href || acceptedLink.dispatched) throw new Error(`Accepted link was not handled: ${JSON.stringify(acceptedLink)}`);
+  await driver.find('.workspace-tab.active button[title="index.fractal.html"]', 30_000);
+  await driver.click('[title="my-file.fractal.html"]');
+  await driver.find(".rich-content-editable", 30_000);
+
+  await driver.executeScript(`
+    const tab = document.querySelector('.workspace-tab [title="index.fractal.html"]')?.closest('.workspace-tab');
+    tab?.querySelector('.workspace-tab-split')?.click();
+  `);
+  await driver.find(".editor-stage.split", 30_000);
+  await driver.find(".editor-pane.secondary .rich-content-editable", 30_000);
+  await driver.setValue(".editor-pane.secondary .rich-content-editable", "Written in the right editor pane.");
+  await driver.find(".secondary-pane-controls small.unsaved");
+  await takeScreenshot(driver, screenshotsDir, "04b-split-pane");
+  await driver.click('.secondary-pane-controls button[aria-label="Close right editor pane"]');
+  await driver.find(".editor-stage:not(.split)", 30_000);
+  await takeScreenshot(driver, screenshotsDir, "04c-split-pane-closed");
+
   await driver.click(".editor-inspector-toggle");
   await driver.find(".fractal-inspector", 10_000);
   await takeScreenshot(driver, screenshotsDir, "05-inspector");
@@ -346,20 +392,44 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".sidebar-settings");
   await driver.find(".settings-screen");
   await driver.click(".theme-option.moss");
+  const settingsScroll = await driver.executeScript(`
+    const screen = document.querySelector('.settings-screen');
+    screen.scrollTop = screen.scrollHeight;
+    return { clientHeight: screen.clientHeight, scrollHeight: screen.scrollHeight, scrollTop: screen.scrollTop };
+  `);
+  if (!(settingsScroll.scrollHeight > settingsScroll.clientHeight && settingsScroll.scrollTop > 0)) {
+    throw new Error(`Settings screen did not scroll: ${JSON.stringify(settingsScroll)}`);
+  }
   await takeScreenshot(driver, screenshotsDir, "06-settings");
   await driver.click(".settings-footer .ghost-action");
+  await driver.click('.settings-check input[type="checkbox"]');
   await driver.click(".settings-back");
   await driver.find(".workspace");
 
-  await driver.setValue(".rich-content-editable", "Unsaved close guard check.");
+  await driver.click(".document-status-bar button:last-child");
+  await driver.find(".app-shell.focus-mode");
+  const focusToolbarState = await driver.executeScript(`
+    return {
+      editor: getComputedStyle(document.querySelector('.rich-editor-header')).display,
+      workspaceOpacity: getComputedStyle(document.querySelector('.workspace-toolbar')).opacity
+    };
+  `);
+  if (focusToolbarState.editor !== "none" || focusToolbarState.workspaceOpacity !== "0") {
+    throw new Error(`Focus mode left a toolbar visible: ${JSON.stringify(focusToolbarState)}`);
+  }
+  await driver.click(".document-status-bar button:last-child");
+  await driver.find(".app-shell:not(.focus-mode)");
+
+  await driver.setValue(".rich-content-editable", "Saved during a page switch.");
   await driver.find(".save-state.unsaved");
-  await driver.click(".window-control.close");
-  await driver.find(".confirm-dialog");
-  await driver.click(".confirm-dialog .ghost-action");
-  await driver.find(".workspace");
-  await driver.ctrlS();
+  await driver.click('[title="index.fractal.html"]');
   await driver.find(".save-state.saved");
-  await takeScreenshot(driver, screenshotsDir, "07-close-guard-cancelled");
+  await driver.click('[title="my-file.fractal.html"]');
+  const switchedText = await driver.text(".rich-content-editable");
+  if (!switchedText.includes("Saved during a page switch.")) {
+    throw new Error(`Page switch did not save the edit: ${switchedText}`);
+  }
+  await takeScreenshot(driver, screenshotsDir, "07-save-before-switch");
 
   const projectDirectory = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const activeProjectRoot = join(projectRoot, projectDirectory);
