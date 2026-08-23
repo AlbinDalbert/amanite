@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
-import type { FractalDerivedLink, FractalLink } from "@/lib/fractal/types";
+import type { FractalLink, FractalPage } from "@/lib/fractal/types";
+import { derivedPageLinkTargets, findDerivedPageLinksForTargets } from "./pageLinks";
 
 type Props = {
   links: FractalLink[];
-  derivedLinks: FractalDerivedLink[];
+  pages: FractalPage[];
   pagePath: string;
   source: string;
   onEditSource: () => void;
@@ -11,7 +12,7 @@ type Props = {
   onToggleInspector: () => void;
 };
 
-function RenderedHtmlPage({ derivedLinks, links, pagePath, source, onEditSource, onNavigatePage, onToggleInspector }: Props) {
+function RenderedHtmlPage({ links, pages, pagePath, source, onEditSource, onNavigatePage, onToggleInspector }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -27,43 +28,39 @@ function RenderedHtmlPage({ derivedLinks, links, pagePath, source, onEditSource,
       document.head.append(derivedStyle);
 
       const root = document.body.querySelector("main[data-fractal-document]") ?? document.body;
+      const derivedTargets = derivedPageLinkTargets(pagePath, pages);
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       let node: Node | null;
       while ((node = walker.nextNode())) textNodes.push(node as Text);
-      for (const link of [...derivedLinks].sort((left, right) =>
-        right.occurrence.start.text_node - left.occurrence.start.text_node || right.occurrence.start.offset - left.occurrence.start.offset
-      )) {
-        if (link.occurrence.start.text_node !== link.occurrence.end.text_node) continue;
-        const textNode = textNodes[link.occurrence.start.text_node];
-        if (!textNode || textNode.parentElement?.closest("a, script, style")) continue;
-        const range = document.createRange();
-        try {
-          range.setStart(textNode, link.occurrence.start.offset);
-          range.setEnd(textNode, link.occurrence.end.offset);
-          const anchor = document.createElement("a");
-          anchor.href = "#";
-          anchor.dataset.amaniteDerivedTarget = link.target;
-          anchor.className = "amanite-derived-link";
-          anchor.title = `Open ${link.target}`;
-          range.surroundContents(anchor);
-        } catch {
-          // A browser-normalized text node can differ from the source ordinal.
+      for (const textNode of textNodes) {
+        if (textNode.parentElement?.closest("a, code, pre, script, style")) continue;
+        const matches = findDerivedPageLinksForTargets(textNode.data, derivedTargets);
+        for (const link of matches.reverse()) {
+          const range = document.createRange();
+          range.setStart(textNode, link.start);
+          range.setEnd(textNode, link.end);
+          const linkBehavior = document.createElement("span");
+          linkBehavior.dataset.amaniteDerivedTarget = link.target;
+          linkBehavior.className = "amanite-derived-link";
+          linkBehavior.role = "link";
+          linkBehavior.tabIndex = 0;
+          linkBehavior.title = `Open ${link.target}`;
+          range.surroundContents(linkBehavior);
         }
       }
 
       document.addEventListener("click", (event) => {
         const target = event.target;
-        const anchor = target instanceof Element ? target.closest("a[href]") : null;
-        if (!(anchor instanceof HTMLAnchorElement)) return;
-
-        const derivedTarget = anchor.dataset.amaniteDerivedTarget;
+        const derivedLink = target instanceof Element ? target.closest<HTMLElement>("[data-amanite-derived-target]") : null;
+        const derivedTarget = derivedLink?.dataset.amaniteDerivedTarget;
         if (derivedTarget) {
           event.preventDefault();
           onNavigatePage(derivedTarget);
           return;
         }
-
+        const anchor = target instanceof Element ? target.closest("a[href]") : null;
+        if (!(anchor instanceof HTMLAnchorElement)) return;
         const href = anchor.getAttribute("href") ?? "";
         const link = links.find((candidate) => candidate.href === href);
         if (link?.target.kind === "internal") {
@@ -77,11 +74,21 @@ function RenderedHtmlPage({ derivedLinks, links, pagePath, source, onEditSource,
           window.open(link.target.value, "_blank", "noopener,noreferrer");
         }
       });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        const target = event.target;
+        const derivedLink = target instanceof Element ? target.closest<HTMLElement>("[data-amanite-derived-target]") : null;
+        const derivedTarget = derivedLink?.dataset.amaniteDerivedTarget;
+        if (!derivedTarget) return;
+        event.preventDefault();
+        onNavigatePage(derivedTarget);
+      });
     }
 
     frame.addEventListener("load", handleLoad);
     return () => frame.removeEventListener("load", handleLoad);
-  }, [derivedLinks, links, onNavigatePage, source]);
+  }, [links, onNavigatePage, pagePath, pages, source]);
 
   return (
     <section className="rendered-page-shell" aria-label="Rendered HTML page">

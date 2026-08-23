@@ -10,18 +10,11 @@ import { $createHeadingNode, $createQuoteNode, $isHeadingNode, $isQuoteNode, typ
 import { useCallback, useEffect, useState } from "react";
 import { $createIframeNode, $createImageNode } from "./MediaNodes";
 import type { FractalPage } from "@/lib/fractal/types";
+import { relativePageHref } from "./pageLinks";
 
 type ButtonProps = { active?: boolean; disabled: boolean; label: string; title: string; onClick: () => void };
 function ToolButton({ active = false, disabled, label, title, onClick }: ButtonProps) {
   return <button aria-pressed={active} className="rich-toolbar-button" disabled={disabled} onClick={onClick} title={title} type="button">{label}</button>;
-}
-
-function relativeHref(from: string, target: string) {
-  const fromParts = from.split("/");
-  fromParts.pop();
-  const targetParts = target.split("/");
-  while (fromParts.length && targetParts.length && fromParts[0] === targetParts[0]) { fromParts.shift(); targetParts.shift(); }
-  return [...fromParts.map(() => ".."), ...targetParts].join("/") || target.split("/").at(-1)!;
 }
 
 function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pagePath: string; pages: FractalPage[] }) {
@@ -184,7 +177,7 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
         <div className="link-picker" role="dialog" aria-label="Add link">
           <label><span>Page or address</span><input autoFocus onChange={(event) => setLinkQuery(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && linkQuery.trim()) applyLink(linkQuery); if (event.key === "Escape") setIsLinkOpen(false); }} placeholder="Search pages or paste a URL" value={linkQuery} /></label>
           <div className="link-picker-results">
-            {filteredPages.map((page) => <button key={page.path} onClick={() => applyLink(relativeHref(pagePath, page.path))} type="button"><strong>{page.title || page.path}</strong><small>{page.path}</small></button>)}
+            {filteredPages.map((page) => <button key={page.path} onClick={() => applyLink(relativePageHref(pagePath, page.path))} type="button"><strong>{page.title || page.path}</strong><small>{page.path}</small></button>)}
             {linkQuery.trim() ? <button className="link-address-result" onClick={() => applyLink(linkQuery)} type="button"><strong>Use address</strong><small>{linkQuery}</small></button> : null}
           </div>
         </div>

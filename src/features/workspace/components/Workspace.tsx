@@ -25,7 +25,6 @@ type WorkspaceProps = {
   onDeleteFolder: (folderPath: string) => void;
   onDismissStatus: () => void;
   onDuplicatePage: (pagePath: string) => void;
-  onInsertSuggestedLink: (text: string, target: string) => void;
   onImportNativePage: (source: string, folderPath?: string) => void;
   onMovePage: (pagePath: string, destination: string) => void;
   onOpenPage: (pagePath: string) => void;
@@ -242,22 +241,6 @@ function Workspace(props: WorkspaceProps) {
     setSecondaryDirty(true);
   }
 
-  async function insertSecondaryLink(text: string, target: string) {
-    if (!(await saveSecondary())) return;
-    const snapshot = secondaryProjectRef.current;
-    if (!snapshot) return;
-    setSecondaryOperation("save");
-    try {
-      const linked = await fractalClient.insertLink(snapshot, text, target);
-      setSecondaryProject(linked);
-      setSecondaryDirty(false);
-    } catch (error) {
-      setSecondaryError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSecondaryOperation(null);
-    }
-  }
-
   function handleTabDrop(event: DragEvent<HTMLDivElement>) {
     const pagePath = event.dataTransfer.getData("application/x-amanite-tab") || draggingTab;
     if (!pagePath) return;
@@ -362,13 +345,11 @@ function Workspace(props: WorkspaceProps) {
             {project.activePagePath && project.activePageSource != null ? (
               <FractalEditor
                 backlinks={project.activePageBacklinks}
-                derivedLinks={project.activePageDerivedLinks}
                 focusMode={focusMode}
                 isBusy={props.isBusy}
                 iframeBacklinks={project.activePageIframeBacklinks}
                 iframes={project.activePageIframes}
                 kind={activePage?.kind ?? "raw"}
-                linkSuggestions={project.activePageLinkSuggestions}
                 links={project.activePageLinks}
                 pages={project.pages}
                 pagePath={project.activePagePath}
@@ -376,7 +357,6 @@ function Workspace(props: WorkspaceProps) {
                 spellCheck={props.settings.spellCheck}
                 wordGoal={props.settings.wordGoal}
                 onChangeSource={props.onChangePageSource}
-                onInsertSuggestedLink={props.onInsertSuggestedLink}
                 onNavigatePage={(path) => void openPrimaryPage(path)}
                 onSave={props.onSavePage}
                 onToggleFocus={() => setFocusMode((focus) => !focus)}
@@ -397,13 +377,11 @@ function Workspace(props: WorkspaceProps) {
                 {secondaryProject.activePagePath && secondaryProject.activePageSource != null ? (
                   <FractalEditor
                     backlinks={secondaryProject.activePageBacklinks}
-                    derivedLinks={secondaryProject.activePageDerivedLinks}
                     focusMode={focusMode}
                     isBusy={secondaryOperation !== null}
                     iframeBacklinks={secondaryProject.activePageIframeBacklinks}
                     iframes={secondaryProject.activePageIframes}
                     kind={secondaryPage?.kind ?? "raw"}
-                    linkSuggestions={secondaryProject.activePageLinkSuggestions}
                     links={secondaryProject.activePageLinks}
                     pages={secondaryProject.pages}
                     pagePath={secondaryProject.activePagePath}
@@ -411,7 +389,6 @@ function Workspace(props: WorkspaceProps) {
                     spellCheck={props.settings.spellCheck}
                     wordGoal={props.settings.wordGoal}
                     onChangeSource={updateSecondarySource}
-                    onInsertSuggestedLink={(text, target) => void insertSecondaryLink(text, target)}
                     onNavigatePage={(path) => void openSecondary(path)}
                     onSave={() => void saveSecondary()}
                     onToggleFocus={() => setFocusMode((focus) => !focus)}

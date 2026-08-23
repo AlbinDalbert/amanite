@@ -287,6 +287,22 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
 .rich-table-cell { min-width: 72px; border: 1px solid var(--project-border); padding: 0.55em 0.7em; vertical-align: top; }
 .rich-table-header { background: color-mix(in srgb, var(--project-accent) 10%, var(--project-surface)); color: var(--project-text); font-weight: 750; }
 .rich-link { color: var(--project-accent-strong); cursor: pointer; font-weight: 650; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--project-accent) 48%, transparent); text-underline-offset: 0.15em; }
+.rich-derived-link {
+  border-radius: 2px;
+  color: var(--project-accent-strong);
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, var(--project-accent) 72%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+.rich-derived-link:hover,
+.rich-derived-link:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--project-accent) 13%, transparent);
+  text-decoration-style: solid;
+}
 .rich-quote { margin: 1.5em 0; border-left: 2px solid var(--project-accent); color: var(--document-muted); padding: 0.3em 0 0.3em 1.2em; font-style: italic; }
 .rich-list { margin: 0 0 1em; padding-left: 1.5em; }
 .rich-list-item { margin: 0.28em 0; }
@@ -306,8 +322,66 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
 .document-status-bar button { min-height: 22px; color: var(--project-muted); padding: 0 4px; font: inherit; text-transform: uppercase; }
 .document-status-bar button:hover, .document-status-bar button[aria-pressed="true"] { color: var(--project-accent-strong); }
 
-.link-suggestions button { display: grid !important; gap: 3px; }
-.link-suggestions button small { color: var(--project-subtle, var(--project-muted)); font-size: .64rem; }
+.page-link-menu-anchor { z-index: 40 !important; }
+.page-link-menu {
+  width: min(390px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--project-accent) 48%, var(--project-border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--project-surface) 96%, #050403);
+  color: var(--project-text);
+  box-shadow: 0 24px 65px rgb(0 0 0 / 58%), inset 3px 0 0 var(--project-accent);
+}
+.page-link-menu > header {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--project-border);
+  padding: 0 11px 0 14px;
+  font: 800 .62rem/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.page-link-menu > header small {
+  overflow: hidden;
+  color: var(--project-muted);
+  font: 600 .6rem/1 var(--font-mono);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+.page-link-menu ul { max-height: 286px; overflow: auto; margin: 0; padding: 5px; list-style: none; }
+.page-link-menu li { margin: 0; }
+.page-link-menu button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 8px 9px;
+  color: var(--project-text);
+  text-align: left;
+}
+.page-link-menu button:hover,
+.page-link-menu button.selected {
+  border-color: color-mix(in srgb, var(--project-accent) 30%, transparent);
+  outline: none;
+  background: color-mix(in srgb, var(--project-accent) 13%, transparent);
+}
+.page-link-menu button span { font-size: .82rem; font-weight: 750; line-height: 1.2; }
+.page-link-menu button small { overflow: hidden; color: var(--project-muted); font: .61rem/1.3 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.page-link-menu > p { margin: 0; color: var(--project-muted); padding: 16px 14px; font-size: .74rem; }
+.page-link-menu > footer {
+  display: flex;
+  gap: 12px;
+  border-top: 1px solid var(--project-border);
+  color: var(--project-muted);
+  padding: 7px 10px 7px 14px;
+  font: 600 .55rem/1 var(--font-mono);
+}
 
 @media print {
   body::before, .sidebar, .workspace-toolbar, .rich-editor-header, .document-status-bar, .document-find-bar, .fractal-inspector { display: none !important; }

@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type {
   FractalBacklink,
-  FractalDerivedLink,
   FractalIframe,
   FractalIframeBacklink,
   FractalLink,
-  FractalLinkSuggestion,
   FractalPage,
   FractalPageKind
 } from "@/lib/fractal/types";
@@ -18,13 +16,11 @@ import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEdito
 
 type FractalEditorProps = {
   backlinks: FractalBacklink[];
-  derivedLinks: FractalDerivedLink[];
   focusMode: boolean;
   isBusy: boolean;
   iframeBacklinks: FractalIframeBacklink[];
   iframes: FractalIframe[];
   kind: FractalPageKind;
-  linkSuggestions: FractalLinkSuggestion[];
   links: FractalLink[];
   pages: FractalPage[];
   pagePath: string;
@@ -32,7 +28,6 @@ type FractalEditorProps = {
   spellCheck: boolean;
   wordGoal: number;
   onChangeSource: (source: string) => void;
-  onInsertSuggestedLink: (text: string, target: string) => void;
   onNavigatePage: (pagePath: string) => void;
   onSave: () => void;
   onToggleFocus: () => void;
@@ -65,7 +60,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, derivedLinks, focusMode, isBusy, iframeBacklinks, iframes, kind, linkSuggestions, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onInsertSuggestedLink, onNavigatePage, onSave, onToggleFocus } = props;
+  const { backlinks, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onNavigatePage, onSave, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
@@ -136,6 +131,13 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const target = event.target;
+    const derivedLink = target instanceof Element ? target.closest<HTMLElement>("[data-amanite-derived-target]") : null;
+    if (event.key === "Enter" && derivedLink?.dataset.amaniteDerivedTarget) {
+      event.preventDefault();
+      onNavigatePage(derivedLink.dataset.amaniteDerivedTarget);
+      return;
+    }
     if (!(event.metaKey || event.ctrlKey)) return;
     const key = event.key.toLowerCase();
     if (key === "s") { event.preventDefault(); onSave(); }
@@ -170,8 +172,16 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function handleEditorLinkClick(event: MouseEvent<HTMLDivElement>) {
-    if (kind !== "native" || !(event.ctrlKey || event.metaKey)) return;
+    if (kind !== "native") return;
     const target = event.target;
+    const derivedLink = target instanceof Element ? target.closest<HTMLElement>("[data-amanite-derived-target]") : null;
+    const derivedTarget = derivedLink?.dataset.amaniteDerivedTarget;
+    if (derivedTarget) {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigatePage(derivedTarget);
+      return;
+    }
     const anchor = target instanceof Element ? target.closest("a[href]") : null;
     if (!anchor) return;
     const pageTarget = resolveEditorLinkTarget(anchor.getAttribute("href") ?? "", links, pagePath, pages);
@@ -207,7 +217,7 @@ function FractalEditor(props: FractalEditorProps) {
             onToggleInspector={() => setIsInspectorOpen((open) => !open)}
           />
         ) : (
-          <RenderedHtmlPage derivedLinks={derivedLinks} links={links} pagePath={pagePath} source={source} onEditSource={() => setIsSourceMode(true)} onNavigatePage={onNavigatePage} onToggleInspector={() => setIsInspectorOpen((open) => !open)} />
+          <RenderedHtmlPage links={links} pages={pages} pagePath={pagePath} source={source} onEditSource={() => setIsSourceMode(true)} onNavigatePage={onNavigatePage} onToggleInspector={() => setIsInspectorOpen((open) => !open)} />
         )}
         <FindBar
           currentMatch={currentMatch}
@@ -225,13 +235,10 @@ function FractalEditor(props: FractalEditorProps) {
       </div>
       <InspectorPanel
         backlinks={backlinks}
-        derivedLinks={derivedLinks}
         iframeBacklinks={iframeBacklinks}
         iframes={iframes}
-        linkSuggestions={linkSuggestions}
         links={links}
         outline={outline}
-        onInsertSuggestedLink={onInsertSuggestedLink}
         onNavigateHeading={jumpToHeading}
         onNavigatePage={onNavigatePage}
         onResizeReset={() => setInspectorWidth(292)}

@@ -257,6 +257,24 @@ class DesktopWebDriverClient {
     await this.request("POST", this.sessionPath(`/element/${id}/value`), { text: value });
   }
 
+  async selectAll(selector, timeout) {
+    await this.click(selector, timeout);
+    await this.request("POST", this.sessionPath("/actions"), {
+      actions: [
+        {
+          type: "key",
+          id: "keyboard",
+          actions: [
+            { type: "keyDown", value: ctrlKey },
+            { type: "keyDown", value: "a" },
+            { type: "keyUp", value: "a" },
+            { type: "keyUp", value: ctrlKey }
+          ]
+        }
+      ]
+    });
+  }
+
   async ctrlS() {
     await this.request("POST", this.sessionPath("/actions"), {
       actions: [
@@ -357,14 +375,38 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   }
 
   await driver.setValue(".rich-content-editable", "Index");
-  await driver.ctrlS();
-  await driver.find(".save-state.saved");
-  await driver.click(".editor-inspector-toggle");
-  await driver.click(".link-suggestions button", 30_000);
-  await driver.find('.rich-content-editable a[href]', 30_000);
+  await driver.find('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
+  const derivedLinkShape = await driver.executeScript(`
+    const derived = document.querySelector('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
+    return { href: derived?.getAttribute('href'), role: derived?.getAttribute('role'), tagName: derived?.tagName };
+  `);
+  if (derivedLinkShape.href || derivedLinkShape.role !== "link" || derivedLinkShape.tagName !== "SPAN") {
+    throw new Error(`Derived link became an anchor: ${JSON.stringify(derivedLinkShape)}`);
+  }
+  await driver.click('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
+  await driver.find('.workspace-tab.active button[title="index.fractal.html"]', 30_000);
+
+  await driver.click('[title="my-file.fractal.html"]');
+  await driver.find('.rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
+  const derivedAfterReload = await driver.executeScript(`
+    const editor = document.querySelector('.rich-content-editable');
+    return {
+      derived: Boolean(editor?.querySelector('.rich-derived-link[data-amanite-derived-target="index.fractal.html"]')),
+      explicit: Boolean(editor?.querySelector('a[href]'))
+    };
+  `);
+  if (!derivedAfterReload.derived || derivedAfterReload.explicit) {
+    throw new Error(`Derived link persisted as an explicit link: ${JSON.stringify(derivedAfterReload)}`);
+  }
+  await driver.selectAll(".rich-content-editable");
+  await driver.sendKeys(".rich-content-editable", "@Ind");
+  await driver.find(".page-link-menu button", 30_000);
+  await takeScreenshot(driver, screenshotsDir, "04a-inline-page-link-picker");
+  await driver.click(".page-link-menu button", 30_000);
+  await driver.find('.rich-content-editable a.rich-link[href]', 30_000);
   const acceptedLink = await driver.executeScript(`
-    const anchor = document.querySelector('.rich-content-editable a[href]');
-    const dispatched = anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    const anchor = document.querySelector('.rich-content-editable a.rich-link[href]');
+    const dispatched = anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     return { dispatched, href: anchor.getAttribute('href') };
   `);
   if (!acceptedLink.href || acceptedLink.dispatched) throw new Error(`Accepted link was not handled: ${JSON.stringify(acceptedLink)}`);

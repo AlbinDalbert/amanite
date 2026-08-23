@@ -250,7 +250,6 @@ function App() {
           onMovePage={session.moveProjectPage}
           onOpenPage={session.openProjectPage}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onInsertSuggestedLink={session.insertSuggestedLink}
           onImportNativePage={session.importNativePage}
           onReloadPage={session.reloadActivePage}
           onRegisterAuxiliaryPage={registerAuxiliaryPage}

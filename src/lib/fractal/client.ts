@@ -78,13 +78,6 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       query
     }),
-  insertLink: (project, text, target) =>
-    invokeFractal<FractalProject>("fractal_insert_link", {
-      pagePath: project.activePagePath,
-      projectRoot: project.rootPath,
-      target,
-      text
-    }),
   pageModifiedMs: (project) =>
     invokeFractal<number | null>("fractal_page_modified_ms", {
       pagePath: project.activePagePath,

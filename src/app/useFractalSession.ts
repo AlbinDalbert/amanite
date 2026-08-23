@@ -253,16 +253,6 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     catch (caughtError) { setError(getErrorMessage(caughtError)); return []; }
   }, []);
 
-  const insertSuggestedLink = useCallback(async (text: string, target: string) => {
-    const current = activeProjectRef.current;
-    if (!current || busyRef.current || !(await prepareForPageChange())) return;
-    const project = await withBusy("page", () => fractalClient.insertLink(activeProjectRef.current ?? current, text, target));
-    if (project) {
-      await acceptLoadedProject(project, false);
-      setCommandResult({ ok: true, message: "Link inserted.", details: `${text} to ${target}` });
-    }
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
-
   const reloadActivePage = useCallback(async () => {
     const current = activeProjectRef.current;
     if (!current?.activePagePath || busyRef.current) return;
@@ -346,7 +336,6 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     dismissStatus,
     discardActiveDraft,
     duplicateProjectPage,
-    insertSuggestedLink,
     importNativePage,
     loadProject,
     moveProjectPage,

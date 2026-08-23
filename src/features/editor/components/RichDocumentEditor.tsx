@@ -18,9 +18,11 @@ import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin
 import { $getRoot, $insertNodes } from "lexical";
 import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo } from "react";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
+import { DerivedLinkNode } from "./DerivedLinkNode";
 import { editorLexicalTheme } from "./editorLexicalTheme";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
+import InlinePageLinksPlugin from "./InlinePageLinksPlugin";
 import { $createImageNode, IframeNode, ImageNode } from "./MediaNodes";
 
 type Props = {
@@ -35,7 +37,7 @@ type Props = {
   onToggleInspector: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle">;
+type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle">;
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
@@ -57,7 +59,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
   }
 }
 
-function WritingArea({ bodyHtml, isBusy, pagePath, spellCheck, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
+function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
@@ -113,6 +115,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, spellCheck, title, onChangeBo
           <HorizontalRulePlugin />
           <TablePlugin />
           <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} />
+          <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
         </div>
       </div>
     </article>
@@ -122,7 +125,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, spellCheck, title, onChangeBo
 function RichDocumentEditor({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
   const config = useMemo(() => ({
     namespace: `amanite-${pagePath}`,
-    nodes: [CodeNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
+    nodes: [CodeNode, DerivedLinkNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
     onError(error: Error) { throw error; },
     theme: editorLexicalTheme
   }), [pagePath]);
@@ -139,6 +142,7 @@ function RichDocumentEditor({ bodyHtml, isBusy, pagePath, pages, spellCheck, tit
           bodyHtml={bodyHtml}
           isBusy={isBusy}
           pagePath={pagePath}
+          pages={pages}
           spellCheck={spellCheck}
           title={title}
           onChangeBody={onChangeBody}

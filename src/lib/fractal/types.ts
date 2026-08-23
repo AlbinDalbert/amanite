@@ -16,32 +16,6 @@ export type FractalBacklink = {
   text: string;
 };
 
-export type FractalTextPosition = {
-  text_node: number;
-  offset: number;
-};
-
-export type FractalDerivedLink = {
-  text: string;
-  target: string;
-  occurrence: {
-    start: FractalTextPosition;
-    end: FractalTextPosition;
-  };
-};
-
-export type FractalLinkCandidate = {
-  page: string;
-  title: string;
-  match_kind: "exact_title" | "exact_stem" | "token_overlap";
-  score: number;
-};
-
-export type FractalLinkSuggestion = {
-  text: string;
-  candidates: FractalLinkCandidate[];
-};
-
 export type FractalSearchResult = {
   path: string;
   title?: string | null;
@@ -90,8 +64,6 @@ export type FractalProject = {
   activePageBacklinks: FractalBacklink[];
   activePageIframes: FractalIframe[];
   activePageIframeBacklinks: FractalIframeBacklink[];
-  activePageDerivedLinks: FractalDerivedLink[];
-  activePageLinkSuggestions: FractalLinkSuggestion[];
   activePageModifiedMs?: number | null;
 };
 
@@ -127,7 +99,6 @@ export type FractalClient = {
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   searchProject: (project: FractalProject, query: string) => Promise<FractalSearchResult[]>;
-  insertLink: (project: FractalProject, text: string, target: string) => Promise<FractalProject>;
   pageModifiedMs: (project: FractalProject) => Promise<number | null>;
   revealPage: (project: FractalProject, pagePath?: string) => Promise<void>;
 };

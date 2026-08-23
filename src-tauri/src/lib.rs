@@ -20,8 +20,6 @@ struct FractalProject {
     active_page_backlinks: Vec<fractal::Backlink>,
     active_page_iframes: Vec<fractal::Iframe>,
     active_page_iframe_backlinks: Vec<fractal::IframeBacklink>,
-    active_page_derived_links: Vec<fractal::DerivedLink>,
-    active_page_link_suggestions: Vec<fractal::LinkSuggestion>,
     active_page_modified_ms: Option<u64>,
 }
 
@@ -166,8 +164,6 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
-        active_page_derived_links,
-        active_page_link_suggestions,
         active_page_modified_ms,
     ) = match active_path.as_deref() {
         Some(path) => (
@@ -188,15 +184,9 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
             project
                 .iframe_backlinks(path)
                 .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
-            project
-                .derived_links(path)
-                .map_err(|error| format!("Could not derive links for {path}: {error}"))?,
-            project
-                .suggest_links(path)
-                .map_err(|error| format!("Could not suggest links for {path}: {error}"))?,
             page_modified_ms(&root, path)?,
         ),
-        None => (None, vec![], vec![], vec![], vec![], vec![], vec![], None),
+        None => (None, vec![], vec![], vec![], vec![], None),
     };
 
     let folders = list_page_folders(&root)?;
@@ -211,8 +201,6 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
-        active_page_derived_links,
-        active_page_link_suggestions,
         active_page_modified_ms,
     })
 }
@@ -337,20 +325,6 @@ fn fractal_search_project(
 ) -> Result<Vec<fractal::SearchResult>, String> {
     let project = open_mutable_project(&project_root)?;
     Ok(project.search(&query))
-}
-
-#[tauri::command]
-fn fractal_insert_link(
-    project_root: String,
-    page_path: String,
-    text: String,
-    target: String,
-) -> Result<FractalProject, String> {
-    let mut project = open_mutable_project(&project_root)?;
-    project
-        .insert_link(&page_path, &text, &target)
-        .map_err(|error| format!("Could not link {text}: {error}"))?;
-    read_project(PathBuf::from(project_root), Some(&page_path))
 }
 
 #[tauri::command]
@@ -583,7 +557,6 @@ pub fn run() {
             fractal_open_page,
             fractal_write_page,
             fractal_search_project,
-            fractal_insert_link,
             fractal_page_modified_ms,
             fractal_reveal_page,
             fractal_create_page,
