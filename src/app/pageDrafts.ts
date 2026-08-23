@@ -1,5 +1,3 @@
-import type { FractalProject } from "@/lib/fractal/types";
-
 type PageDraft = {
   pagePath: string;
   projectRoot: string;
@@ -32,11 +30,6 @@ export function readPageDraft(projectRoot: string, pagePath: string) {
   } catch {
     return null;
   }
-}
-
-export function writePageDraft(project: FractalProject) {
-  if (!project.activePagePath || project.activePageSource == null) return;
-  writePageDraftSource(project.rootPath, project.activePagePath, project.activePageSource);
 }
 
 export function writePageDraftSource(projectRoot: string, pagePath: string, source: string) {

@@ -1,15 +1,20 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import UniversalContextMenu, {
   type UniversalContextMenuAction
 } from "@/components/ui/UniversalContextMenu";
 import StartScreen from "@/features/project-open/components/StartScreen";
-import SettingsScreen from "@/features/settings/components/SettingsScreen";
-import Workspace from "@/features/workspace/components/Workspace";
 import { fractalClient } from "@/lib/fractal/client";
 import { useFractalSession } from "./useFractalSession";
 import { useAppearanceSettings } from "./useAppearanceSettings";
+
+const SettingsScreen = lazy(() => import("@/features/settings/components/SettingsScreen"));
+const Workspace = lazy(() => import("@/features/workspace/components/Workspace"));
+
+function AppLoading() {
+  return <div aria-label="Loading Amanite" className="app-loading"><span>Amanite</span><i /></div>;
+}
 
 function ConfirmDialog({
   confirmLabel,
@@ -82,9 +87,9 @@ function ConfirmDialog({
 
 function App() {
   const appearance = useAppearanceSettings();
-  const session = useFractalSession({ autoSave: appearance.settings.autoSave });
+  const session = useFractalSession();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [hasAuxiliaryUnsavedChanges, setHasAuxiliaryUnsavedChanges] = useState(false);
+  const [hasWorkspaceUnsavedChanges, setHasWorkspaceUnsavedChanges] = useState(false);
   const allowCloseRef = useRef(false);
   const restoredSessionRef = useRef(false);
   const {
@@ -92,30 +97,25 @@ function App() {
     commandResult,
     confirmDialog,
     error,
-    hasUnsavedPageChanges,
     isBusy,
     projectCatalog
   } = session;
-  const hasUnsavedRef = useRef(hasUnsavedPageChanges);
-  const saveActivePageRef = useRef(session.saveActivePage);
-  const saveAuxiliaryPageRef = useRef<(() => Promise<boolean>) | null>(null);
-  hasUnsavedRef.current = hasUnsavedPageChanges;
-  saveActivePageRef.current = session.saveActivePage;
+  const hasWorkspaceUnsavedRef = useRef(hasWorkspaceUnsavedChanges);
+  const saveWorkspaceRef = useRef<(() => Promise<boolean>) | null>(null);
+  hasWorkspaceUnsavedRef.current = hasWorkspaceUnsavedChanges;
 
-  const registerAuxiliaryPage = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
-    setHasAuxiliaryUnsavedChanges(dirty);
-    saveAuxiliaryPageRef.current = save;
+  const registerWorkspace = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
+    hasWorkspaceUnsavedRef.current = dirty;
+    setHasWorkspaceUnsavedChanges(dirty);
+    saveWorkspaceRef.current = save;
   }, []);
 
   const requestWindowClose = useCallback(async () => {
-    if (hasUnsavedRef.current) {
-      if (!(await saveActivePageRef.current())) return;
-    }
-    if (hasAuxiliaryUnsavedChanges && saveAuxiliaryPageRef.current && !(await saveAuxiliaryPageRef.current())) return;
+    if (hasWorkspaceUnsavedRef.current && saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
     allowCloseRef.current = true;
     if ("__TAURI_INTERNALS__" in window) await getCurrentWindow().close();
     else window.close();
-  }, [hasAuxiliaryUnsavedChanges]);
+  }, []);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -124,10 +124,9 @@ function App() {
     const appWindow = getCurrentWindow();
 
     void appWindow.onCloseRequested(async (event) => {
-      if (allowCloseRef.current || (!hasUnsavedRef.current && !hasAuxiliaryUnsavedChanges)) return;
+      if (allowCloseRef.current || !hasWorkspaceUnsavedRef.current) return;
       event.preventDefault();
-      if (hasUnsavedRef.current && !(await saveActivePageRef.current())) return;
-      if (hasAuxiliaryUnsavedChanges && saveAuxiliaryPageRef.current && !(await saveAuxiliaryPageRef.current())) return;
+      if (saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
       allowCloseRef.current = true;
       await appWindow.close();
     }).then((removeListener) => {
@@ -139,7 +138,7 @@ function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [hasAuxiliaryUnsavedChanges]);
+  }, []);
 
   useEffect(() => {
     if (restoredSessionRef.current || !appearance.settings.restoreLastSession || !projectCatalog || activeProject) return;
@@ -166,23 +165,22 @@ function App() {
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
-      if (!hasUnsavedPageChanges && !hasAuxiliaryUnsavedChanges) return;
+      if (!hasWorkspaceUnsavedChanges) return;
       event.preventDefault();
       event.returnValue = "";
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasAuxiliaryUnsavedChanges, hasUnsavedPageChanges]);
+  }, [hasWorkspaceUnsavedChanges]);
 
   const contextMenuActions: UniversalContextMenuAction[] = activeProject
     ? [
         {
-          disabled: isBusy || (!hasUnsavedPageChanges && !hasAuxiliaryUnsavedChanges),
-          label: hasAuxiliaryUnsavedChanges ? "Save pages" : "Save page",
-          title: hasUnsavedPageChanges || hasAuxiliaryUnsavedChanges ? "Save edited pages." : "No page changes to save.",
+          disabled: isBusy || !hasWorkspaceUnsavedChanges,
+          label: "Save pages",
+          title: hasWorkspaceUnsavedChanges ? "Save edited pages." : "No page changes to save.",
           onSelect: () => {
-            void session.saveActivePage();
-            if (saveAuxiliaryPageRef.current) void saveAuxiliaryPageRef.current();
+            if (saveWorkspaceRef.current) void saveWorkspaceRef.current();
           }
         },
         {
@@ -196,7 +194,7 @@ function App() {
   return (
     <UniversalContextMenu actions={contextMenuActions}>
       {!activeProject ? (isSettingsOpen ? (
-        <SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} />
+        <Suspense fallback={<AppLoading />}><SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense>
       ) : (
         <StartScreen
           error={error}
@@ -216,10 +214,9 @@ function App() {
       )) : (
         <>
           <div className={isSettingsOpen ? "workspace-view settings-hidden" : "workspace-view"}>
-            <Workspace
+            <Suspense fallback={<AppLoading />}><Workspace
               commandResult={commandResult}
               error={error}
-              initialPageDirty={hasUnsavedPageChanges}
               isBusy={isBusy}
               project={activeProject}
               settings={appearance.settings}
@@ -235,14 +232,14 @@ function App() {
               onOpenSettings={() => setIsSettingsOpen(true)}
               onImportNativePage={session.importNativePage}
               onProjectSnapshot={session.adoptProjectSnapshot}
-              onRegisterWorkspace={registerAuxiliaryPage}
+              onRegisterWorkspace={registerWorkspace}
               onRequestConfirmation={session.requestConfirmation}
               onRevealPage={session.revealPage}
               onSearchProject={session.searchProject}
               onValidate={session.validateProject}
-            />
+            /></Suspense>
           </div>
-          {isSettingsOpen ? <SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /> : null}
+          {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense> : null}
         </>
       )}
 

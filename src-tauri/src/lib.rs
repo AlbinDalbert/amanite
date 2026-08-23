@@ -206,7 +206,7 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
 }
 
 fn page_modified_ms(project_root: &Path, page_path: &str) -> Result<Option<u64>, String> {
-    let modified = fs::metadata(project_root.join("pages").join(page_path))
+    let modified = fs::metadata(validated_page_target(project_root, page_path)?)
         .map_err(|error| format!("Could not inspect {page_path}: {error}"))?
         .modified()
         .map_err(|error| format!("Could not inspect modification time for {page_path}: {error}"))?;
@@ -230,6 +230,33 @@ fn relative_folder_path(value: &str) -> Result<PathBuf, String> {
         return Err("Choose a folder name without an extension or parent path.".into());
     }
     Ok(path.to_path_buf())
+}
+
+fn relative_page_path(value: &str) -> Result<PathBuf, String> {
+    let path = Path::new(value.trim());
+    if path.as_os_str().is_empty()
+        || !path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err("Choose a valid page inside this project.".into());
+    }
+    Ok(path.to_path_buf())
+}
+
+fn validated_page_target(project_root: &Path, page_path: &str) -> Result<PathBuf, String> {
+    let pages_root = project_root
+        .join("pages")
+        .canonicalize()
+        .map_err(|error| format!("Could not open project pages: {error}"))?;
+    let target = pages_root
+        .join(relative_page_path(page_path)?)
+        .canonicalize()
+        .map_err(|error| format!("Could not open {page_path}: {error}"))?;
+    if !target.starts_with(&pages_root) {
+        return Err("Choose a page inside this project.".into());
+    }
+    Ok(target)
 }
 
 fn list_page_folders(project_root: &Path) -> Result<Vec<String>, String> {
@@ -345,9 +372,10 @@ fn fractal_reveal_page(project_root: String, page_path: Option<String>) -> Resul
         .canonicalize()
         .map_err(|error| format!("Could not open project: {error}"))?;
     open_mutable_project(root.to_string_lossy().as_ref())?;
-    let target = page_path
-        .map(|path| root.join("pages").join(path))
-        .unwrap_or(root);
+    let target = match page_path {
+        Some(path) => validated_page_target(&root, &path)?,
+        None => root,
+    };
     if !target.exists() {
         return Err(format!(
             "Could not reveal {} because it does not exist.",
@@ -539,6 +567,35 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
         .into(),
         details,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{project_directory_name, relative_folder_path, relative_page_path};
+
+    #[test]
+    fn page_paths_stay_relative() {
+        assert!(relative_page_path("notes/today.fractal.html").is_ok());
+        assert!(relative_page_path("../outside.html").is_err());
+        assert!(relative_page_path("/tmp/outside.html").is_err());
+        assert!(relative_page_path("").is_err());
+    }
+
+    #[test]
+    fn folder_paths_stay_relative() {
+        assert!(relative_folder_path("notes/daily").is_ok());
+        assert!(relative_folder_path("../outside").is_err());
+        assert!(relative_folder_path("notes.html").is_err());
+    }
+
+    #[test]
+    fn project_names_become_single_directory_names() {
+        assert_eq!(
+            project_directory_name("Field Notes").unwrap(),
+            "field-notes"
+        );
+        assert!(project_directory_name("***").is_err());
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

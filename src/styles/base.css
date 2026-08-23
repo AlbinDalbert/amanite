@@ -23,6 +23,43 @@ body::before {
   min-height: 100vh;
 }
 
+.app-loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 14px;
+  background: radial-gradient(circle at 50% 44%, var(--surface-2) 0, var(--bg) 42%, var(--bg-deep) 100%);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.app-loading i {
+  display: block;
+  width: 128px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+.app-loading i::after {
+  display: block;
+  width: 45%;
+  height: 100%;
+  content: "";
+  background: var(--signal);
+  animation: app-loading 1s ease-in-out infinite alternate;
+}
+
+@keyframes app-loading {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(220%); }
+}
+
 .app-context-root {
   min-height: 100vh;
 }

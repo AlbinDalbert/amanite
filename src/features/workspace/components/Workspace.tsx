@@ -25,7 +25,6 @@ type ProjectMutation = Promise<FractalProject | null | undefined>;
 type WorkspaceProps = {
   commandResult: FractalCommandResult | null;
   error: string | null;
-  initialPageDirty: boolean;
   isBusy: boolean;
   project: FractalProject;
   settings: AppearanceSettings;
@@ -107,7 +106,6 @@ function Workspace(props: WorkspaceProps) {
 
   const documents = useWorkspaceDocuments({
     autoSave: props.settings.autoSave,
-    initialDirty: props.initialPageDirty,
     initialProject: props.project,
     onProjectSnapshot: props.onProjectSnapshot,
     onRequestConfirmation: props.onRequestConfirmation

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "@/lib/fractal/types";
-import { clearPageDraft, readPageDraft, writePageDraft } from "./pageDrafts";
+import { clearPageDraft } from "./pageDrafts";
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -20,22 +20,17 @@ function sourceWithTitle(source: string, title: string) {
 
 type BusyOperation = "catalog" | "load" | "command" | "page" | "save" | null;
 type ConfirmState = { confirmLabel: string; message: string; resolve: (confirmed: boolean) => void };
-type SessionOptions = { autoSave: boolean };
 
-export function useFractalSession({ autoSave }: SessionOptions) {
+export function useFractalSession() {
   const [activeProject, setActiveProject] = useState<FractalProject | null>(null);
   const [projectCatalog, setProjectCatalog] = useState<FractalProjectCatalog | null>(null);
   const [commandResult, setCommandResult] = useState<FractalCommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hasUnsavedPageChanges, setHasUnsavedPageChanges] = useState(false);
   const [busyOperation, setBusyOperation] = useState<BusyOperation>("catalog");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
-  const editRevisionRef = useRef(0);
   const activeProjectRef = useRef(activeProject);
-  const unsavedRef = useRef(hasUnsavedPageChanges);
   const busyRef = useRef(busyOperation);
   activeProjectRef.current = activeProject;
-  unsavedRef.current = hasUnsavedPageChanges;
   busyRef.current = busyOperation;
   const isBusy = busyOperation !== null;
 
@@ -61,47 +56,24 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     }
   }, []);
 
-  const discardActiveDraft = useCallback(() => {
-    const project = activeProjectRef.current;
-    if (project?.activePagePath) clearPageDraft(project.rootPath, project.activePagePath);
+  const acceptProject = useCallback((project: FractalProject) => {
+    activeProjectRef.current = project;
+    setActiveProject(project);
+    setCommandResult(null);
+    try {
+      localStorage.setItem("amanite.last-session.v1", JSON.stringify({
+        pagePath: project.activePagePath,
+        projectRoot: project.rootPath
+      }));
+    } catch {
+      // Session restore is optional.
+    }
   }, []);
 
   const adoptProjectSnapshot = useCallback((project: FractalProject) => {
     activeProjectRef.current = project;
-    editRevisionRef.current = 0;
     setActiveProject(project);
-    setHasUnsavedPageChanges(false);
   }, []);
-
-  const acceptLoadedProject = useCallback(async (project: FractalProject, checkDraft = true) => {
-    const pagePath = project.activePagePath;
-    const pageSource = project.activePageSource;
-    const draft = checkDraft && pagePath && pageSource != null ? readPageDraft(project.rootPath, pagePath) : null;
-
-    if (draft && draft.source !== pageSource) {
-      const shouldRecover = await confirm(`Recover the unsaved draft for ${pagePath}?`, "Recover draft");
-      if (shouldRecover) {
-        editRevisionRef.current += 1;
-        setActiveProject({ ...project, activePageSource: draft.source });
-        setHasUnsavedPageChanges(true);
-        setCommandResult({ ok: true, message: "Unsaved draft recovered.", details: pagePath });
-        return;
-      }
-      clearPageDraft(project.rootPath, pagePath!);
-    } else if (draft && pagePath) {
-      clearPageDraft(project.rootPath, pagePath);
-    }
-
-    editRevisionRef.current = 0;
-    setActiveProject(project);
-    setCommandResult(null);
-    setHasUnsavedPageChanges(false);
-    try {
-      localStorage.setItem("amanite.last-session.v1", JSON.stringify({ pagePath, projectRoot: project.rootPath }));
-    } catch {
-      // Session restore is optional.
-    }
-  }, [confirm]);
 
   const refreshProjectCatalog = useCallback(async () => {
     const catalog = await withBusy("catalog", fractalClient.listProjects);
@@ -110,66 +82,26 @@ export function useFractalSession({ autoSave }: SessionOptions) {
 
   const loadProject = useCallback(async (action: () => Promise<FractalProject>) => {
     const project = await withBusy("load", action);
-    if (project) await acceptLoadedProject(project);
-  }, [acceptLoadedProject, withBusy]);
-
-  const saveActivePage = useCallback(async () => {
-    const projectAtStart = activeProjectRef.current;
-    if (!projectAtStart?.activePagePath || projectAtStart.activePageSource == null || !unsavedRef.current || busyRef.current) return !unsavedRef.current;
-    const path = projectAtStart.activePagePath;
-    const source = projectAtStart.activePageSource;
-    const revision = editRevisionRef.current;
-    const project = await withBusy("save", () => fractalClient.writePage(projectAtStart, source));
-    if (!project) return false;
-    const hasNewerEdits = editRevisionRef.current !== revision;
-    setActiveProject((currentProject) =>
-      hasNewerEdits && currentProject?.rootPath === project.rootPath && currentProject.activePagePath === path
-        ? { ...project, activePageSource: currentProject.activePageSource }
-        : project
-    );
-    setHasUnsavedPageChanges(hasNewerEdits);
-    if (hasNewerEdits) {
-      setCommandResult({ ok: true, message: "Earlier changes saved. Newer edits are still unsaved.", details: path });
-    } else {
-      clearPageDraft(project.rootPath, path);
-      setCommandResult({ ok: true, message: "Page saved.", details: path });
-    }
-    return true;
-  }, [withBusy]);
-
-  const prepareForPageChange = useCallback(async () => !unsavedRef.current || saveActivePage(), [saveActivePage]);
-
-  const openProjectPage = useCallback(async (pagePath: string) => {
-    const current = activeProjectRef.current;
-    if (!current || pagePath === current.activePagePath || busyRef.current || !(await prepareForPageChange())) return;
-    const project = await withBusy("page", () => fractalClient.openPage(activeProjectRef.current ?? current, pagePath));
-    if (project) await acceptLoadedProject(project);
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
-
-  const updateActivePageSource = useCallback((source: string) => {
-    editRevisionRef.current += 1;
-    setActiveProject((project) => project ? { ...project, activePageSource: source } : project);
-    setCommandResult(null);
-    setHasUnsavedPageChanges(true);
-  }, []);
+    if (project) acceptProject(project);
+  }, [acceptProject, withBusy]);
 
   const createProjectPage = useCallback(async (title: string, folderPath?: string) => {
     const current = activeProjectRef.current;
-    if (!current || busyRef.current || !title.trim() || !(await prepareForPageChange())) return null;
-    const project = await withBusy("page", () => fractalClient.createPage(activeProjectRef.current ?? current, title.trim(), folderPath));
+    if (!current || busyRef.current || !title.trim()) return null;
+    const project = await withBusy("page", () => fractalClient.createPage(current, title.trim(), folderPath));
     if (project) {
-      await acceptLoadedProject(project);
+      acceptProject(project);
       setCommandResult({ ok: true, message: "Page created.", details: project.activePagePath });
     }
     return project;
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
+  }, [acceptProject, withBusy]);
 
   const duplicateProjectPage = useCallback(async (pagePath: string) => {
     const current = activeProjectRef.current;
-    if (!current || busyRef.current || !(await prepareForPageChange())) return null;
+    if (!current || busyRef.current) return null;
     const sourceProject = current.activePagePath === pagePath
-      ? activeProjectRef.current ?? current
-      : await withBusy("page", () => fractalClient.openPage(activeProjectRef.current ?? current, pagePath));
+      ? current
+      : await withBusy("page", () => fractalClient.openPage(current, pagePath));
     if (!sourceProject?.activePageSource) return null;
     const page = sourceProject.pages.find((candidate) => candidate.path === pagePath);
     if (!page || page.kind !== "native") {
@@ -183,113 +115,110 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     while (existingTitles.has(title.toLowerCase())) title = `${base} ${copyNumber++}`;
     const folderPath = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : undefined;
     const created = await withBusy("page", () => fractalClient.createPage(sourceProject, title, folderPath));
-    if (!created || !created.activePagePath) return null;
+    if (!created?.activePagePath) return null;
     const written = await withBusy("save", () => fractalClient.writePage(created, sourceWithTitle(sourceProject.activePageSource!, title)));
     if (written) {
-      await acceptLoadedProject(written, false);
+      acceptProject(written);
       setCommandResult({ ok: true, message: "Page duplicated.", details: written.activePagePath });
     }
     return written;
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
+  }, [acceptProject, withBusy]);
 
   const importNativePage = useCallback(async (source: string, folderPath?: string) => {
     const current = activeProjectRef.current;
-    if (!current || busyRef.current || !(await prepareForPageChange())) return null;
+    if (!current || busyRef.current) return null;
     const document = new DOMParser().parseFromString(source, "text/html");
     const title = document.title.trim();
-    if (!title) { setError("The imported Fractal document needs a <title>."); return null; }
-    const project = await withBusy("page", () => fractalClient.importNativePage(activeProjectRef.current ?? current, title, source, folderPath));
+    if (!title) {
+      setError("The imported Fractal document needs a <title>.");
+      return null;
+    }
+    const project = await withBusy("page", () => fractalClient.importNativePage(current, title, source, folderPath));
     if (project) {
-      await acceptLoadedProject(project, false);
+      acceptProject(project);
       setCommandResult({ ok: true, message: "Fractal document imported.", details: project.activePagePath });
     }
     return project;
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
+  }, [acceptProject, withBusy]);
 
   const createProjectFolder = useCallback(async (folderPath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !folderPath.trim()) return null;
     const project = await withBusy("page", () => fractalClient.createFolder(current, folderPath.trim()));
     if (project) {
-      setActiveProject(unsavedRef.current ? { ...project, activePageSource: current.activePageSource } : project);
+      acceptProject(project);
       setCommandResult({ ok: true, message: "Folder created.", details: folderPath.trim() });
     }
     return project;
-  }, [withBusy]);
+  }, [acceptProject, withBusy]);
 
   const deleteProjectFolder = useCallback(async (folderPath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current) return null;
     const pageCount = current.pages.filter((page) => page.path.startsWith(`${folderPath}/`)).length;
     if (!(await confirm(`Delete ${folderPath}? Fractal will remove ${pageCount} page${pageCount === 1 ? "" : "s"} inside it.`, "Delete folder"))) return null;
-    if (!(await prepareForPageChange())) return null;
-    const project = await withBusy("page", () => fractalClient.deleteFolder(activeProjectRef.current ?? current, folderPath));
+    const project = await withBusy("page", () => fractalClient.deleteFolder(current, folderPath));
     if (project) {
       for (const page of current.pages.filter((item) => item.path.startsWith(`${folderPath}/`))) clearPageDraft(current.rootPath, page.path);
-      await acceptLoadedProject(project, false);
+      acceptProject(project);
       setCommandResult({ ok: true, message: "Folder deleted.", details: folderPath });
     }
     return project;
-  }, [acceptLoadedProject, confirm, prepareForPageChange, withBusy]);
+  }, [acceptProject, confirm, withBusy]);
 
   const moveProjectPage = useCallback(async (pagePath: string, destination: string) => {
     const current = activeProjectRef.current;
-    if (!current || busyRef.current || !destination.trim() || destination.trim() === pagePath || !(await prepareForPageChange())) return null;
-    const project = await withBusy("page", () => fractalClient.movePage(activeProjectRef.current ?? current, pagePath, destination.trim()));
+    const nextDestination = destination.trim();
+    if (!current || busyRef.current || !nextDestination || nextDestination === pagePath) return null;
+    const project = await withBusy("page", () => fractalClient.movePage(current, pagePath, nextDestination));
     if (project) {
       clearPageDraft(current.rootPath, pagePath);
-      await acceptLoadedProject(project, false);
-      setCommandResult({ ok: true, message: "Page moved.", details: `${pagePath} to ${destination.trim()}` });
+      acceptProject(project);
+      setCommandResult({ ok: true, message: "Page moved.", details: `${pagePath} to ${nextDestination}` });
     }
     return project;
-  }, [acceptLoadedProject, prepareForPageChange, withBusy]);
+  }, [acceptProject, withBusy]);
 
   const deleteProjectPage = useCallback(async (pagePath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !(await confirm(`Delete ${pagePath}?`, "Delete page"))) return null;
-    if (!(await prepareForPageChange())) return null;
-    const project = await withBusy("page", () => fractalClient.deletePage(activeProjectRef.current ?? current, pagePath));
+    const project = await withBusy("page", () => fractalClient.deletePage(current, pagePath));
     if (project) {
       clearPageDraft(current.rootPath, pagePath);
-      await acceptLoadedProject(project, false);
+      acceptProject(project);
       setCommandResult({ ok: true, message: "Page deleted.", details: pagePath });
     }
     return project;
-  }, [acceptLoadedProject, confirm, prepareForPageChange, withBusy]);
+  }, [acceptProject, confirm, withBusy]);
 
   const searchProject = useCallback(async (query: string): Promise<FractalSearchResult[]> => {
     const current = activeProjectRef.current;
     if (!current || !query.trim()) return [];
-    try { return await fractalClient.searchProject(current, query.trim()); }
-    catch (caughtError) { setError(getErrorMessage(caughtError)); return []; }
-  }, []);
-
-  const reloadActivePage = useCallback(async () => {
-    const current = activeProjectRef.current;
-    if (!current?.activePagePath || busyRef.current) return;
-    const project = await withBusy("page", () => fractalClient.openPage(current, current.activePagePath!));
-    if (project) {
-      discardActiveDraft();
-      await acceptLoadedProject(project, false);
-      setCommandResult({ ok: true, message: "Page reloaded from disk.", details: project.activePagePath });
+    try {
+      return await fractalClient.searchProject(current, query.trim());
+    } catch (caughtError) {
+      setError(getErrorMessage(caughtError));
+      return [];
     }
-  }, [acceptLoadedProject, discardActiveDraft, withBusy]);
+  }, []);
 
   const revealPage = useCallback(async (pagePath?: string) => {
     const current = activeProjectRef.current;
     if (!current) return;
-    try { await fractalClient.revealPage(current, pagePath); }
-    catch (caughtError) { setError(getErrorMessage(caughtError)); }
+    try {
+      await fractalClient.revealPage(current, pagePath);
+    } catch (caughtError) {
+      setError(getErrorMessage(caughtError));
+    }
   }, []);
 
   const closeProject = useCallback(async () => {
-    if (!(await prepareForPageChange())) return;
+    activeProjectRef.current = null;
     setActiveProject(null);
     setCommandResult(null);
     setError(null);
-    setHasUnsavedPageChanges(false);
     await refreshProjectCatalog();
-  }, [prepareForPageChange, refreshProjectCatalog]);
+  }, [refreshProjectCatalog]);
 
   const validateProject = useCallback(async () => {
     const current = activeProjectRef.current;
@@ -298,28 +227,22 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     if (result) setCommandResult(result);
   }, [withBusy]);
 
-  const dismissStatus = useCallback(() => { setCommandResult(null); setError(null); }, []);
+  const dismissStatus = useCallback(() => {
+    setCommandResult(null);
+    setError(null);
+  }, []);
 
-  useEffect(() => { void refreshProjectCatalog(); }, [refreshProjectCatalog]);
   useEffect(() => {
-    if (!activeProject || !hasUnsavedPageChanges) return;
-    const timeout = window.setTimeout(() => writePageDraft(activeProject), 180);
-    return () => window.clearTimeout(timeout);
-  }, [activeProject, hasUnsavedPageChanges]);
-  useEffect(() => {
-    if (!autoSave || !activeProject || !hasUnsavedPageChanges || isBusy) return;
-    const timeout = window.setTimeout(() => { void saveActivePage(); }, 900);
-    return () => window.clearTimeout(timeout);
-  }, [activeProject, autoSave, hasUnsavedPageChanges, isBusy, saveActivePage]);
+    void refreshProjectCatalog();
+  }, [refreshProjectCatalog]);
+
   return {
     activeProject,
     adoptProjectSnapshot,
     commandResult,
     confirmDialog: confirmState ? { confirmLabel: confirmState.confirmLabel, message: confirmState.message, onAnswer: answerConfirm } : null,
     error,
-    hasUnsavedPageChanges,
     isBusy,
-    saveState: busyOperation === "save" ? "saving" as const : hasUnsavedPageChanges ? "unsaved" as const : "saved" as const,
     projectCatalog,
     createProjectPage,
     createProjectFolder,
@@ -327,19 +250,14 @@ export function useFractalSession({ autoSave }: SessionOptions) {
     deleteProjectFolder,
     closeProject,
     dismissStatus,
-    discardActiveDraft,
     duplicateProjectPage,
     importNativePage,
     loadProject,
     moveProjectPage,
-    openProjectPage,
     refreshProjectCatalog,
-    reloadActivePage,
     requestConfirmation: confirm,
     revealPage,
-    saveActivePage,
     searchProject,
-    updateActivePageSource,
     validateProject
   };
 }

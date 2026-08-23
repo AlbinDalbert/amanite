@@ -1,24 +1,47 @@
 # Architecture
 
-Fractal owns project and page behavior. Amanite is only a desktop adapter.
+Fractal owns project and page behavior. Amanite is a desktop adapter and editor.
 
 ```text
 React UI
-→ useFractalSession
-→ src/lib/fractal/client.ts
-→ Tauri commands
-→ fractal::Project
-→ refreshed FractalProject view model
+-> useFractalSession for project commands and catalog state
+-> useWorkspaceDocuments for open document buffers
+-> src/lib/fractal/client.ts
+-> Tauri commands
+-> fractal::Project
+-> refreshed FractalProject snapshot
 ```
 
-The backend opens a fresh `fractal::Project` for each command and delegates mutations to its public methods. It does not maintain a second index or reproduce path, link, or validation rules.
+## Project and document ownership
 
-For native `.fractal.html` documents, the frontend derives an editable title and body from `main[data-fractal-document]` and folds rich-editor changes back into the complete document. Ordinary `.html` files render in a sandboxed frame by default. Their source toggle exposes that same complete document for editing. Rendered internal links use Fractal's resolved targets to open another project page. Successful writes send complete HTML through Fractal and return a fresh project view. Page kinds, links, backlinks, iframes, and iframe backlinks are snapshots from that view.
+`useFractalSession` owns the project catalog, the current project snapshot, command status, and confirmation dialogs. It does not own editable page state.
 
-The optional right editor pane holds another Fractal page snapshot and draft in UI state. It uses the same `Project::write_page` boundary, autosave, and recovery-draft behavior as the primary page. Split and panel widths are presentation state only.
+`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known file modification time, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
 
-Amanite may keep a temporary browser-local copy of unsaved complete HTML for crash recovery. The copy is a recovery cache, not a project page or second page format. Amanite clears it after `Project::write_page` succeeds or after the user explicitly discards it. Appearance settings are also browser-local and do not enter the project.
+The workspace saves buffers before project mutations and before closing the project. Window-close handling calls the workspace's `saveAll` function. Autosave and recovery drafts also operate on the same buffers. A per-path in-flight promise prevents overlapping writes.
 
-Fractal does not model empty directories. Amanite lists and creates directories below `pages/` with validated relative paths. Folder deletion calls `Project::delete_page` for every contained page before Amanite removes the remaining directory.
+## Persistence boundary
 
-The adapter exposes project list, create, and open operations. Page operations cover open, create, native-document import, write, move, delete, search, references, modification checks, and validation. Native import creates the destination through `Project::create_page_at` and writes it through `Project::write_page`. Amanite does not create raw HTML files because Fractal does not yet expose that operation.
+The backend opens a fresh `fractal::Project` for each command and delegates page mutations to its public methods. It does not keep another index or reproduce Fractal's page and link rules.
+
+For native `.fractal.html` documents, the frontend reads the editable title and body from `main[data-fractal-document]`. It folds rich-editor changes back into the complete HTML document and writes that source through `Project::write_page`.
+
+Ordinary `.html` files render in a sandboxed frame. Their source mode edits the same complete document. Successful writes return a fresh project snapshot with updated pages, links, backlinks, iframes, and modification time.
+
+Recovery drafts contain complete HTML and live in browser-local storage. They are temporary crash recovery data, not another page format. Amanite removes a draft after a confirmed Fractal write or an explicit discard.
+
+## Editor groups
+
+The workspace has left and optional right editor groups. Each group owns its ordered tab paths, active path, and navigation history. Groups share the document buffer map, so dirty state and save conflicts belong to a path rather than a pane.
+
+`workspaceGroups.ts` contains pure tab and history transitions. `EditorGroupPane.tsx` renders either group with the same component. The layout is intentionally limited to two columns; Amanite does not carry a general docking tree.
+
+## HTML safety
+
+Raw HTML previews run without script permission. Iframes embedded in native rich documents always receive Amanite's restrictive sandbox when rendered and saved. Media nodes retain their source attributes for round-trip fidelity, but the live React view only applies attributes that are safe and useful for rendering.
+
+## Folders and filesystem paths
+
+Fractal does not model empty directories. Amanite lists and creates directories below `pages/` with validated relative paths. Folder deletion calls `Project::delete_page` for contained pages before removing the remaining directory.
+
+Commands that inspect or reveal a page canonicalize the target and verify that it remains below the project's canonical `pages/` directory. Project roots may still live outside Amanite's default library when the user opens them explicitly.

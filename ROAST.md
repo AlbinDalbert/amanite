@@ -1,74 +1,57 @@
-# Amanite UX roast
+# Amanite code roast
 
-Reviewed and rechecked 2026-08-23 after the workspace rewrite.
+Reviewed and remediated 2026-08-23 on `main` after the editor-group rewrite.
 
 ## Verdict
 
-**Two real editor groups. The fake subsystem is gone.**
+**The two-group editor now has one document model, and the dangerous HTML path has guardrails.**
 
-Amanite now has a coherent desktop editing model. The left and right groups own separate ordered tab lists, active pages, and histories. Commands follow the focused group. Dirty state, save errors, and disk conflicts belong to documents rather than a global primary-versus-secondary split.
-
-The core desktop UX can reasonably be called complete. The remaining work is polish and broader accessibility verification.
-
-## What works
-
-- Tabs reorder within a group and move between groups. Dragging a tab to the right creates the second group.
-- Quick open, sidebar navigation, links, back and forward, Ctrl/Cmd+W, and reopen-closed target the focused group.
-- Each open file has one shared buffer with source, dirty state, revision, modified time, operation, and error data.
-- Settings leave the workspace mounted, so opening preferences does not destroy the group layout.
-- Dirty tabs survive navigation. Ctrl/Cmd+S saves the focused document, while the top button becomes "Save all" when several files are dirty.
-- Each document checks its disk modified time before writing. A conflict appears in the affected group with explicit reload and replace actions.
-- Project moves and deletions reconcile the group tabs and buffers with Fractal's returned project state.
-- The inspector no longer renders a tower of empty cards. Empty reference categories collapse into one line.
-- Subtle metadata text has stronger contrast, and the smallest file-kind label grew from 0.52 rem to 0.6 rem.
+The follow-up removed the old single-active-page state instead of teaching two save systems to cooperate. The workspace buffer map now owns drafts, dirty state, autosave, conflict checks, recovery, and writes. The remaining tradeoffs are explicit rather than accidental.
 
 ## Structure and maintainability
 
-The old `secondaryProject` branch and second save implementation are gone. `workspaceGroups.ts` contains the pure two-group transitions. `useWorkspaceDocuments.ts` owns document I/O and buffer state. `EditorGroupPane.tsx` renders either group through the same component.
+`useFractalSession` now owns the project catalog, project commands, confirmation dialogs, and command status. `useWorkspaceDocuments` is the sole owner of editable documents. Window-close handling registers one `saveAll` function from the workspace.
 
-This stays within KISS and YAGNI. Amanite supports two columns because that is the requested workflow. It does not carry a recursive layout tree or a general docking framework.
+`docs/architecture.md` now describes the shared buffer map and independent editor groups. The retired primary-page and auxiliary-page model is gone from code and documentation.
 
-No open structural finding remains from the original roast.
+No open structural finding remains from the previous roast.
 
 ## Correctness and data integrity
 
-The desktop smoke test now edits a right-group document, changes the same file outside Amanite, waits for the per-document conflict warning, and reloads the disk version. Saves run sequentially, so several dirty buffers cannot race project snapshots.
+Rich-editor image and iframe nodes retain all source attributes through import, Lexical state, and HTML export. The live React view applies a safe rendering subset, and exported iframes always receive Amanite's restrictive sandbox. Tests cover `srcdoc`, dimensions, custom data attributes, and sandbox replacement.
 
-Drafts remain complete HTML and persistence still goes through `fractal::Project::write_page`. The rewrite did not add another durable page format.
+Folder deletion remains sequential by design. The user accepted partial progress if a later page deletion fails, so this is recorded as product behavior rather than an open finding.
 
-No open high-severity correctness finding remains from the original roast.
+No open high-severity correctness finding remains from the previous roast.
 
 ## Tests and verification
 
-Checks run:
+- `pnpm test` passes 29 tests in 9 files.
+- `pnpm run build` passes without the previous large-chunk warning.
+- `cargo test --manifest-path src-tauri/Cargo.toml` passes 3 backend tests.
+- `pnpm run tauri:webdriver:smoke` passes against the real Tauri app, including save, split groups, settings, buffer switching, and draft recovery.
+- `git diff --check` passes.
 
-- `pnpm test`, 23 tests in 7 files passed.
-- `pnpm run build`, TypeScript and Vite passed.
-- `pnpm run tauri:webdriver:doctor`, passed.
-- `pnpm run tauri:webdriver:smoke`, passed against the real Tauri binary.
-- `git diff --check`, passed.
-
-The group tests cover independent tabs and histories, cross-group moves, splitting the only left tab, nearest-neighbor close behavior, group collapse, path renames, and deletion reconciliation.
-
-The desktop smoke run creates at least four left tabs and two right tabs, drags tabs into the right group, detects a right-page disk conflict, verifies right-focused Ctrl/Cmd+W, reopens the closed tab in the right group, preserves a dirty buffer across tab switches, and recovers a draft. Artifacts are under `artifacts/tauri-webdriver/2026-08-23T17-46-57-571Z/`.
+The backend tests now cover relative page and folder paths plus project directory naming. The desktop smoke artifacts are under `artifacts/tauri-webdriver/2026-08-23T19-08-01-203Z/`.
 
 ## Failure handling and operability
 
-Tabs show saved, dirty, and conflict states. The focused group has its own visual edge and toolbar readout. Save failures and disk conflicts appear beside the affected editor. Reload and forced replacement require separate explicit actions.
+Each document path now has one in-flight save promise. Autosave, keyboard saves, save-all, and close handling join that promise instead of starting overlapping writes.
 
-Tab rails scroll horizontally instead of clipping unreachable documents. Arrow keys move between tabs. Alt+Shift+Left and Alt+Shift+Right reorder the focused tab within its group.
+The initial JavaScript chunk fell from 712.72 kB to 232.14 kB. Settings load as a 6.23 kB chunk, and the 471.56 kB workspace/editor chunk loads only after a project opens. Vite no longer emits its 500 kB warning.
 
-The production bundle still produces a Vite warning for a roughly 709 kB JavaScript chunk. This is not a current desktop interaction failure, but it is worth measuring before the app gains more large dependencies.
+The native window background, inline pre-JavaScript boot screen, and React lazy-loading fallback all use Amanite's dark background. Startup no longer depends on loaded CSS or JavaScript to cover the webview's white default.
 
 ## Security and trust boundaries
 
-File persistence stays behind Tauri commands and the `fractal::Project` API. Page and folder deletion still require confirmation. The new modified-time preflight closes the credible trust gap from the old right pane.
+Rich-document iframes always render with `sandbox="allow-same-origin"`, which does not grant script execution. A source document cannot remove or widen that sandbox. Raw HTML previews remain sandboxed without script permission.
 
-No new security finding surfaced in this pass.
+Page metadata and reveal commands now reject absolute and parent paths, canonicalize the target, and verify that it remains below the project's canonical `pages/` directory. Symlink escapes fail the same containment check.
+
+The app still has `csp: null`. Sandboxing closes the concrete iframe execution path found in the roast, but an explicit CSP would add defense in depth if Amanite later gains another HTML rendering path.
 
 ## What was not verified
 
-- Screen reader output in the Tauri webview.
-- High-DPI behavior outside the captured desktop environment.
-- Projects with hundreds of pages.
-- Restoring the full two-group layout after quitting the app. Session restore still reopens the last project and page, not every open tab.
+- Screen-reader output and complete keyboard focus behavior.
+- High-DPI and non-Linux desktop startup behavior.
+- Very large projects and documents.

@@ -16,6 +16,7 @@
         "title": "Amanite",
         "width": 1200,
         "height": 760,
+        "backgroundColor": "#090805",
         "decorations": false,
         "minWidth": 900,
         "minHeight": 620

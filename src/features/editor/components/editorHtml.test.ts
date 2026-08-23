@@ -13,4 +13,10 @@ describe("rich editor HTML contract", () => {
   it("keeps supported semantic content and removes unsupported wrappers", () => {
     expect(cleanEditorHtml('<section><p class="lead">Text <strong>here</strong>.</p></section>')).toBe("<p>Text <strong>here</strong>.</p>");
   });
+
+  it("keeps every media attribute for the media nodes to round trip", () => {
+    expect(cleanEditorHtml('<img src="field.png" data-origin="scan"><iframe src="map.html" referrerpolicy="no-referrer"></iframe>')).toBe(
+      '<img src="field.png" data-origin="scan"><iframe src="map.html" referrerpolicy="no-referrer"></iframe>'
+    );
+  });
 });

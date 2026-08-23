@@ -20,7 +20,6 @@ export type DocumentBuffer = {
 
 type Options = {
   autoSave: boolean;
-  initialDirty: boolean;
   initialProject: FractalProject;
   onProjectSnapshot: (project: FractalProject) => void;
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
@@ -61,8 +60,8 @@ function projectForBuffer(project: FractalProject, buffer: DocumentBuffer): Frac
   };
 }
 
-export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, onProjectSnapshot, onRequestConfirmation }: Options) {
-  const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", initialDirty);
+export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnapshot, onRequestConfirmation }: Options) {
+  const initialBuffer = bufferFromProject(initialProject);
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<Record<string, DocumentBuffer>>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
@@ -70,6 +69,8 @@ export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, 
   const projectRef = useRef(project);
   const buffersRef = useRef(buffers);
   const previousRootRef = useRef(initialProject.rootPath);
+  const checkedDraftsRef = useRef(new Set<string>());
+  const savePromisesRef = useRef(new Map<string, Promise<boolean>>());
   projectRef.current = project;
   buffersRef.current = buffers;
 
@@ -82,7 +83,7 @@ export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, 
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath) {
       previousRootRef.current = initialProject.rootPath;
-      const nextBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", initialDirty);
+      const nextBuffer = bufferFromProject(initialProject);
       const nextBuffers = nextBuffer ? { [nextBuffer.path]: nextBuffer } : {};
       projectRef.current = initialProject;
       buffersRef.current = nextBuffers;
@@ -129,6 +130,15 @@ export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, 
     return true;
   }, [onRequestConfirmation, publishProject]);
 
+  useEffect(() => {
+    const path = initialProject.activePagePath;
+    if (!path || initialProject.activePageSource == null) return;
+    const key = `${initialProject.rootPath}\u0000${path}`;
+    if (checkedDraftsRef.current.has(key)) return;
+    checkedDraftsRef.current.add(key);
+    void installLoadedProject(initialProject, true);
+  }, [initialProject.activePagePath, initialProject.activePageSource, initialProject.rootPath, installLoadedProject]);
+
   const openDocument = useCallback(async (path: string, knownProject?: FractalProject) => {
     if (buffersRef.current[path]) return true;
     setLoadingPaths((current) => new Set(current).add(path));
@@ -167,63 +177,72 @@ export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, 
     });
   }, []);
 
-  const saveDocument = useCallback(async (path: string, force = false) => {
-    const start = buffersRef.current[path];
-    if (!start || (!start.dirty && !force)) return true;
-    setBuffers((current) => {
-      const buffer = current[path];
-      if (!buffer) return current;
-      const next = { ...current, [path]: { ...buffer, operation: "save" as const, error: null } };
-      buffersRef.current = next;
-      return next;
-    });
-    try {
-      const snapshot = projectForBuffer(projectRef.current, start);
-      const modifiedMs = await fractalClient.pageModifiedMs(snapshot);
-      if (!force && start.modifiedMs != null && modifiedMs != null && modifiedMs !== start.modifiedMs) {
+  const saveDocument = useCallback((path: string, force = false) => {
+    const inFlight = savePromisesRef.current.get(path);
+    if (inFlight) return inFlight;
+    const savePromise = (async () => {
+      const start = buffersRef.current[path];
+      if (!start || (!start.dirty && !force)) return true;
+      setBuffers((current) => {
+        const buffer = current[path];
+        if (!buffer) return current;
+        const next = { ...current, [path]: { ...buffer, operation: "save" as const, error: null } };
+        buffersRef.current = next;
+        return next;
+      });
+      try {
+        const snapshot = projectForBuffer(projectRef.current, start);
+        const modifiedMs = await fractalClient.pageModifiedMs(snapshot);
+        if (!force && start.modifiedMs != null && modifiedMs != null && modifiedMs !== start.modifiedMs) {
+          setBuffers((current) => {
+            const buffer = current[path];
+            if (!buffer) return current;
+            const next = {
+              ...current,
+              [path]: {
+                ...buffer,
+                operation: null,
+                conflict: true,
+                error: "This page changed on disk. Reload it or replace the external version."
+              }
+            };
+            buffersRef.current = next;
+            return next;
+          });
+          return false;
+        }
+        const saved = await fractalClient.writePage(snapshot, start.source);
+        const savedBuffer = bufferFromProject(saved);
+        if (!savedBuffer) throw new Error(`Fractal did not return ${path} after saving.`);
+        setBuffers((current) => {
+          const currentBuffer = current[path];
+          const hasNewerEdits = Boolean(currentBuffer && currentBuffer.revision !== start.revision);
+          const nextBuffer = hasNewerEdits && currentBuffer
+            ? { ...savedBuffer, source: currentBuffer.source, dirty: true, revision: currentBuffer.revision }
+            : savedBuffer;
+          const next = { ...current, [path]: nextBuffer };
+          buffersRef.current = next;
+          if (!hasNewerEdits) clearPageDraft(saved.rootPath, path);
+          return next;
+        });
+        publishProject(saved);
+        return true;
+      } catch (error) {
         setBuffers((current) => {
           const buffer = current[path];
           if (!buffer) return current;
-          const next = {
-            ...current,
-            [path]: {
-              ...buffer,
-              operation: null,
-              conflict: true,
-              error: "This page changed on disk. Reload it or replace the external version."
-            }
-          };
+          const next = { ...current, [path]: { ...buffer, operation: null, error: errorMessage(error) } };
           buffersRef.current = next;
           return next;
         });
         return false;
       }
-      const saved = await fractalClient.writePage(snapshot, start.source);
-      const savedBuffer = bufferFromProject(saved);
-      if (!savedBuffer) throw new Error(`Fractal did not return ${path} after saving.`);
-      setBuffers((current) => {
-        const currentBuffer = current[path];
-        const hasNewerEdits = Boolean(currentBuffer && currentBuffer.revision !== start.revision);
-        const nextBuffer = hasNewerEdits && currentBuffer
-          ? { ...savedBuffer, source: currentBuffer.source, dirty: true, revision: currentBuffer.revision }
-          : savedBuffer;
-        const next = { ...current, [path]: nextBuffer };
-        buffersRef.current = next;
-        if (!hasNewerEdits) clearPageDraft(saved.rootPath, path);
-        return next;
-      });
-      publishProject(saved);
-      return true;
-    } catch (error) {
-      setBuffers((current) => {
-        const buffer = current[path];
-        if (!buffer) return current;
-        const next = { ...current, [path]: { ...buffer, operation: null, error: errorMessage(error) } };
-        buffersRef.current = next;
-        return next;
-      });
-      return false;
-    }
+    })();
+    savePromisesRef.current.set(path, savePromise);
+    void savePromise.finally(() => {
+      if (savePromisesRef.current.get(path) === savePromise) savePromisesRef.current.delete(path);
+    });
+    return savePromise;
   }, [publishProject]);
 
   const reloadDocument = useCallback(async (path: string) => {
@@ -284,7 +303,7 @@ export function useWorkspaceDocuments({ autoSave, initialDirty, initialProject, 
     const draftTimeout = window.setTimeout(() => {
       for (const buffer of dirty) writePageDraftSource(project.rootPath, buffer.path, buffer.source);
     }, 180);
-    const autoSavePaths = dirty.filter((buffer) => !buffer.conflict).map((buffer) => buffer.path);
+    const autoSavePaths = dirty.filter((buffer) => !buffer.conflict && !buffer.operation).map((buffer) => buffer.path);
     const saveTimeout = autoSave && autoSavePaths.length ? window.setTimeout(() => {
       void (async () => {
         for (const path of autoSavePaths) {

@@ -107,7 +107,7 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
   };
   const applyIframe = () => {
     if (!iframeSource.trim()) return;
-    editor.update(() => $insertNodes([$createIframeNode(iframeSource.trim(), iframeTitle.trim(), "") ]));
+    editor.update(() => $insertNodes([$createIframeNode(iframeSource.trim(), iframeTitle.trim())]));
     setIsIframeOpen(false);
     setIframeSource("");
     setIframeTitle("");

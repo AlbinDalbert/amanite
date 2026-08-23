@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#090805" />
+    <style>
+      html, body, #root { min-height: 100%; margin: 0; background: #090805; color-scheme: dark; }
+      .boot-screen { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; background: radial-gradient(circle at 50% 44%, #20170b 0, #090805 42%, #020201 100%); color: #e9e0d4; font: 700 18px/1 ui-monospace, monospace; letter-spacing: .18em; text-transform: uppercase; }
+      .boot-screen i { display: block; width: 128px; height: 2px; overflow: hidden; background: #2c2112; }
+      .boot-screen i::after { display: block; width: 45%; height: 100%; content: ""; background: #f2ad32; animation: boot 1s ease-in-out infinite alternate; }
+      @keyframes boot { from { transform: translateX(-100%); } to { transform: translateX(220%); } }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,7 +21,7 @@
     <title>Amanite</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-screen" role="status"><span>Amanite</span><i></i></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
