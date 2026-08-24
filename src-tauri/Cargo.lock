@@ -946,11 +946,24 @@ dependencies = [
 [[package]]
 name = "fractal"
 version = "0.1.0"
-source = "git+https://github.com/AlbinDalbert/fractal?branch=main#795f98f4a4880b0287c30c37bbd031ea154e60f8"
+source = "git+https://github.com/AlbinDalbert/fractal?branch=main#7c6e60ad7db195726139c750220f7c3bdc6a271f"
 dependencies = [
  "brik",
+ "fs2",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]

@@ -123,6 +123,71 @@
   transform: translate(-50%, -50%);
 }
 
+.brand-mark > i { display: none; }
+
+.brand-mark.logo-cap,
+.brand-mark.logo-spore,
+.brand-mark.logo-sigil {
+  border: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.brand-mark.logo-cap::before {
+  inset: 3px 1px 9px;
+  border: 1px solid var(--app-accent);
+  border-radius: 12px 12px 4px 4px;
+  background: color-mix(in srgb, var(--app-accent) 18%, transparent);
+  transform: rotate(-4deg);
+}
+
+.brand-mark.logo-cap::after {
+  top: 12px;
+  left: 9px;
+  width: 6px;
+  height: 8px;
+  border: solid var(--app-accent-strong);
+  border-width: 0 1px 1px;
+  background: transparent;
+  transform: skew(-7deg);
+}
+
+.brand-mark.logo-spore::before {
+  inset: 2px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 58%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 34%, var(--app-accent-strong) 0 1px, transparent 1.5px), radial-gradient(circle at 67% 38%, var(--app-accent) 0 1.5px, transparent 2px), radial-gradient(circle at 48% 68%, var(--app-accent-strong) 0 2px, transparent 2.5px);
+}
+
+.brand-mark.logo-spore::after {
+  top: 1px;
+  right: 0;
+  left: auto;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--app-accent-strong);
+  box-shadow: -18px 15px 0 color-mix(in srgb, var(--app-accent) 70%, transparent);
+  transform: none;
+}
+
+.brand-mark.logo-sigil::before {
+  inset: 2px 4px 3px;
+  border: 0;
+  background: linear-gradient(113deg, transparent 42%, var(--app-accent) 43% 51%, transparent 52%), linear-gradient(67deg, transparent 42%, var(--app-accent-strong) 43% 51%, transparent 52%);
+  clip-path: polygon(50% 0, 100% 100%, 78% 100%, 50% 39%, 22% 100%, 0 100%);
+}
+
+.brand-mark.logo-sigil::after {
+  top: 14px;
+  left: 5px;
+  width: 13px;
+  height: 1px;
+  background: var(--app-accent-strong);
+  transform: rotate(-6deg);
+}
+
 .start-copy {
   display: grid;
   max-width: 620px;

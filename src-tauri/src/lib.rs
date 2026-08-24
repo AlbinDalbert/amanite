@@ -3,7 +3,6 @@ use std::{
     env, fs, io,
     path::{Component, Path, PathBuf},
     process::Command,
-    time::UNIX_EPOCH,
 };
 use tauri::{AppHandle, Manager};
 
@@ -20,7 +19,7 @@ struct FractalProject {
     active_page_backlinks: Vec<fractal::Backlink>,
     active_page_iframes: Vec<fractal::Iframe>,
     active_page_iframe_backlinks: Vec<fractal::IframeBacklink>,
-    active_page_modified_ms: Option<u64>,
+    active_page_content_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +43,20 @@ struct FractalCommandResult {
     ok: bool,
     message: String,
     details: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalPageContentState {
+    path: String,
+    content_hash: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum FractalConditionalWriteResult {
+    Saved { project: FractalProject },
+    Conflict { message: String },
 }
 
 fn projects_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -164,7 +177,7 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
-        active_page_modified_ms,
+        active_page_content_hash,
     ) = match active_path.as_deref() {
         Some(path) => (
             Some(
@@ -184,7 +197,11 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
             project
                 .iframe_backlinks(path)
                 .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
-            page_modified_ms(&root, path)?,
+            Some(
+                project
+                    .content_hash(path)
+                    .map_err(|error| format!("Could not hash {path}: {error}"))?,
+            ),
         ),
         None => (None, vec![], vec![], vec![], vec![], None),
     };
@@ -201,22 +218,20 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_backlinks,
         active_page_iframes,
         active_page_iframe_backlinks,
-        active_page_modified_ms,
+        active_page_content_hash,
     })
 }
 
-fn page_modified_ms(project_root: &Path, page_path: &str) -> Result<Option<u64>, String> {
-    let modified = fs::metadata(validated_page_target(project_root, page_path)?)
-        .map_err(|error| format!("Could not inspect {page_path}: {error}"))?
-        .modified()
-        .map_err(|error| format!("Could not inspect modification time for {page_path}: {error}"))?;
-    Ok(Some(
-        modified
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .min(u64::MAX as u128) as u64,
-    ))
+fn validated_project_root(project_root: &str) -> Result<PathBuf, String> {
+    let root = PathBuf::from(project_root)
+        .canonicalize()
+        .map_err(|error| format!("Could not open project: {error}"))?;
+    if !root.join("fractal.json").is_file() || !root.join("pages").is_dir() {
+        return Err(
+            "Could not open Fractal project: missing fractal.json or pages directory.".into(),
+        );
+    }
+    Ok(root)
 }
 
 fn relative_folder_path(value: &str) -> Result<PathBuf, String> {
@@ -346,6 +361,27 @@ fn fractal_write_page(
 }
 
 #[tauri::command]
+fn fractal_write_page_if_unchanged(
+    project_root: String,
+    page_path: String,
+    source: String,
+    expected_hash: String,
+) -> Result<FractalConditionalWriteResult, String> {
+    let mut project = open_mutable_project(&project_root)?;
+    match project.write_page_if_unchanged(&page_path, &source, &expected_hash) {
+        Ok(_) => Ok(FractalConditionalWriteResult::Saved {
+            project: read_project(PathBuf::from(project_root), Some(&page_path))?,
+        }),
+        Err(error) if error.code == fractal::FractalErrorCode::Conflict => {
+            Ok(FractalConditionalWriteResult::Conflict {
+                message: error.message,
+            })
+        }
+        Err(error) => Err(format!("Could not write {page_path}: {error}")),
+    }
+}
+
+#[tauri::command]
 fn fractal_search_project(
     project_root: String,
     query: String,
@@ -355,15 +391,28 @@ fn fractal_search_project(
 }
 
 #[tauri::command]
-fn fractal_page_modified_ms(
+fn fractal_page_content_states(
     project_root: String,
-    page_path: String,
-) -> Result<Option<u64>, String> {
-    let root = PathBuf::from(project_root)
-        .canonicalize()
-        .map_err(|error| format!("Could not open project: {error}"))?;
-    open_mutable_project(root.to_string_lossy().as_ref())?;
-    page_modified_ms(&root, &page_path)
+    page_paths: Vec<String>,
+) -> Result<Vec<FractalPageContentState>, String> {
+    let root = validated_project_root(&project_root)?;
+    let project = fractal::Project::open(&root)
+        .map_err(|error| format!("Could not open Fractal project: {error}"))?;
+    let hashes = project
+        .pages()
+        .into_iter()
+        .map(|page| (page.path, page.content_hash))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    page_paths
+        .into_iter()
+        .map(|path| {
+            relative_page_path(&path)?;
+            Ok(FractalPageContentState {
+                content_hash: hashes.get(&path).cloned(),
+                path,
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -613,8 +662,9 @@ pub fn run() {
             fractal_open_project_path,
             fractal_open_page,
             fractal_write_page,
+            fractal_write_page_if_unchanged,
             fractal_search_project,
-            fractal_page_modified_ms,
+            fractal_page_content_states,
             fractal_reveal_page,
             fractal_create_page,
             fractal_import_native_page,

@@ -362,7 +362,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   const projectDirectory = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const activeProjectRoot = join(projectRoot, projectDirectory);
 
-  await driver.setValue('input[placeholder="Field notes"]', projectName);
+  await driver.setValue(".create-project-section input", projectName);
   await driver.click("button.primary-action");
 
   await driver.find(".workspace", 30_000);

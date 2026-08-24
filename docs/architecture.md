@@ -16,9 +16,11 @@ React UI
 
 `useFractalSession` owns the project catalog, the current project snapshot, command status, and confirmation dialogs. It does not own editable page state.
 
-`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known file modification time, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
+`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known Fractal content hash, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
 
-The workspace saves buffers before project mutations and before closing the project. Window-close handling calls the workspace's `saveAll` function. Autosave and recovery drafts also operate on the same buffers. A per-path in-flight promise prevents overlapping writes.
+The workspace saves buffers before project mutations and before closing the project. Window-close handling calls the workspace's `saveAll` function. Autosave and recovery drafts also operate on the same buffers. Each path has one save queue. If the editor changes while a write is running, the queue writes the newer revision before reporting success to a close or project mutation.
+
+Open-file change detection opens Fractal once every three seconds and compares all open pages against the returned content hashes. Normal saves use Fractal's conditional write under its project lock, so checking the expected hash and atomically replacing the page are one operation. Explicit conflict replacement uses Fractal's unconditional write.
 
 ## Persistence boundary
 

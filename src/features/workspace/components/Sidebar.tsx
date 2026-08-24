@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
+import type { LogoMark } from "@/app/useAppearanceSettings";
 import FileExplorer from "./FileExplorer";
 
 type SidebarProps = {
   activePagePath: string | null;
   isBusy: boolean;
+  logoMark: LogoMark;
   folders: string[];
   pages: FractalPage[];
   projectName: string;
@@ -82,7 +84,7 @@ function Sidebar(props: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="File explorer">
       <div aria-label="Resize page explorer" className="sidebar-resize-handle" onDoubleClick={props.onResizeReset} onPointerDown={props.onResizeStart} role="separator" />
-      <div className="brand"><span className="brand-mark" aria-hidden="true" /><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
+      <div className="brand"><span className={`brand-mark logo-${props.logoMark}`} aria-hidden="true"><i /></span><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
       <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button">⇧</button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button">+</button></div></div>
       <label className="sidebar-filter"><span aria-hidden="true">⌕</span><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
       <nav className="file-explorer" aria-label="Project files">

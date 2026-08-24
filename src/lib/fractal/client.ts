@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -27,6 +27,13 @@ export const fractalClient: FractalClient = {
     }),
   writePage: (project, source) =>
     invokeFractal<FractalProject>("fractal_write_page", {
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath,
+      source
+    }),
+  writePageIfUnchanged: (project, source, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_write_page_if_unchanged", {
+      expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       source
@@ -78,9 +85,9 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       query
     }),
-  pageModifiedMs: (project) =>
-    invokeFractal<number | null>("fractal_page_modified_ms", {
-      pagePath: project.activePagePath,
+  pageContentStates: (project, pagePaths) =>
+    invokeFractal<FractalPageContentState[]>("fractal_page_content_states", {
+      pagePaths,
       projectRoot: project.rootPath
     }),
   revealPage: (project, pagePath) =>

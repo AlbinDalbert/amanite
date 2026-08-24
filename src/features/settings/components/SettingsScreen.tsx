@@ -4,7 +4,8 @@ import {
   DEFAULT_APPEARANCE_SETTINGS,
   type AppearanceSettings,
   type ColorTheme,
-  type DocumentFont
+  type DocumentFont,
+  type LogoMark
 } from "@/app/useAppearanceSettings";
 
 type Props = {
@@ -25,6 +26,13 @@ const FONTS: Array<{ id: DocumentFont; label: string; sample: string }> = [
   { id: "literary", label: "Literary", sample: "Cormorant Garamond" },
   { id: "book", label: "Book", sample: "Georgia" },
   { id: "sans", label: "Sans", sample: "Bricolage Grotesque" }
+];
+
+const LOGO_MARKS: Array<{ id: LogoMark; label: string; note: string }> = [
+  { id: "facet", label: "Facet", note: "The original cut stone" },
+  { id: "cap", label: "Cap", note: "A small forest silhouette" },
+  { id: "spore", label: "Spore", note: "A drifting field of points" },
+  { id: "sigil", label: "Sigil", note: "A sharp Amanite monogram" }
 ];
 
 function percent(value: number) {
@@ -73,6 +81,24 @@ function SettingsScreen({ settings, onChange, onClose, onCloseRequest }: Props) 
                   <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
                   <strong>{theme.label}</strong>
                   <small>{theme.note}</small>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="settings-group logo-settings">
+            <legend>Corner logo</legend>
+            <div className="logo-options">
+              {LOGO_MARKS.map((logo) => (
+                <button
+                  aria-pressed={settings.logoMark === logo.id}
+                  className="logo-option"
+                  key={logo.id}
+                  onClick={() => patch({ logoMark: logo.id })}
+                  type="button"
+                >
+                  <span className={`brand-mark logo-${logo.id}`} aria-hidden="true"><i /></span>
+                  <span><strong>{logo.label}</strong><small>{logo.note}</small></span>
                 </button>
               ))}
             </div>

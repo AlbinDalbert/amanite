@@ -46,6 +46,7 @@ export type FractalPageKind = "native" | "raw";
 
 export type FractalPage = {
   path: string;
+  contentHash: string;
   kind: FractalPageKind;
   title?: string | null;
   text: string;
@@ -64,7 +65,7 @@ export type FractalProject = {
   activePageBacklinks: FractalBacklink[];
   activePageIframes: FractalIframe[];
   activePageIframeBacklinks: FractalIframeBacklink[];
-  activePageModifiedMs?: number | null;
+  activePageContentHash?: string | null;
 };
 
 export type FractalProjectSummary = {
@@ -84,6 +85,15 @@ export type FractalCommandResult = {
   details?: string | null;
 };
 
+export type FractalPageContentState = {
+  path: string;
+  contentHash: string | null;
+};
+
+export type FractalConditionalWriteResult =
+  | { status: "saved"; project: FractalProject }
+  | { status: "conflict"; message: string };
+
 export type FractalClient = {
   listProjects: () => Promise<FractalProjectCatalog>;
   createProject: (projectName: string) => Promise<FractalProject>;
@@ -91,6 +101,7 @@ export type FractalClient = {
   openProjectPath: (projectRoot: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   writePage: (project: FractalProject, source: string) => Promise<FractalProject>;
+  writePageIfUnchanged: (project: FractalProject, source: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   createPage: (project: FractalProject, title: string, folderPath?: string) => Promise<FractalProject>;
   importNativePage: (project: FractalProject, title: string, source: string, folderPath?: string) => Promise<FractalProject>;
   createFolder: (project: FractalProject, folderPath: string) => Promise<FractalProject>;
@@ -99,6 +110,6 @@ export type FractalClient = {
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   searchProject: (project: FractalProject, query: string) => Promise<FractalSearchResult[]>;
-  pageModifiedMs: (project: FractalProject) => Promise<number | null>;
+  pageContentStates: (project: FractalProject, pagePaths: string[]) => Promise<FractalPageContentState[]>;
   revealPage: (project: FractalProject, pagePath?: string) => Promise<void>;
 };

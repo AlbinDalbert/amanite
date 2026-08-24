@@ -337,6 +337,7 @@ function Workspace(props: WorkspaceProps) {
         activePagePath={activeGroup.activePath}
         folders={documents.project.folders}
         isBusy={props.isBusy || anyLoading}
+        logoMark={props.settings.logoMark}
         pages={documents.project.pages}
         projectName={documents.project.name}
         onCloseProject={() => void closeWorkspaceProject()}

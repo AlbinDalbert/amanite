@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 
 export type ColorTheme = "system" | "ember" | "moss" | "ink";
 export type DocumentFont = "literary" | "book" | "sans";
+export type LogoMark = "facet" | "cap" | "spore" | "sigil";
 
 export type AppearanceSettings = {
   autoSave: boolean;
   colorTheme: ColorTheme;
   documentFont: DocumentFont;
   lineHeight: number;
+  logoMark: LogoMark;
   noiseIntensity: number;
   pageWidth: number;
   restoreLastSession: boolean;
@@ -22,6 +24,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   colorTheme: "ember",
   documentFont: "literary",
   lineHeight: 1.72,
+  logoMark: "spore",
   noiseIntensity: 0.28,
   pageWidth: 760,
   restoreLastSession: true,
@@ -48,6 +51,7 @@ function readSettings(): AppearanceSettings {
       colorTheme: stored.colorTheme === "system" || stored.colorTheme === "moss" || stored.colorTheme === "ink" ? stored.colorTheme : "ember",
       documentFont: stored.documentFont === "book" || stored.documentFont === "sans" ? stored.documentFont : "literary",
       lineHeight: clamp(stored.lineHeight, 1.35, 2.1, 1.72),
+      logoMark: stored.logoMark === "facet" || stored.logoMark === "cap" || stored.logoMark === "sigil" ? stored.logoMark : "spore",
       noiseIntensity: clamp(stored.noiseIntensity, 0, 0.6, 0.28),
       pageWidth: clamp(stored.pageWidth, 560, 960, 760),
       restoreLastSession: stored.restoreLastSession !== false,
