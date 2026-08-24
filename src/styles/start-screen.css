@@ -1,9 +1,13 @@
 .start-screen {
+  position: relative;
   display: grid;
   min-height: 100vh;
   place-items: center;
   overflow: auto;
-  padding: clamp(22px, 4vw, 44px);
+  background:
+    radial-gradient(circle at 50% 5%, color-mix(in srgb, var(--app-accent) 8%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--bg) 82%, #000), var(--bg-deep));
+  padding: clamp(56px, 8vh, 88px) clamp(22px, 4vw, 44px) clamp(30px, 5vh, 56px);
 }
 
 .start-titlebar {
@@ -13,17 +17,20 @@
   left: 0;
   z-index: 70;
   display: flex;
-  min-height: 36px;
+  min-height: 42px;
   align-items: center;
   justify-content: flex-end;
-  background: rgba(2, 2, 1, 0.54);
+  border-bottom: 1px solid color-mix(in srgb, var(--app-border) 42%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) 72%, transparent);
   padding: 4px 8px;
+  backdrop-filter: blur(16px);
 }
 
 .start-settings-button {
   min-height: 28px;
   margin-right: 8px;
   border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   color: var(--app-muted);
   padding: 0 9px;
   font: 800 0.6rem/1 var(--font-mono);
@@ -41,22 +48,27 @@
 .start-panel {
   position: relative;
   display: grid;
-  width: min(760px, 100%);
-  gap: 26px;
+  width: min(920px, 100%);
+  gap: 30px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--app-border-strong) 72%, transparent);
-  background: rgba(10, 8, 5, 0.9);
+  border: 1px solid color-mix(in srgb, var(--app-border-strong) 64%, transparent);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--app-panel-strong) 30%, transparent), transparent 42%),
+    color-mix(in srgb, var(--app-panel) 90%, transparent);
   box-shadow:
-    0 34px 90px rgb(0 0 0 / 54%),
-    inset 0 1px 0 rgba(255, 217, 120, 0.08);
-  padding: clamp(28px, 4vw, 48px);
+    0 36px 100px rgb(0 0 0 / 48%),
+    inset 0 1px 0 color-mix(in srgb, var(--app-accent-strong) 8%, transparent);
+  padding: clamp(30px, 4vw, 50px);
+  backdrop-filter: blur(20px);
+  animation: start-panel-in 480ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .start-panel::after {
   position: absolute;
   right: 24px;
   bottom: 20px;
-  color: rgba(255, 217, 120, 0.28);
+  color: color-mix(in srgb, var(--app-accent-strong) 25%, transparent);
   content: "LOCAL / ARCHIVE";
   font-family: var(--font-mono);
   font-size: 0.62rem;
@@ -94,12 +106,13 @@
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 72%, transparent);
+  border-radius: 2px;
   background:
-    linear-gradient(135deg, transparent 44%, rgba(242, 173, 50, 0.32) 45% 55%, transparent 56%);
+    linear-gradient(135deg, transparent 44%, color-mix(in srgb, var(--app-accent) 32%, transparent) 45% 55%, transparent 56%);
   opacity: 0.98;
   transform: rotate(45deg);
-  box-shadow: 0 0 0 1px rgba(242, 173, 50, 0.06);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--app-accent) 8%, transparent);
 }
 
 .brand-mark::before,
@@ -111,7 +124,7 @@
 .brand-mark::before {
   inset: 5px;
   border: 1px solid color-mix(in srgb, var(--app-accent-strong) 70%, transparent);
-  background: rgba(242, 173, 50, 0.08);
+  background: color-mix(in srgb, var(--app-accent) 8%, transparent);
 }
 
 .brand-mark::after {
@@ -126,23 +139,25 @@
 .start-copy {
   display: grid;
   max-width: 620px;
-  gap: 10px;
+  gap: 8px;
 }
 
 .start-copy h1 {
   color: var(--app-text);
   font-family: var(--font-display);
-  font-size: clamp(2.45rem, 6vw, 4.4rem);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 0.92;
+  font-size: clamp(2.55rem, 5.5vw, 4.25rem);
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 0.95;
   text-transform: uppercase;
 }
 
-.start-copy p {
+.start-description {
+  max-width: 520px;
+  margin-top: 4px !important;
   color: var(--app-muted);
-  font-size: 1rem;
-  line-height: 1.65;
+  font-size: 0.96rem;
+  line-height: 1.55;
 }
 
 .library-path,
@@ -155,6 +170,8 @@
   line-height: 1.45;
 }
 
+.library-path { margin-top: 4px; }
+
 .library-path,
 .project-path {
   overflow: hidden;
@@ -164,8 +181,8 @@
 
 .project-flow {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(250px, .82fr) minmax(320px, 1.18fr);
+  gap: 14px;
   border-top: 1px solid color-mix(in srgb, var(--app-border-strong) 64%, transparent);
   padding-top: 22px;
 }
@@ -175,13 +192,14 @@
   min-width: 0;
   align-content: start;
   gap: 14px;
-  border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
-  background: rgba(5, 5, 4, 0.34);
-  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-deep) 42%, transparent);
+  padding: 18px;
 }
 
 .create-project-section {
-  background: rgba(8, 7, 4, 0.42);
+  background: color-mix(in srgb, var(--app-panel-strong) 44%, transparent);
 }
 
 .project-list-section {
@@ -235,7 +253,8 @@
   min-height: 44px;
   border: 1px solid var(--app-border);
   outline: none;
-  background: #0c0b08;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-deep) 72%, var(--app-panel));
   color: var(--app-text);
   font-family: var(--font-body);
   font-size: 0.92rem;
@@ -261,7 +280,8 @@
   max-height: 286px;
   overflow: auto;
   border: 1px solid var(--app-border);
-  background: #0c0b08;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-deep) 72%, var(--app-panel));
 }
 
 .project-option {
@@ -269,7 +289,7 @@
   min-height: 42px;
   align-content: center;
   gap: 2px;
-  border-left: 2px solid transparent;
+  border-radius: var(--radius-xs);
   color: var(--app-muted);
   letter-spacing: 0;
   padding: 7px 12px;
@@ -301,14 +321,13 @@
 
 .project-option:hover,
 .project-option.selected {
-  background:
-    linear-gradient(90deg, rgba(242, 173, 50, 0.22), rgba(242, 173, 50, 0.075));
+  background: color-mix(in srgb, var(--app-accent) 10%, transparent);
 }
 
 .project-option.selected {
   border-left-color: var(--app-accent);
   color: var(--app-accent-strong);
-  box-shadow: inset 0 0 0 1px rgba(242, 173, 50, 0.08);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 8%, transparent);
 }
 
 .project-option:focus-visible {
@@ -321,7 +340,7 @@
   align-items: center;
   gap: 16px;
   min-height: 54px;
-  border-bottom: 1px solid rgba(242, 173, 50, 0.075);
+  border-bottom: 1px solid color-mix(in srgb, var(--app-border) 64%, transparent);
   padding: 10px 12px;
 }
 
@@ -371,17 +390,19 @@
   color: #1d1203;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 0 22px rgba(242, 173, 50, 0.14);
+    0 8px 22px color-mix(in srgb, var(--app-accent) 13%, transparent);
+  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
 }
 
 .primary-action:hover {
-  background:
-    linear-gradient(180deg, #ffe39a, var(--app-accent-strong) 58%, var(--app-accent));
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--app-accent) 18%, transparent);
 }
 
 .secondary-action {
   background:
-    linear-gradient(180deg, rgba(255, 217, 120, 0.06), transparent),
+    linear-gradient(180deg, color-mix(in srgb, var(--app-accent-strong) 6%, transparent), transparent),
     var(--app-panel);
   color: var(--app-text);
 }
@@ -395,7 +416,8 @@
 .ghost-action {
   min-height: 30px;
   border: 1px solid var(--app-border);
-  background: rgba(5, 5, 4, 0.28);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-deep) 28%, transparent);
   color: var(--app-muted);
   padding: 4px 9px;
   font-family: var(--font-mono);
@@ -403,6 +425,15 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+@keyframes start-panel-in {
+  from { transform: translateY(10px) scale(.992); }
+  to { transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 720px) {
+  .project-flow { grid-template-columns: 1fr; }
 }
 
 .ghost-action:hover {

@@ -17,6 +17,7 @@
 .fractal-inspector-section {
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--project-accent) 18%, var(--project-border));
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--project-surface) 76%, transparent);
   padding: 12px;
 }

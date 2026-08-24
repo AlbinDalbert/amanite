@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import type { FractalPage } from "@/lib/fractal/types";
+import Icon from "@/components/ui/Icon";
 import FileExplorer from "./FileExplorer";
 
 type SidebarProps = {
@@ -83,8 +84,8 @@ function Sidebar(props: SidebarProps) {
     <aside className="sidebar" aria-label="File explorer">
       <div aria-label="Resize page explorer" className="sidebar-resize-handle" onDoubleClick={props.onResizeReset} onPointerDown={props.onResizeStart} role="separator" />
       <div className="brand"><span className="brand-mark" aria-hidden="true" /><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
-      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button">⇧</button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button">▱</button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button">+</button></div></div>
-      <label className="sidebar-filter"><span aria-hidden="true">⌕</span><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
+      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button"><Icon name="upload" size={15} /></button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button"><Icon name="folder-plus" size={16} /></button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button"><Icon name="file-plus" size={16} /></button></div></div>
+      <label className="sidebar-filter"><Icon name="search" size={14} /><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
       <nav className="file-explorer" aria-label="Project files">
         <FileExplorer
           activePagePath={props.activePagePath}
@@ -108,7 +109,7 @@ function Sidebar(props: SidebarProps) {
         />
       </nav>
       <button className="sidebar-settings" onClick={props.onOpenSettings} type="button">
-        <span className="settings-glyph" aria-hidden="true">✦</span>
+        <span className="settings-glyph" aria-hidden="true"><Icon name="settings" size={15} /></span>
         <span><strong>Settings</strong><small>Appearance and reading</small></span>
       </button>
       {createTitle !== null ? (
