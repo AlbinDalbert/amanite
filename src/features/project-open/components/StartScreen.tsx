@@ -65,6 +65,7 @@ function StartScreen({
 
         <div className="start-copy">
           <h1 id="start-title">Open a Fractal project</h1>
+          <p className="start-description">Write, organize, and preview local Fractal pages.</p>
           {projectCatalog ? (
             <p className="library-path" title={projectCatalog.rootPath}>
               {projectCatalog.rootPath}

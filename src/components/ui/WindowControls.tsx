@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MouseEvent } from "react";
+import Icon from "./Icon";
 
 type WindowCommand = "close" | "fullscreen" | "minimize";
 
@@ -83,7 +84,7 @@ function WindowControls({ className, onCloseRequest }: WindowControlsProps) {
         title="Minimize"
         type="button"
       >
-        <span aria-hidden="true">–</span>
+        <Icon name="minimize" size={14} />
       </button>
       <button
         aria-label="Toggle fullscreen"
@@ -92,7 +93,7 @@ function WindowControls({ className, onCloseRequest }: WindowControlsProps) {
         title="Fullscreen"
         type="button"
       >
-        <span aria-hidden="true">□</span>
+        <Icon name="maximize" size={13} />
       </button>
       <button
         aria-label="Close window"
@@ -101,7 +102,7 @@ function WindowControls({ className, onCloseRequest }: WindowControlsProps) {
         title="Close"
         type="button"
       >
-        <span aria-hidden="true">×</span>
+        <Icon name="close" size={14} />
       </button>
     </div>
   );

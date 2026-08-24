@@ -1,4 +1,5 @@
 import type { DragEvent } from "react";
+import Icon from "@/components/ui/Icon";
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalProject } from "@/lib/fractal/types";
@@ -119,14 +120,14 @@ function EditorGroupPane(props: Props) {
                   <span className="editor-group-tab-title">{tabPage?.title?.trim() || path}</span>
                   <span className={`editor-group-tab-state${tabBuffer?.dirty ? " dirty" : ""}${tabBuffer?.conflict ? " conflict" : ""}`} aria-label={tabBuffer?.conflict ? "Changed on disk" : tabBuffer?.dirty ? "Unsaved" : "Saved"} />
                 </button>
-                {group.id === "left" ? <button aria-label={`Open ${tabPage?.title || path} in right group`} className="editor-group-tab-split" onClick={() => props.onSplitTab(group.id, path)} title="Open in right group" type="button">◫</button> : null}
-                <button aria-label={`Close ${tabPage?.title || path}`} className="editor-group-tab-close" onClick={() => props.onCloseTab(group.id, path)} type="button">×</button>
+                {group.id === "left" ? <button aria-label={`Open ${tabPage?.title || path} in right group`} className="editor-group-tab-split" onClick={() => props.onSplitTab(group.id, path)} title="Open in right group" type="button"><Icon name="split" size={13} /></button> : null}
+                <button aria-label={`Close ${tabPage?.title || path}`} className="editor-group-tab-close" onClick={() => props.onCloseTab(group.id, path)} type="button"><Icon name="close" size={13} /></button>
               </div>
             );
           })}
         </div>
         <span className="editor-group-count">{group.tabs.length}</span>
-        {props.onCloseGroup ? <button aria-label={`Close ${group.id} editor group`} className="editor-group-close" onClick={props.onCloseGroup} title="Close editor group" type="button">×</button> : null}
+        {props.onCloseGroup ? <button aria-label={`Close ${group.id} editor group`} className="editor-group-close" onClick={props.onCloseGroup} title="Close editor group" type="button"><Icon name="close" size={14} /></button> : null}
       </header>
 
       <div className="editor-group-body">

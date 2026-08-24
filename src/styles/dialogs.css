@@ -4,8 +4,9 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(0 0 0 / 64%);
+  background: rgb(0 0 0 / 58%);
   padding: 24px;
+  backdrop-filter: blur(8px);
 }
 
 .create-page-dialog {
@@ -13,12 +14,14 @@
   width: min(460px, 100%);
   gap: 18px;
   border: 1px solid var(--app-border-strong);
-  background: linear-gradient(180deg, #161108, #090806);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel-strong) 90%, #000), color-mix(in srgb, var(--app-panel) 92%, #000));
   color: var(--app-text);
   padding: 22px;
   box-shadow:
-    0 24px 80px rgb(0 0 0 / 58%),
-    inset 3px 0 0 var(--app-accent);
+    0 24px 80px rgb(0 0 0 / 52%),
+    inset 0 1px 0 color-mix(in srgb, var(--app-accent-strong) 9%, transparent);
+  animation: dialog-in 180ms ease-out both;
 }
 
 .dialog-header {
@@ -67,6 +70,7 @@
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--app-border);
+  border-radius: var(--radius-sm);
   outline: none;
   background: var(--app-background);
   color: var(--app-text);
@@ -102,4 +106,9 @@
 .dialog-actions .primary-action,
 .dialog-actions .ghost-action {
   min-height: 36px;
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
