@@ -7,6 +7,7 @@ import {
   openGroupTab,
   reconcileWorkspaceGroups,
   renameGroupTab,
+  tabPathForDirection,
   tabPathForShortcut
 } from "./workspaceGroups";
 
@@ -74,5 +75,15 @@ describe("workspace groups", () => {
     expect(tabPathForShortcut(state.left, "2")).toBe("two.fractal.html");
     expect(tabPathForShortcut(state.right!, "1")).toBe("other.fractal.html");
     expect(tabPathForShortcut(state.right!, "2")).toBeNull();
+  });
+
+  it("cycles tabs forward and backward with wrapping", () => {
+    let state = createWorkspaceGroups("one.fractal.html");
+    state = openGroupTab(state, "left", "two.fractal.html");
+    state = openGroupTab(state, "left", "three.fractal.html");
+
+    expect(tabPathForDirection(state.left, 1)).toBe("one.fractal.html");
+    expect(tabPathForDirection(state.left, -1)).toBe("two.fractal.html");
+    expect(tabPathForDirection(createWorkspaceGroups("only.fractal.html").left, 1)).toBeNull();
   });
 });

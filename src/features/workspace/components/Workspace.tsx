@@ -11,6 +11,7 @@ import {
   openGroupTab,
   reconcileWorkspaceGroups,
   renameGroupTab,
+  tabPathForDirection,
   tabPathForShortcut,
   type EditorGroupId,
   type WorkspaceGroups
@@ -233,8 +234,14 @@ function Workspace(props: WorkspaceProps) {
     function handleShortcut(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
+      const cyclingTab = key === "tab" && !event.altKey
+        ? tabPathForDirection(activeGroup, event.shiftKey ? -1 : 1)
+        : null;
       const numberedTab = !event.altKey && !event.shiftKey ? tabPathForShortcut(activeGroup, key) : null;
-      if (numberedTab) {
+      if (cyclingTab) {
+        event.preventDefault();
+        void openInGroup(activeGroup.id, cyclingTab);
+      } else if (numberedTab) {
         event.preventDefault();
         void openInGroup(activeGroup.id, numberedTab);
       } else if (key === "s") {
@@ -263,7 +270,7 @@ function Workspace(props: WorkspaceProps) {
     }
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [activeGroup.activePath, activeGroup.id, closedTabs, closeTab, createPage, documents.saveDocument, openInGroup]);
+  }, [activeGroup.activePath, activeGroup.id, activeGroup.tabs, closedTabs, closeTab, createPage, documents.saveDocument, openInGroup]);
 
   function startSplitResize(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();

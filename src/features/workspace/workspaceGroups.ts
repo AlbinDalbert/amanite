@@ -157,3 +157,11 @@ export function tabPathForShortcut(group: EditorGroup, key: string) {
   const position = key === "0" ? 10 : Number(key);
   return group.tabs[position - 1] ?? null;
 }
+
+export function tabPathForDirection(group: EditorGroup, direction: -1 | 1) {
+  if (group.tabs.length < 2 || !group.activePath) return null;
+  const activeIndex = group.tabs.indexOf(group.activePath);
+  if (activeIndex < 0) return null;
+  const nextIndex = (activeIndex + direction + group.tabs.length) % group.tabs.length;
+  return group.tabs[nextIndex] ?? null;
+}
