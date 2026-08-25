@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, type FormEvent } from "react";
+import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
 
 export type DocumentCounts = {
   characters: number;
@@ -109,13 +110,16 @@ export function FindBar(props: FindBarProps) {
   );
 }
 
-export function DocumentStatusBar({ counts, focusMode, wordGoal, onExport, onFind, onToggleFocus }: {
+export function DocumentStatusBar({ borealisOpen, borealisWorkspace, counts, focusMode, wordGoal, onExport, onFind, onToggleBorealis, onToggleFocus }: {
+  borealisOpen: boolean;
+  borealisWorkspace: boolean;
   counts: DocumentCounts;
   focusMode: boolean;
   wordGoal: number;
   onFind: () => void;
   onExport: () => void;
   onToggleFocus: () => void;
+  onToggleBorealis: () => void;
 }) {
   const summary = useMemo(() => [
     `${counts.words.toLocaleString()} words`,
@@ -127,9 +131,10 @@ export function DocumentStatusBar({ counts, focusMode, wordGoal, onExport, onFin
   return (
     <footer className="document-status-bar">
       <div>{summary.map((item) => <span key={item}>{item}</span>)}</div>
-      <div>
+      <div className="document-status-actions">
         <button onClick={onFind} type="button">Find</button>
         <button onClick={onExport} type="button">Export</button>
+        <BorealisTrigger isOpen={borealisOpen} isWorkspace={borealisWorkspace} onClick={onToggleBorealis} />
         <button aria-pressed={focusMode} onClick={onToggleFocus} type="button">{focusMode ? "Exit focus" : "Focus"}</button>
       </div>
     </footer>

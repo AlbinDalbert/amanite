@@ -16,8 +16,12 @@ import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEdito
 import { safeExternalHref } from "./linkNavigation";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
+import type { AiSettings } from "@/app/useAiSettings";
 
 type FractalEditorProps = {
+  aiSettings: AiSettings;
+  borealisOpen: boolean;
+  borealisWorkspace: boolean;
   backlinks: FractalBacklink[];
   focusMode: boolean;
   isBusy: boolean;
@@ -35,6 +39,7 @@ type FractalEditorProps = {
   onNavigatePage: (pagePath: string) => void;
   onSave: () => void;
   onToggleFocus: () => void;
+  onToggleBorealis: () => void;
 };
 
 function findInElement(root: Element | null, query: string, matchIndex: number) {
@@ -64,7 +69,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onSave, onToggleFocus } = props;
+  const { aiSettings, backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onSave, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
@@ -254,7 +259,7 @@ function FractalEditor(props: FractalEditorProps) {
           onNext={(direction) => showMatch(currentMatch + direction)}
           onReplaceAll={replaceAll}
         />
-        <DocumentStatusBar counts={counts} focusMode={focusMode} wordGoal={wordGoal} onExport={() => setIsExportOpen(true)} onFind={() => setIsFindOpen(true)} onToggleFocus={onToggleFocus} />
+        <DocumentStatusBar borealisOpen={borealisOpen} borealisWorkspace={borealisWorkspace} counts={counts} focusMode={focusMode} wordGoal={wordGoal} onExport={() => setIsExportOpen(true)} onFind={() => setIsFindOpen(true)} onToggleBorealis={onToggleBorealis} onToggleFocus={onToggleFocus} />
       </div>
       <InspectorPanel
         backlinks={backlinks}

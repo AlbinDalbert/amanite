@@ -84,6 +84,24 @@
 
 .settings-group { display: grid; min-width: 0; gap: 16px; margin: 0; border: 0; border-bottom: 1px solid var(--app-border); padding: 30px 22px 28px; }
 .settings-group legend { color: var(--app-muted); padding: 6px 0 0; font: 800 0.66rem/1 var(--font-mono); letter-spacing: 0.13em; text-transform: uppercase; }
+.settings-group-note { margin: -2px 0 2px; color: var(--app-muted); font-size: .75rem; line-height: 1.5; }
+
+.ai-settings > label { display: grid; grid-template-columns: minmax(150px, .62fr) minmax(220px, 1fr); align-items: center; gap: 18px; }
+.ai-settings > label > span { display: grid; gap: 3px; }
+.ai-settings strong { color: var(--app-text); font-size: .82rem; }
+.ai-settings small { color: var(--app-subtle); font-size: .7rem; }
+.ai-settings input,
+.ai-settings select { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--app-border); outline: none; background: var(--app-background); color: var(--app-text); padding: 0 10px; font-size: .76rem; }
+.ai-settings input:focus,
+.ai-settings select:focus { border-color: var(--app-accent); box-shadow: 0 0 0 2px var(--signal-soft); }
+.ai-settings input::placeholder { color: var(--app-subtle); }
+.ai-model-picker { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.ai-model-picker button { min-width: 72px; border: 1px solid var(--app-border-strong); color: var(--app-muted); padding: 0 10px; font: 750 .65rem/1 var(--font-mono); }
+.ai-model-picker button:hover:not(:disabled) { border-color: var(--app-accent); background: var(--signal-soft); color: var(--app-accent-strong); }
+.ai-settings-error,
+.ai-settings-success { margin: -3px 0 0 calc(38% + 9px); font: 650 .65rem/1.45 var(--font-mono); }
+.ai-settings-error { color: color-mix(in srgb, var(--app-danger) 58%, var(--app-text)); }
+.ai-settings-success { color: var(--success); }
 
 .theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .theme-options.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -157,6 +175,8 @@
   .settings-intro h1 { font-size: 4rem; }
   .theme-options { grid-template-columns: 1fr; }
   .logo-options { grid-template-columns: 1fr; }
+  .ai-settings > label { grid-template-columns: 1fr; gap: 7px; }
+  .ai-settings-error, .ai-settings-success { margin-left: 0; }
 }
 
 @media (min-width: 821px) and (max-height: 820px) {

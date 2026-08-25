@@ -1,17 +1,22 @@
 import type { DragEvent } from "react";
 import Icon from "@/components/ui/Icon";
+import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
+import type { AiSettings } from "@/app/useAiSettings";
 import type { FractalProject } from "@/lib/fractal/types";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
-import type { EditorGroup, EditorGroupId } from "../workspaceGroups";
+import { BOREALIS_TAB_ID, type EditorGroup, type EditorGroupId } from "../workspaceGroups";
 
 export const WORKSPACE_TAB_MIME = "application/x-amanite-workspace-tab";
 
 export type DraggedWorkspaceTab = { groupId: EditorGroupId; path: string };
 
 type Props = {
+  aiSettings: AiSettings;
+  borealisOpen: boolean;
+  borealisWorkspace: boolean;
   buffer?: DocumentBuffer;
   buffers: Record<string, DocumentBuffer>;
   draggedTab: DraggedWorkspaceTab | null;
@@ -33,12 +38,14 @@ type Props = {
   onDropTab: (tab: DraggedWorkspaceTab, groupId: EditorGroupId, index?: number) => void;
   onExport: (path: string, includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (groupId: EditorGroupId, path: string) => void;
+  onOpenSettings: () => void;
   onReload: (path: string) => void;
   onReplace: (path: string) => void;
   onSave: (path: string) => void;
   onSelectTab: (groupId: EditorGroupId, path: string) => void;
   onSplitTab: (groupId: EditorGroupId, path: string) => void;
   onToggleFocus: () => void;
+  onToggleBorealis: () => void;
 };
 
 function parseDraggedTab(event: DragEvent, fallback: DraggedWorkspaceTab | null) {
@@ -77,13 +84,15 @@ function EditorGroupPane(props: Props) {
         <span className="editor-group-label">{group.id}</span>
         <div aria-label={`${group.id} editor tabs`} className="editor-group-tabs" role="tablist">
           {group.tabs.map((path, index) => {
+            const borealis = path === BOREALIS_TAB_ID;
             const tabPage = props.project.pages.find((candidate) => candidate.path === path);
             const tabBuffer = props.buffers[path];
             const active = path === group.activePath;
+            const title = borealis ? "Borealis" : tabPage?.title?.trim() || path;
             return (
               <div
-                className={`editor-group-tab ${active ? "active" : ""}${tabBuffer?.conflict ? " conflict" : ""}`}
-                draggable
+                className={`editor-group-tab${borealis ? " borealis" : ""} ${active ? "active" : ""}${tabBuffer?.conflict ? " conflict" : ""}`}
+                draggable={!borealis || group.id === "right" || group.tabs.length > 1}
                 key={path}
                 onDragEnd={props.onDragEnd}
                 onDragOver={(event) => {
@@ -117,14 +126,15 @@ function EditorGroupPane(props: Props) {
                   }}
                   role="tab"
                   tabIndex={active ? 0 : -1}
-                  title={path}
+                  title={borealis ? "Borealis chat" : path}
                   type="button"
                 >
-                  <span className="editor-group-tab-title">{tabPage?.title?.trim() || path}</span>
-                  <span className={`editor-group-tab-state${tabBuffer?.dirty ? " dirty" : ""}${tabBuffer?.conflict ? " conflict" : ""}`} aria-label={tabBuffer?.conflict ? "Changed on disk" : tabBuffer?.dirty ? "Unsaved" : "Saved"} />
+                  {borealis ? <span className="editor-group-tab-borealis-mark" aria-hidden="true"><i /><i /><i /></span> : null}
+                  <span className="editor-group-tab-title">{title}</span>
+                  {!borealis ? <span className={`editor-group-tab-state${tabBuffer?.dirty ? " dirty" : ""}${tabBuffer?.conflict ? " conflict" : ""}`} aria-label={tabBuffer?.conflict ? "Changed on disk" : tabBuffer?.dirty ? "Unsaved" : "Saved"} /> : null}
                 </button>
-                {group.id === "left" ? <button aria-label={`Open ${tabPage?.title || path} in right group`} className="editor-group-tab-split" onClick={() => props.onSplitTab(group.id, path)} title="Open in right group" type="button"><Icon name="split" size={13} /></button> : null}
-                <button aria-label={`Close ${tabPage?.title || path}`} className="editor-group-tab-close" onClick={() => props.onCloseTab(group.id, path)} type="button"><Icon name="close" size={13} /></button>
+                {group.id === "left" && (!borealis || group.tabs.length > 1) ? <button aria-label={`Open ${title} in right group`} className="editor-group-tab-split" onClick={() => props.onSplitTab(group.id, path)} title="Open in right group" type="button"><Icon name="split" size={13} /></button> : null}
+                <button aria-label={`Close ${title}`} className="editor-group-tab-close" onClick={() => props.onCloseTab(group.id, path)} type="button"><Icon name="close" size={13} /></button>
               </div>
             );
           })}
@@ -135,13 +145,23 @@ function EditorGroupPane(props: Props) {
 
       <div className="editor-group-body">
         {group.tabs.map((path) => {
+          const active = path === group.activePath;
+          if (path === BOREALIS_TAB_ID) {
+            return (
+              <div className={active ? "editor-tab-panel active borealis-tab-panel" : "editor-tab-panel borealis-tab-panel"} hidden={!active} key={path} role="tabpanel">
+                <BorealisChat onOpenSettings={props.onOpenSettings} presentation="workspace" showTrigger={false} />
+              </div>
+            );
+          }
           const tabBuffer = props.buffers[path];
           const tabPage = props.project.pages.find((candidate) => candidate.path === path);
           if (!tabBuffer || !tabPage) return null;
-          const active = path === group.activePath;
           return (
             <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} key={path} role="tabpanel">
               <FractalEditor
+                aiSettings={props.aiSettings}
+                borealisOpen={props.borealisOpen}
+                borealisWorkspace={props.borealisWorkspace}
                 backlinks={tabBuffer.backlinks}
                 focusMode={props.focusMode}
                 isBusy={props.workspaceBusy || tabBuffer.operation !== null || (active && props.isLoading)}
@@ -159,11 +179,12 @@ function EditorGroupPane(props: Props) {
                 onNavigatePage={(nextPath) => props.onNavigatePage(group.id, nextPath)}
                 onSave={() => props.onSave(path)}
                 onToggleFocus={props.onToggleFocus}
+                onToggleBorealis={props.onToggleBorealis}
               />
             </div>
           );
         })}
-        {!buffer || !group.activePath ? (
+        {(!group.activePath || (!buffer && group.activePath !== BOREALIS_TAB_ID)) ? (
           <div className="editor-group-empty">
             <span>{props.isLoading ? "Opening document" : "No document"}</span>
             <p>{props.loadError || (props.draggedTab ? "Drop a tab here" : "Open a page from the sidebar or quick open.")}</p>

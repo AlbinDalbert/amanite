@@ -1,5 +1,7 @@
 export type EditorGroupId = "left" | "right";
 
+export const BOREALIS_TAB_ID = "borealis://chat";
+
 export type EditorGroup = {
   id: EditorGroupId;
   tabs: string[];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BOREALIS_TAB_ID,
   closeGroupTab,
   createWorkspaceGroups,
   moveGroupTab,
@@ -24,6 +25,29 @@ describe("workspace groups", () => {
     expect(state.right?.tabs).toEqual(["two.fractal.html", "four.fractal.html"]);
     expect(state.right?.activePath).toBe("four.fractal.html");
     expect(state.activeGroupId).toBe("right");
+  });
+
+  it("moves the Borealis tab between editor groups without creating a project page", () => {
+    let state = createWorkspaceGroups("one.fractal.html");
+    state = openGroupTab(state, "left", BOREALIS_TAB_ID);
+    state = moveGroupTab(state, "left", "right", BOREALIS_TAB_ID);
+
+    expect(state.left.tabs).toEqual(["one.fractal.html"]);
+    expect(state.right?.tabs).toEqual([BOREALIS_TAB_ID]);
+    expect(state.right?.activePath).toBe(BOREALIS_TAB_ID);
+
+    state = closeGroupTab(state, "right", BOREALIS_TAB_ID);
+    expect(state.right).toBeNull();
+    expect(state.left.activePath).toBe("one.fractal.html");
+  });
+
+  it("keeps the Borealis tab when project pages are reconciled", () => {
+    let state = createWorkspaceGroups("one.fractal.html");
+    state = openGroupTab(state, "left", BOREALIS_TAB_ID);
+    state = reconcileWorkspaceGroups(state, new Set(["one.fractal.html", BOREALIS_TAB_ID]));
+
+    expect(state.left.tabs).toEqual(["one.fractal.html", BOREALIS_TAB_ID]);
+    expect(state.left.activePath).toBe(BOREALIS_TAB_ID);
   });
 
   it("copies the only left tab when a drag creates the right group", () => {

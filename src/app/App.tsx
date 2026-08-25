@@ -8,6 +8,7 @@ import StartScreen from "@/features/project-open/components/StartScreen";
 import { fractalClient } from "@/lib/fractal/client";
 import { useFractalSession } from "./useFractalSession";
 import { useAppearanceSettings } from "./useAppearanceSettings";
+import { useAiSettings } from "./useAiSettings";
 
 const SettingsScreen = lazy(() => import("@/features/settings/components/SettingsScreen"));
 const Workspace = lazy(() => import("@/features/workspace/components/Workspace"));
@@ -87,6 +88,7 @@ function ConfirmDialog({
 
 function App() {
   const appearance = useAppearanceSettings();
+  const ai = useAiSettings();
   const session = useFractalSession();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hasWorkspaceUnsavedChanges, setHasWorkspaceUnsavedChanges] = useState(false);
@@ -194,7 +196,7 @@ function App() {
   return (
     <UniversalContextMenu actions={contextMenuActions}>
       {!activeProject ? (isSettingsOpen ? (
-        <Suspense fallback={<AppLoading />}><SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense>
+        <Suspense fallback={<AppLoading />}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense>
       ) : (
         <StartScreen
           error={error}
@@ -219,6 +221,7 @@ function App() {
               error={error}
               isBusy={isBusy}
               project={activeProject}
+              aiSettings={ai.settings}
               settings={appearance.settings}
               onCloseProject={session.closeProject}
               onCloseRequest={() => void requestWindowClose()}
@@ -239,7 +242,7 @@ function App() {
               onValidate={session.validateProject}
             /></Suspense>
           </div>
-          {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen settings={appearance.settings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense> : null}
+          {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense> : null}
         </>
       )}
 

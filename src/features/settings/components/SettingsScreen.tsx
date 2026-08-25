@@ -1,5 +1,8 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
 import { APP_VERSION } from "@/app/appVersion";
+import type { AiSettings } from "@/app/useAiSettings";
+import { aiClient } from "@/lib/ai/client";
 import {
   DEFAULT_APPEARANCE_SETTINGS,
   type AppearanceSettings,
@@ -9,7 +12,9 @@ import {
 } from "@/app/useAppearanceSettings";
 
 type Props = {
+  aiSettings: AiSettings;
   settings: AppearanceSettings;
+  onAiChange: (settings: AiSettings) => void;
   onChange: (settings: AppearanceSettings) => void;
   onCloseRequest: () => void;
   onClose: () => void;
@@ -39,10 +44,50 @@ function percent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function SettingsScreen({ settings, onChange, onClose, onCloseRequest }: Props) {
+function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose, onCloseRequest }: Props) {
+  const [models, setModels] = useState<string[]>([]);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const requestId = useRef(0);
+
   function patch(next: Partial<AppearanceSettings>) {
     onChange({ ...settings, ...next });
   }
+
+  function patchAi(next: Partial<AiSettings>) {
+    onAiChange({ ...aiSettings, ...next });
+  }
+
+  const loadModels = useCallback(async () => {
+    if (!aiSettings.endpoint.trim()) return;
+    const currentRequest = ++requestId.current;
+    setIsLoadingModels(true);
+    setModelError(null);
+    try {
+      const available = await aiClient.listModels(aiSettings);
+      if (currentRequest !== requestId.current) return;
+      setModels(available);
+      if (!available.includes(aiSettings.model)) {
+        onAiChange({ ...aiSettings, model: available[0] ?? "" });
+      }
+    } catch (error) {
+      if (currentRequest !== requestId.current) return;
+      setModels([]);
+      setModelError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (currentRequest === requestId.current) setIsLoadingModels(false);
+    }
+  }, [aiSettings, onAiChange]);
+
+  useEffect(() => {
+    if (!aiSettings.endpoint.trim()) {
+      setModels([]);
+      setModelError(null);
+      return;
+    }
+    const timer = window.setTimeout(() => void loadModels(), 450);
+    return () => window.clearTimeout(timer);
+  }, [aiSettings.endpoint, aiSettings.apiKey, loadModels]);
 
   return (
     <main className="settings-screen">
@@ -61,11 +106,58 @@ function SettingsScreen({ settings, onChange, onClose, onCloseRequest }: Props) 
           <p>These choices belong to this copy of Amanite. They do not alter the Fractal project or its pages.</p>
         </aside>
 
-        <section className="settings-sheet" aria-label="Appearance settings">
+        <section className="settings-sheet" aria-label="Application settings">
           <header className="settings-sheet-header">
-            <p>Appearance</p>
+            <p>Preferences</p>
             <span>Changes apply immediately</span>
           </header>
+
+          <fieldset className="settings-group ai-settings">
+            <legend>Borealis connection</legend>
+            <p className="settings-group-note">Use any server that implements the OpenAI models and chat completions APIs.</p>
+            <label>
+              <span><strong>Endpoint</strong><small>Include the server's /v1 path</small></span>
+              <input
+                aria-label="OpenAI-compatible endpoint"
+                onChange={(event) => patchAi({ endpoint: event.currentTarget.value, model: "" })}
+                placeholder="http://localhost:11434/v1"
+                spellCheck={false}
+                type="url"
+                value={aiSettings.endpoint}
+              />
+            </label>
+            <label>
+              <span><strong>API key</strong><small>Optional for local servers</small></span>
+              <input
+                aria-label="API key"
+                autoComplete="off"
+                onChange={(event) => patchAi({ apiKey: event.currentTarget.value, model: "" })}
+                placeholder="Not required"
+                spellCheck={false}
+                type="password"
+                value={aiSettings.apiKey}
+              />
+            </label>
+            <label>
+              <span><strong>Model</strong><small>Reported by the models endpoint</small></span>
+              <div className="ai-model-picker">
+                <select
+                  aria-label="AI model"
+                  disabled={!models.length || isLoadingModels}
+                  onChange={(event) => patchAi({ model: event.currentTarget.value })}
+                  value={models.includes(aiSettings.model) ? aiSettings.model : ""}
+                >
+                  <option value="">{isLoadingModels ? "Loading models…" : models.length ? "Choose a model" : "No models loaded"}</option>
+                  {models.map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+                <button disabled={!aiSettings.endpoint.trim() || isLoadingModels} onClick={() => void loadModels()} type="button">
+                  {isLoadingModels ? "Loading" : "Reload"}
+                </button>
+              </div>
+            </label>
+            {modelError ? <p className="ai-settings-error" role="alert">{modelError}</p> : null}
+            {!modelError && models.length > 0 ? <p className="ai-settings-success">Found {models.length} {models.length === 1 ? "model" : "models"}.</p> : null}
+          </fieldset>
 
           <fieldset className="settings-group theme-settings">
             <legend>Color theme</legend>

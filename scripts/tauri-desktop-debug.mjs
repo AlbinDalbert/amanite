@@ -370,6 +370,37 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
 
+  const borealisPlacement = await driver.executeScript(`return document.querySelector('.ai-chat-trigger')?.parentElement?.className;`);
+  if (borealisPlacement !== "document-status-actions") {
+    throw new Error(`Borealis trigger is not in the document footer: ${borealisPlacement}`);
+  }
+  await driver.click(".ai-chat-trigger");
+  await driver.find(".ai-chat-panel");
+  const chatEmptyState = await driver.text(".ai-chat-empty h2");
+  if (chatEmptyState !== "Connect Borealis") {
+    throw new Error(`Borealis did not show its connection state: ${chatEmptyState}`);
+  }
+  await takeScreenshot(driver, screenshotsDir, "02a-borealis");
+  await driver.click('.ai-chat-header button[aria-label="Open Borealis in the workspace"]');
+  await driver.find('.editor-group[data-group-id="left"] .editor-group-tab.borealis.active');
+  await driver.find('.borealis-tab-panel .ai-chat-workspace');
+  const staleBorealisTooltip = await driver.executeScript(`return Boolean(document.querySelector('.themed-tooltip'));`);
+  if (staleBorealisTooltip) throw new Error("The Borealis maximize tooltip remained after the popover closed.");
+  await takeScreenshot(driver, screenshotsDir, "02b-borealis-tab");
+
+  await driver.click('.editor-group[data-group-id="left"] .editor-group-tab.borealis .editor-group-tab-split');
+  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.borealis.active');
+  await driver.click('.editor-group[data-group-id="left"] .editor-group-tab:not(.borealis) button[role="tab"]');
+  await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
+  const focusedBorealisGroup = await driver.executeScript(`return document.querySelector('.editor-group[data-group-id="right"]')?.classList.contains('focused');`);
+  if (!focusedBorealisGroup) throw new Error("The footer Borealis button did not focus its workspace tab.");
+  await takeScreenshot(driver, screenshotsDir, "02c-borealis-split");
+
+  await driver.click('.editor-group[data-group-id="right"] .editor-group-tab.borealis .editor-group-tab-close');
+  await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
+  await driver.find('.ai-chat-panel:not(.ai-chat-workspace)');
+  await driver.click('.ai-chat-header button[title="Close Borealis"]');
+
   await driver.click('.explorer-header button[title="Create folder"]');
   await driver.setValue('.create-page-dialog input', "Field Notes");
   await driver.click('.create-page-dialog .primary-action');
@@ -514,6 +545,9 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
 
   await driver.click(".sidebar-settings");
   await driver.find(".settings-screen");
+  await driver.find('.ai-settings input[aria-label="OpenAI-compatible endpoint"]');
+  await driver.find('.ai-settings select[aria-label="AI model"]');
+  await takeScreenshot(driver, screenshotsDir, "06-ai-settings");
   await driver.click(".theme-option.moss");
   const settingsScroll = await driver.executeScript(`
     const screen = document.querySelector('.settings-screen');

@@ -59,6 +59,21 @@
 .editor-group-tab-state { width: 6px; height: 6px; flex: 0 0 auto; border: 1px solid var(--app-subtle); transform: rotate(45deg); }
 .editor-group-tab-state.dirty { border-color: var(--app-accent-strong); background: var(--app-accent); }
 .editor-group-tab-state.conflict { border-color: #ffd1cb; background: #b44c42; }
+.editor-group-tab.borealis {
+  --borealis-tab: color-mix(in srgb, #62cbbd 78%, var(--app-text));
+  border-right-color: color-mix(in srgb, var(--borealis-tab) 32%, var(--app-border));
+  background: color-mix(in srgb, var(--borealis-tab) 6%, transparent);
+  color: color-mix(in srgb, var(--borealis-tab) 78%, var(--app-muted));
+}
+.editor-group-tab.borealis.active {
+  background:
+    linear-gradient(115deg, color-mix(in srgb, var(--borealis-tab) 15%, transparent), transparent 74%),
+    color-mix(in srgb, var(--app-panel-strong) 82%, transparent);
+  color: color-mix(in srgb, var(--borealis-tab) 86%, var(--app-text));
+  box-shadow: inset 0 -2px 0 var(--borealis-tab);
+}
+.editor-group-tab-borealis-mark { display: inline-flex; width: 15px; height: 12px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 2px; border: 1px solid currentColor; border-radius: 5px 5px 5px 2px; }
+.editor-group-tab-borealis-mark i { width: 2px; height: 2px; border-radius: 50%; background: currentColor; }
 .editor-group-tab-close, .editor-group-tab-split { display: grid; width: 25px; flex: 0 0 auto; place-items: center; color: var(--app-subtle); opacity: 0; }
 .editor-group-tab:hover .editor-group-tab-close, .editor-group-tab:hover .editor-group-tab-split, .editor-group-tab-close:focus-visible, .editor-group-tab-split:focus-visible, .editor-group-tab.active .editor-group-tab-close { opacity: 1; }
 .editor-group-tab-close:hover, .editor-group-tab-split:hover { background: var(--signal-soft); color: var(--app-accent-strong); }
@@ -68,6 +83,7 @@
 .editor-group-body { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .editor-tab-panel { width: 100%; height: 100%; }
 .editor-tab-panel > .fractal-editor { width: 100%; height: 100%; }
+.borealis-tab-panel { overflow: hidden; }
 .editor-group-empty { display: grid; height: 100%; place-content: center; justify-items: center; gap: 8px; color: var(--app-subtle); text-align: center; }
 .editor-group-empty span { color: var(--app-muted); font: 800 .72rem/1 var(--font-display); letter-spacing: .1em; text-transform: uppercase; }
 .editor-group-empty p { max-width: 340px; margin: 0; font-size: .8rem; }
