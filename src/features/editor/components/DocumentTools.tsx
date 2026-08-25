@@ -109,12 +109,12 @@ export function FindBar(props: FindBarProps) {
   );
 }
 
-export function DocumentStatusBar({ counts, focusMode, wordGoal, onFind, onPrint, onToggleFocus }: {
+export function DocumentStatusBar({ counts, focusMode, wordGoal, onExport, onFind, onToggleFocus }: {
   counts: DocumentCounts;
   focusMode: boolean;
   wordGoal: number;
   onFind: () => void;
-  onPrint: () => void;
+  onExport: () => void;
   onToggleFocus: () => void;
 }) {
   const summary = useMemo(() => [
@@ -129,7 +129,7 @@ export function DocumentStatusBar({ counts, focusMode, wordGoal, onFind, onPrint
       <div>{summary.map((item) => <span key={item}>{item}</span>)}</div>
       <div>
         <button onClick={onFind} type="button">Find</button>
-        <button onClick={onPrint} type="button">Print</button>
+        <button onClick={onExport} type="button">Export</button>
         <button aria-pressed={focusMode} onClick={onToggleFocus} type="button">{focusMode ? "Exit focus" : "Focus"}</button>
       </div>
     </footer>

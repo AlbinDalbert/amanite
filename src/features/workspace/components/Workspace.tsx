@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalCommandResult, FractalProject, FractalSearchResult } from "@/lib/fractal/types";
+import { fractalClient } from "@/lib/fractal/client";
 import { useWorkspaceDocuments } from "../useWorkspaceDocuments";
 import {
   activateGroup,
@@ -230,6 +232,15 @@ function Workspace(props: WorkspaceProps) {
     await documents.refreshChangedDocuments(next, [destination]);
   }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage]);
 
+  const exportPage = useCallback(async (path: string, includeDerivedLinks: boolean) => {
+    if (!(await documents.saveDocument(path))) return null;
+    const page = documents.project.pages.find((candidate) => candidate.path === path);
+    const suggestedName = `${page?.title?.trim() || path.split("/").at(-1)?.replace(/\.fractal\.html$/i, "") || "page"}.html`;
+    const output = await save({ defaultPath: suggestedName, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export HTML" });
+    if (!output) return null;
+    return fractalClient.exportHtml(documents.project, path, output, includeDerivedLinks);
+  }, [documents.project, documents.saveDocument]);
+
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey)) return;
@@ -331,6 +342,7 @@ function Workspace(props: WorkspaceProps) {
       setGroups((current) => moveGroupTab(current, tab.groupId, groupId, tab.path, index));
       setDraggedTab(null);
     },
+    onExport: exportPage,
     onNavigatePage: (groupId: EditorGroupId, path: string) => { void openInGroup(groupId, path); },
     onReload: (path: string) => { void documents.reloadDocument(path); },
     onReplace: (path: string) => { void documents.saveDocument(path, true); },
@@ -338,7 +350,7 @@ function Workspace(props: WorkspaceProps) {
     onSelectTab: (groupId: EditorGroupId, path: string) => { void openInGroup(groupId, path); },
     onSplitTab: (_groupId: EditorGroupId, path: string) => { void openInGroup("right", path); },
     onToggleFocus: () => setFocusMode((focus) => !focus)
-  }), [closeTab, documents.buffers, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, focusMode, openInGroup, props.isBusy, props.settings]);
+  }), [closeTab, documents.buffers, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportPage, focusMode, openInGroup, props.isBusy, props.settings]);
 
   return (
     <main className={`${focusMode ? "app-shell focus-mode" : "app-shell"}${sidebarOpen ? "" : " sidebar-closed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>

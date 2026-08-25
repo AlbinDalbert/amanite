@@ -14,6 +14,8 @@ import RawHtmlEditor from "./RawHtmlEditor";
 import RenderedHtmlPage from "./RenderedHtmlPage";
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
+import ExportDialog from "./ExportDialog";
+import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 
 type FractalEditorProps = {
   backlinks: FractalBacklink[];
@@ -29,6 +31,7 @@ type FractalEditorProps = {
   spellCheck: boolean;
   wordGoal: number;
   onChangeSource: (source: string) => void;
+  onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (pagePath: string) => void;
   onSave: () => void;
   onToggleFocus: () => void;
@@ -61,10 +64,11 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onNavigatePage, onSave, onToggleFocus } = props;
+  const { backlinks, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onSave, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
@@ -152,11 +156,6 @@ function FractalEditor(props: FractalEditorProps) {
   function jumpToHeading(index: number) {
     editorRootRef.current?.querySelectorAll(".rich-content-editable h1, .rich-content-editable h2, .rich-content-editable h3, .rich-content-editable h4, .rich-content-editable h5, .rich-content-editable h6")[index]
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
-  function printPage() {
-    if (kind === "raw" && !isSourceMode) editorRootRef.current?.querySelector<HTMLIFrameElement>(".rendered-page-frame")?.contentWindow?.print();
-    else window.print();
   }
 
   function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
@@ -255,7 +254,7 @@ function FractalEditor(props: FractalEditorProps) {
           onNext={(direction) => showMatch(currentMatch + direction)}
           onReplaceAll={replaceAll}
         />
-        <DocumentStatusBar counts={counts} focusMode={focusMode} wordGoal={wordGoal} onFind={() => setIsFindOpen(true)} onPrint={printPage} onToggleFocus={onToggleFocus} />
+        <DocumentStatusBar counts={counts} focusMode={focusMode} wordGoal={wordGoal} onExport={() => setIsExportOpen(true)} onFind={() => setIsFindOpen(true)} onToggleFocus={onToggleFocus} />
       </div>
       <InspectorPanel
         backlinks={backlinks}
@@ -268,6 +267,7 @@ function FractalEditor(props: FractalEditorProps) {
         onResizeReset={() => setInspectorWidth(292)}
         onResizeStart={startInspectorResize}
       />
+      {isExportOpen ? <ExportDialog kind={kind} pagePath={pagePath} onClose={() => setIsExportOpen(false)} onExport={onExport} /> : null}
     </div>
   );
 }

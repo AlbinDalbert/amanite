@@ -3,6 +3,7 @@ import Icon from "@/components/ui/Icon";
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalProject } from "@/lib/fractal/types";
+import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
 import type { EditorGroup, EditorGroupId } from "../workspaceGroups";
 
@@ -30,6 +31,7 @@ type Props = {
   onDragEnd: () => void;
   onDragStart: (tab: DraggedWorkspaceTab) => void;
   onDropTab: (tab: DraggedWorkspaceTab, groupId: EditorGroupId, index?: number) => void;
+  onExport: (path: string, includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (groupId: EditorGroupId, path: string) => void;
   onReload: (path: string) => void;
   onReplace: (path: string) => void;
@@ -153,6 +155,7 @@ function EditorGroupPane(props: Props) {
                 spellCheck={props.settings.spellCheck}
                 wordGoal={props.settings.wordGoal}
                 onChangeSource={(source) => props.onChangeSource(path, source)}
+                onExport={(includeDerivedLinks) => props.onExport(path, includeDerivedLinks)}
                 onNavigatePage={(nextPath) => props.onNavigatePage(group.id, nextPath)}
                 onSave={() => props.onSave(path)}
                 onToggleFocus={props.onToggleFocus}

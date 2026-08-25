@@ -54,6 +54,13 @@ struct FractalPageContentState {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalHtmlExportReport {
+    output: String,
+    references: Vec<String>,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum FractalConditionalWriteResult {
     Saved { project: FractalProject },
@@ -433,6 +440,29 @@ fn fractal_page_content_states(
 }
 
 #[tauri::command]
+fn fractal_export_html(
+    project_root: String,
+    page_path: String,
+    output: String,
+    include_derived_links: bool,
+) -> Result<FractalHtmlExportReport, String> {
+    let project = open_mutable_project(&project_root)?;
+    let report = project
+        .export_html(
+            &page_path,
+            &output,
+            fractal::HtmlExportOptions {
+                include_derived_links,
+            },
+        )
+        .map_err(|error| format!("Could not export {page_path}: {error}"))?;
+    Ok(FractalHtmlExportReport {
+        output: report.output.to_string_lossy().into_owned(),
+        references: report.references,
+    })
+}
+
+#[tauri::command]
 fn fractal_reveal_page(project_root: String, page_path: Option<String>) -> Result<(), String> {
     let root = PathBuf::from(project_root)
         .canonicalize()
@@ -624,7 +654,7 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
 #[cfg(test)]
 mod tests {
     use super::{
-        fractal_delete_folder, list_project_summaries, project_directory_name,
+        fractal_delete_folder, fractal_export_html, list_project_summaries, project_directory_name,
         relative_folder_path, relative_page_path,
     };
     use std::fs;
@@ -670,6 +700,27 @@ mod tests {
     }
 
     #[test]
+    fn html_export_uses_fractals_exporter() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let mut project = fractal::Project::init(&root, "Test").unwrap();
+        project.create_page("Source").unwrap();
+        project.create_page("Reference").unwrap();
+        let output = temporary.path().join("source.html");
+
+        let report = fractal_export_html(
+            root.to_string_lossy().into_owned(),
+            "source.fractal.html".into(),
+            output.to_string_lossy().into_owned(),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(report.output, output.to_string_lossy());
+        assert!(output.is_file());
+    }
+
+    #[test]
     fn a_corrupt_project_does_not_hide_the_healthy_catalog() {
         let temporary = tempdir().unwrap();
         fractal::Project::init(temporary.path().join("healthy"), "Healthy").unwrap();
@@ -703,6 +754,7 @@ pub fn run() {
             fractal_write_page_if_unchanged,
             fractal_search_project,
             fractal_page_content_states,
+            fractal_export_html,
             fractal_reveal_page,
             fractal_create_page,
             fractal_import_native_page,

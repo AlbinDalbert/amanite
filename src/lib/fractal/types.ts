@@ -91,6 +91,11 @@ export type FractalPageContentState = {
   contentHash: string | null;
 };
 
+export type FractalHtmlExportReport = {
+  output: string;
+  references: string[];
+};
+
 export type FractalConditionalWriteResult =
   | { status: "saved"; project: FractalProject }
   | { status: "conflict"; message: string };
@@ -112,5 +117,6 @@ export type FractalClient = {
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
   searchProject: (project: FractalProject, query: string) => Promise<FractalSearchResult[]>;
   pageContentStates: (project: FractalProject, pagePaths: string[]) => Promise<FractalPageContentState[]>;
+  exportHtml: (project: FractalProject, pagePath: string, output: string, includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport>;
   revealPage: (project: FractalProject, pagePath?: string) => Promise<void>;
 };
