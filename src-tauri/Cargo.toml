@@ -1,6 +1,6 @@
 [package]
 name = "amanite"
-version = "0.2.0"
+version = "0.3.0"
 description = "A desktop editor for Fractal projects"
 authors = ["Amanite contributors"]
 edition = "2021"
