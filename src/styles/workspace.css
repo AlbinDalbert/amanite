@@ -223,15 +223,24 @@
   line-height: 1.4;
 }
 
-.workspace > .status-message {
+.workspace-status-stack {
   position: absolute;
   z-index: 2;
   top: 64px;
   right: 18px;
+  display: grid;
+  width: min(460px, calc(100% - 36px));
+  gap: 8px;
+  pointer-events: none;
+}
+
+.workspace-status-stack > .status-message {
+  width: 100%;
   max-width: min(460px, calc(100% - 36px));
   background: var(--project-surface);
   color: var(--project-muted);
   box-shadow: 0 12px 34px rgb(0 0 0 / 28%);
+  pointer-events: auto;
 }
 
 .status-message span,

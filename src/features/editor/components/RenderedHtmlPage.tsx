@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import { derivedPageLinkTargets, findDerivedPageLinksForTargets } from "./pageLinks";
+import { safeExternalHref } from "./linkNavigation";
 
 type Props = {
   links: FractalLink[];
@@ -71,7 +72,8 @@ function RenderedHtmlPage({ links, pages, pagePath, source, onEditSource, onNavi
           onNavigatePage(link.target.value);
         } else if (link?.target.kind === "external") {
           event.preventDefault();
-          window.open(link.target.value, "_blank", "noopener,noreferrer");
+          const externalHref = safeExternalHref(link.target.value);
+          if (externalHref) window.open(externalHref, "_blank", "noopener,noreferrer");
         }
       });
 

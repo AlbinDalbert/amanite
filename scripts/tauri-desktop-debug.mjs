@@ -382,6 +382,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.setValue('.create-page-dialog input', "Inside Folder");
   await driver.click('.create-page-dialog .primary-action');
   await driver.find('[title="Field Notes/inside-folder.fractal.html"]', 30_000);
+  await driver.find('[aria-label="Body for Field Notes/inside-folder.fractal.html"]', 30_000);
 
   await driver.setValue(".editor-tab-panel.active .document-title-field input", projectName);
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved from the desktop WebDriver smoke test.");

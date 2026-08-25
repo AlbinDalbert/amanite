@@ -44,6 +44,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-wdio-webdriver",
+ "tempfile",
 ]
 
 [[package]]

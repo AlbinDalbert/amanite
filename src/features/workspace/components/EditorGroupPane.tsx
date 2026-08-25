@@ -18,6 +18,7 @@ type Props = {
   focusMode: boolean;
   group: EditorGroup;
   isLoading: boolean;
+  workspaceBusy: boolean;
   loadError?: string;
   project: FractalProject;
   settings: AppearanceSettings;
@@ -141,7 +142,7 @@ function EditorGroupPane(props: Props) {
               <FractalEditor
                 backlinks={tabBuffer.backlinks}
                 focusMode={props.focusMode}
-                isBusy={tabBuffer.operation !== null || (active && props.isLoading)}
+                isBusy={props.workspaceBusy || tabBuffer.operation !== null || (active && props.isLoading)}
                 iframeBacklinks={tabBuffer.iframeBacklinks}
                 iframes={tabBuffer.iframes}
                 kind={tabPage.kind}

@@ -77,6 +77,7 @@ export type FractalProjectSummary = {
 export type FractalProjectCatalog = {
   rootPath: string;
   projects: FractalProjectSummary[];
+  issues: string[];
 };
 
 export type FractalCommandResult = {

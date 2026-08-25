@@ -9,10 +9,11 @@ import type {
 } from "@/lib/fractal/types";
 import { countDocument, countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
-import { readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
+import { inspectEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
 import RawHtmlEditor from "./RawHtmlEditor";
 import RenderedHtmlPage from "./RenderedHtmlPage";
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
+import { safeExternalHref } from "./linkNavigation";
 
 type FractalEditorProps = {
   backlinks: FractalBacklink[];
@@ -70,6 +71,7 @@ function FractalEditor(props: FractalEditorProps) {
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const page = useMemo(() => readEditablePage(source), [source]);
+  const pageInspection = useMemo(() => kind === "native" ? inspectEditablePage(source) : null, [kind, source]);
   const counts = useMemo(() => countDocument(source, kind === "native"), [kind, source]);
   const matchCount = useMemo(
     () => kind === "raw" && isSourceMode
@@ -184,17 +186,39 @@ function FractalEditor(props: FractalEditorProps) {
     }
     const anchor = target instanceof Element ? target.closest("a[href]") : null;
     if (!anchor) return;
-    const pageTarget = resolveEditorLinkTarget(anchor.getAttribute("href") ?? "", links, pagePath, pages);
-    if (!pageTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    onNavigatePage(pageTarget);
+    const href = anchor.getAttribute("href") ?? "";
+    const pageTarget = resolveEditorLinkTarget(href, links, pagePath, pages);
+    if (pageTarget) {
+      onNavigatePage(pageTarget);
+      return;
+    }
+    const link = links.find((candidate) => candidate.href === href);
+    const externalHref = link?.target.kind === "external" ? safeExternalHref(link.target.value) : null;
+    if (externalHref) window.open(externalHref, "_blank", "noopener,noreferrer");
   }
+
+  const protection = pageInspection?.structuralIssues.length
+    ? { title: "This Fractal document is invalid", copy: "Amanite opened the page without changing it, but rich editing is disabled until its structure is repaired.", issues: pageInspection.structuralIssues }
+    : pageInspection?.compatibilityIssues.length
+      ? { title: "This HTML needs protection", copy: "The page contains attributes the rich editor cannot preserve yet. Amanite has left the file untouched and disabled rich editing.", issues: pageInspection.compatibilityIssues.map((issue) => `Rich editing cannot preserve ${issue}.`) }
+      : null;
 
   return (
     <div className={isInspectorOpen ? "fractal-editor inspector-open" : "fractal-editor"} onClickCapture={handleEditorLinkClick} onKeyDown={handleKeyDown} ref={editorRootRef} style={{ "--inspector-width": `${inspectorWidth}px` } as CSSProperties}>
       <div className="fractal-editor-main">
-        {kind === "native" ? (
+        {kind === "native" && protection ? (
+          <section className="native-document-guard" aria-labelledby="native-document-guard-title">
+            <div>
+              <span>Document protected</span>
+              <h2 id="native-document-guard-title">{protection.title}</h2>
+              <p>{protection.copy}</p>
+              <ul>{protection.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              <small>{pagePath}</small>
+            </div>
+          </section>
+        ) : kind === "native" ? (
           <RichDocumentEditor
             bodyHtml={page.bodyHtml}
             isBusy={isBusy}

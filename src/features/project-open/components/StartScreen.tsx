@@ -67,9 +67,14 @@ function StartScreen({
           <h1 id="start-title">Open a Fractal project</h1>
           <p className="start-description">Write, organize, and preview local Fractal pages.</p>
           {projectCatalog ? (
-            <p className="library-path" title={projectCatalog.rootPath}>
-              {projectCatalog.rootPath}
-            </p>
+            <>
+              <p className="library-path" title={projectCatalog.rootPath}>{projectCatalog.rootPath}</p>
+              {projectCatalog.issues.length ? (
+                <p className="catalog-warning" title={projectCatalog.issues.join("\n")}>
+                  {projectCatalog.issues.length} {projectCatalog.issues.length === 1 ? "project was" : "projects were"} skipped because they could not be opened.
+                </p>
+              ) : null}
+            </>
           ) : null}
         </div>
 

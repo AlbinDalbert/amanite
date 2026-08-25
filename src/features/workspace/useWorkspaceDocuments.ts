@@ -27,10 +27,12 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
+  const [pollingNotice, setPollingNotice] = useState<{ id: number; message: string } | null>(null);
   const projectRef = useRef(project);
   const buffersRef = useRef(buffers);
   const previousRootRef = useRef(initialProject.rootPath);
   const checkedDraftsRef = useRef(new Set<string>());
+  const lastPollingNoticeRef = useRef(0);
 
   const commitBuffers = useCallback((updater: BufferUpdater) => {
     const next = updater(buffersRef.current);
@@ -183,13 +185,59 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
     });
   }, [commitBuffers]);
 
+  const refreshChangedDocuments = useCallback(async (snapshot: FractalProject, ignoredPaths: string[] = []) => {
+    const ignored = new Set(ignoredPaths);
+    const pageHashes = new Map(snapshot.pages.map((page) => [page.path, page.contentHash]));
+    const changed = Object.values(buffersRef.current).filter((buffer) =>
+      !ignored.has(buffer.path)
+      && pageHashes.has(buffer.path)
+      && pageHashes.get(buffer.path) !== buffer.contentHash
+    );
+    let refreshed = true;
+    for (const checked of changed) {
+      const latest = buffersRef.current[checked.path];
+      if (!latest) continue;
+      if (latest.dirty || latest.operation) {
+        refreshed = false;
+        commitBuffers((current) => {
+          const buffer = current[checked.path];
+          if (!buffer) return current;
+          return {
+            ...current,
+            [checked.path]: {
+              ...buffer,
+              conflict: true,
+              error: "This page was updated by the project move while it also had local changes. Reload it or replace the disk version."
+            }
+          };
+        });
+      } else if (!(await reloadDocument(checked.path))) {
+        refreshed = false;
+      }
+    }
+    return refreshed;
+  }, [commitBuffers, reloadDocument]);
+
+  const reportPollingError = useCallback((message: string) => {
+    const now = Date.now();
+    if (now - lastPollingNoticeRef.current < 15_000) return;
+    lastPollingNoticeRef.current = now;
+    setPollingNotice({ id: now, message });
+  }, []);
+
+  useEffect(() => {
+    if (!pollingNotice) return;
+    const timeout = window.setTimeout(() => setPollingNotice((current) => current?.id === pollingNotice.id ? null : current), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [pollingNotice]);
+
   useDocumentDrafts({
     autoSave,
     buffers,
     projectRoot: project.rootPath,
     saveDocument: persistence.saveDocument
   });
-  useProjectFilePolling({ buffersRef, commitBuffers, projectRef });
+  useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 
   const dirtyCount = Object.values(buffers).filter((buffer) => buffer.dirty).length;
   return {
@@ -200,11 +248,14 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
     loadingPaths,
     openDocument,
     project,
+    pollingNotice,
     publishProject,
+    refreshChangedDocuments,
     renameDocument,
     reloadDocument,
     saveAll: persistence.saveAll,
     saveDocument: persistence.saveDocument,
+    dismissPollingNotice: () => setPollingNotice(null),
     updateSource
   };
 }

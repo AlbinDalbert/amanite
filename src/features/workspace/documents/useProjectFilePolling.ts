@@ -2,16 +2,18 @@ import { useEffect } from "react";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalProject } from "@/lib/fractal/types";
 import type { BufferUpdater, DocumentBuffers } from "./documentBuffers";
+import { errorMessage } from "./documentBuffers";
 
 type MutableValue<T> = { current: T };
 
 type Options = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
+  onError: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
 };
 
-export function useProjectFilePolling({ buffersRef, commitBuffers, projectRef }: Options) {
+export function useProjectFilePolling({ buffersRef, commitBuffers, onError, projectRef }: Options) {
   useEffect(() => {
     let checking = false;
     const interval = window.setInterval(async () => {
@@ -41,12 +43,12 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, projectRef }:
           }
           return next;
         });
-      } catch {
-        // Polling must not interrupt editing or saving.
+      } catch (error) {
+        onError(errorMessage(error));
       } finally {
         checking = false;
       }
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [buffersRef, commitBuffers, projectRef]);
+  }, [buffersRef, commitBuffers, onError, projectRef]);
 }

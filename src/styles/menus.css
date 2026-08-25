@@ -62,7 +62,8 @@
   .app-shell { width: 100%; height: auto; min-height: 100vh; grid-template-columns: 1fr; overflow: visible; }
   .project-flow { grid-template-columns: 1fr; }
   .sidebar { max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--app-border); }
-  .workspace > .status-message { top: auto; right: 12px; bottom: 12px; left: 12px; max-width: none; }
+  .workspace-status-stack { top: auto; right: 12px; bottom: 12px; left: 12px; width: auto; }
+  .workspace-status-stack > .status-message { max-width: none; }
 }
 
 @media (max-width: 520px) {

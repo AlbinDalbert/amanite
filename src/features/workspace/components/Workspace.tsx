@@ -226,7 +226,8 @@ function Workspace(props: WorkspaceProps) {
     setGroups((current) => renameGroupTab(current, path, destination));
     documents.renameDocument(path, destination);
     await documents.reloadDocument(destination);
-  }, [documents.publishProject, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage]);
+    await documents.refreshChangedDocuments(next, [destination]);
+  }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -314,6 +315,7 @@ function Workspace(props: WorkspaceProps) {
     focusMode,
     project: documents.project,
     settings: props.settings,
+    workspaceBusy: props.isBusy,
     onChangeSource: documents.updateSource,
     onCloseTab: (groupId: EditorGroupId, path: string) => { void closeTab(groupId, path); },
     onDragEnd: () => setDraggedTab(null),
@@ -329,7 +331,7 @@ function Workspace(props: WorkspaceProps) {
     onSelectTab: (groupId: EditorGroupId, path: string) => { void openInGroup(groupId, path); },
     onSplitTab: (_groupId: EditorGroupId, path: string) => { void openInGroup("right", path); },
     onToggleFocus: () => setFocusMode((focus) => !focus)
-  }), [closeTab, documents.buffers, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, focusMode, openInGroup, props.settings]);
+  }), [closeTab, documents.buffers, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, focusMode, openInGroup, props.isBusy, props.settings]);
 
   return (
     <main className={`${focusMode ? "app-shell focus-mode" : "app-shell"}${sidebarOpen ? "" : " sidebar-closed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
@@ -376,7 +378,15 @@ function Workspace(props: WorkspaceProps) {
           }}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
         />
-        <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />
+        <div className="workspace-status-stack" aria-live="polite">
+          <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />
+          {documents.pollingNotice ? (
+            <button className="status-message error" onClick={documents.dismissPollingNotice} type="button">
+              <span>Could not check files on disk</span>
+              <small>{documents.pollingNotice.message}</small>
+            </button>
+          ) : null}
+        </div>
         <div className={`${groups.right ? "editor-groups split" : "editor-groups"}${draggedTab ? " dragging-tab" : ""}`} style={{ "--split-primary": `${splitPercent}%` } as CSSProperties}>
           <EditorGroupPane
             {...paneProps}

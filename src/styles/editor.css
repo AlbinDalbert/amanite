@@ -23,6 +23,41 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
 
 .fractal-editor-main { position: relative; display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 
+.native-document-guard {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #8f4944 5%, transparent), transparent 44%),
+    color-mix(in srgb, var(--project-background) 96%, #050403);
+  padding: clamp(28px, 7vw, 72px);
+}
+
+.native-document-guard > div {
+  width: min(620px, 100%);
+  border: 1px solid color-mix(in srgb, #b96b62 52%, var(--project-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--project-surface) 94%, transparent);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 24%);
+  padding: clamp(24px, 5vw, 42px);
+}
+
+.native-document-guard span,
+.native-document-guard small {
+  color: #cf7f76;
+  font: 800 .62rem/1.4 var(--font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.native-document-guard h2 { margin: 12px 0 9px; color: var(--project-text); font: 700 clamp(1.55rem, 3vw, 2.2rem)/1.08 var(--font-display); }
+.native-document-guard p { margin: 0; color: var(--project-muted); line-height: 1.6; }
+.native-document-guard ul { margin: 20px 0; border-top: 1px solid var(--project-border); border-bottom: 1px solid var(--project-border); color: var(--project-muted); padding: 13px 0 13px 22px; font: .78rem/1.55 var(--font-mono); }
+.native-document-guard li + li { margin-top: 4px; }
+.native-document-guard small { display: block; overflow: hidden; color: var(--project-subtle); text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+
 .rich-document-shell {
   display: grid;
   min-width: 0;

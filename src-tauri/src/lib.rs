@@ -35,6 +35,7 @@ struct FractalProjectSummary {
 struct FractalProjectCatalog {
     root_path: String,
     projects: Vec<FractalProjectSummary>,
+    issues: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -127,10 +128,12 @@ fn project_summary(root: PathBuf) -> Result<FractalProjectSummary, String> {
     })
 }
 
-fn list_project_summaries(root: &Path) -> Result<Vec<FractalProjectSummary>, String> {
+fn list_project_summaries(
+    root: &Path,
+) -> Result<(Vec<FractalProjectSummary>, Vec<String>), String> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((vec![], vec![])),
         Err(error) => {
             return Err(format!(
                 "Could not read project library {}: {error}",
@@ -139,20 +142,32 @@ fn list_project_summaries(root: &Path) -> Result<Vec<FractalProjectSummary>, Str
         }
     };
     let mut projects = vec![];
+    let mut issues = vec![];
     for entry in entries {
-        let entry = entry.map_err(|error| format!("Could not read project entry: {error}"))?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                issues.push(format!("Could not read a project directory: {error}"));
+                continue;
+            }
+        };
         let path = entry.path();
-        if entry
-            .file_type()
-            .map_err(|error| error.to_string())?
-            .is_dir()
-            && path.join("fractal.json").is_file()
-        {
-            projects.push(project_summary(path)?);
+        let is_directory = match entry.file_type() {
+            Ok(file_type) => file_type.is_dir(),
+            Err(error) => {
+                issues.push(format!("Could not inspect {}: {error}", path.display()));
+                continue;
+            }
+        };
+        if is_directory && path.join("fractal.json").is_file() {
+            match project_summary(path) {
+                Ok(project) => projects.push(project),
+                Err(error) => issues.push(error),
+            }
         }
     }
     projects.sort_by_key(|project| project.name.to_lowercase());
-    Ok(projects)
+    Ok((projects, issues))
 }
 
 fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProject, String> {
@@ -312,8 +327,10 @@ fn open_mutable_project(root: &str) -> Result<fractal::Project, String> {
 #[tauri::command]
 fn fractal_list_projects(app: AppHandle) -> Result<FractalProjectCatalog, String> {
     let root = projects_root(&app)?;
+    let (projects, issues) = list_project_summaries(&root)?;
     Ok(FractalProjectCatalog {
-        projects: list_project_summaries(&root)?,
+        projects,
+        issues,
         root_path: root.to_string_lossy().into(),
     })
 }
@@ -533,22 +550,8 @@ fn fractal_delete_folder(
     let prefix = format!("{}/", relative.to_string_lossy().replace('\\', "/"));
     let root = PathBuf::from(&project_root);
     let mut project = open_mutable_project(&project_root)?;
-    let page_paths = project
-        .pages()
-        .into_iter()
-        .map(|page| page.path)
-        .filter(|path| path.starts_with(&prefix))
-        .collect::<Vec<_>>();
-    for page_path in &page_paths {
-        project
-            .delete_page(page_path)
-            .map_err(|error| format!("Could not delete {page_path}: {error}"))?;
-    }
-    let destination = root.join("pages").join(&relative);
-    if !destination.is_dir() {
-        return Err("That folder does not exist.".into());
-    }
-    fs::remove_dir_all(&destination)
+    project
+        .delete_folder(&relative)
         .map_err(|error| format!("Could not delete folder: {error}"))?;
     let active = active_page_path
         .as_deref()
@@ -620,7 +623,12 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
 
 #[cfg(test)]
 mod tests {
-    use super::{project_directory_name, relative_folder_path, relative_page_path};
+    use super::{
+        fractal_delete_folder, list_project_summaries, project_directory_name,
+        relative_folder_path, relative_page_path,
+    };
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn page_paths_stay_relative() {
@@ -644,6 +652,36 @@ mod tests {
             "field-notes"
         );
         assert!(project_directory_name("***").is_err());
+    }
+
+    #[test]
+    fn folder_deletion_uses_the_fractal_folder_transaction() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let mut project = fractal::Project::init(&root, "Test").unwrap();
+        project
+            .create_page_at("notes/one.fractal.html", "One")
+            .unwrap();
+        fs::write(root.join("pages/notes/attachment.txt"), "kept with folder").unwrap();
+
+        fractal_delete_folder(root.to_string_lossy().into_owned(), "notes".into(), None).unwrap();
+
+        assert!(!root.join("pages/notes").exists());
+    }
+
+    #[test]
+    fn a_corrupt_project_does_not_hide_the_healthy_catalog() {
+        let temporary = tempdir().unwrap();
+        fractal::Project::init(temporary.path().join("healthy"), "Healthy").unwrap();
+        let corrupt = temporary.path().join("corrupt");
+        fs::create_dir(&corrupt).unwrap();
+        fs::write(corrupt.join("fractal.json"), "not json").unwrap();
+
+        let (projects, issues) = list_project_summaries(temporary.path()).unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "Healthy");
+        assert_eq!(issues.len(), 1);
     }
 }
 
