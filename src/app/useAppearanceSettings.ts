@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type ColorTheme = "system" | "ember" | "moss" | "ink";
 export type DocumentFont = "literary" | "book" | "sans";
 export type LogoMark = "facet" | "cap" | "spore" | "sigil";
+type LegacyParagraphStyle = "spaced" | "indented" | "both";
 
 export type AppearanceSettings = {
   autoSave: boolean;
@@ -12,6 +13,8 @@ export type AppearanceSettings = {
   logoMark: LogoMark;
   noiseIntensity: number;
   pageWidth: number;
+  paragraphIndent: boolean;
+  paragraphSpace: boolean;
   restoreLastSession: boolean;
   spellCheck: boolean;
   textScale: number;
@@ -27,6 +30,8 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   logoMark: "spore",
   noiseIntensity: 0.16,
   pageWidth: 760,
+  paragraphIndent: false,
+  paragraphSpace: true,
   restoreLastSession: true,
   spellCheck: true,
   textScale: 1,
@@ -35,6 +40,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
 };
 
 const SETTINGS_KEY = "amanite.appearance.v1";
+type StoredAppearanceSettings = Partial<AppearanceSettings> & { paragraphStyle?: LegacyParagraphStyle };
 
 function clamp(value: unknown, minimum: number, maximum: number, fallback: number) {
   return typeof value === "number" && Number.isFinite(value)
@@ -44,8 +50,9 @@ function clamp(value: unknown, minimum: number, maximum: number, fallback: numbe
 
 function readSettings(): AppearanceSettings {
   try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<AppearanceSettings> | null;
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as StoredAppearanceSettings | null;
     if (!stored) return DEFAULT_APPEARANCE_SETTINGS;
+    const legacyParagraphStyle = stored.paragraphStyle;
     return {
       autoSave: stored.autoSave !== false,
       colorTheme: stored.colorTheme === "system" || stored.colorTheme === "moss" || stored.colorTheme === "ink" ? stored.colorTheme : "ember",
@@ -54,6 +61,12 @@ function readSettings(): AppearanceSettings {
       logoMark: stored.logoMark === "facet" || stored.logoMark === "cap" || stored.logoMark === "sigil" ? stored.logoMark : "spore",
       noiseIntensity: clamp(stored.noiseIntensity, 0, 0.6, 0.16),
       pageWidth: clamp(stored.pageWidth, 560, 960, 760),
+      paragraphIndent: typeof stored.paragraphIndent === "boolean"
+        ? stored.paragraphIndent
+        : legacyParagraphStyle === "indented" || legacyParagraphStyle === "both",
+      paragraphSpace: typeof stored.paragraphSpace === "boolean"
+        ? stored.paragraphSpace
+        : legacyParagraphStyle ? legacyParagraphStyle === "spaced" || legacyParagraphStyle === "both" : true,
       restoreLastSession: stored.restoreLastSession !== false,
       spellCheck: stored.spellCheck !== false,
       textScale: clamp(stored.textScale, 0.85, 1.35, 1),
@@ -76,6 +89,8 @@ export function useAppearanceSettings() {
     root.style.setProperty("--document-text-size", `${1.17 * settings.textScale}rem`);
     root.style.setProperty("--document-line-height", String(settings.lineHeight));
     root.style.setProperty("--document-page-width", `${settings.pageWidth}px`);
+    root.style.setProperty("--document-paragraph-gap", settings.paragraphSpace ? "1em" : "0");
+    root.style.setProperty("--document-paragraph-indent", settings.paragraphIndent ? "1.75em" : "0");
     root.style.setProperty("--noise-opacity", String(settings.noiseIntensity));
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));

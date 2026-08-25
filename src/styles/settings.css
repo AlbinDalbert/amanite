@@ -138,6 +138,12 @@
 .behavior-settings small { color: var(--app-subtle); font-size: .7rem; }
 .behavior-settings output { color: var(--app-accent-strong); font: 750 .7rem/1 var(--font-mono); text-align: right; }
 .behavior-settings input[type="range"] { width: 100%; accent-color: var(--app-accent); }
+.paragraph-style-setting { display: grid; grid-template-columns: minmax(160px, .75fr) minmax(160px, 1fr); align-items: center; gap: 18px; }
+.paragraph-style-setting > span { display: grid; gap: 3px; }
+.paragraph-style-options { display: flex; min-width: 0; gap: 4px; }
+.paragraph-style-options button { flex: 1 1 0; min-height: 34px; border: 1px solid var(--app-border); border-radius: var(--radius-xs); background: color-mix(in srgb, var(--app-panel-strong) 64%, transparent); color: var(--app-muted); padding: 0 8px; font: 750 .68rem/1 var(--font-mono); transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
+.paragraph-style-options button:hover, .paragraph-style-options button:focus-visible, .paragraph-style-options button[aria-pressed="true"] { border-color: var(--app-accent); outline: none; color: var(--app-accent-strong); }
+.paragraph-style-options button[aria-pressed="true"] { background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel-strong)); box-shadow: inset 0 -2px 0 var(--app-accent); }
 .settings-check { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 12px; border: 1px solid var(--app-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--app-panel-strong) 48%, transparent); padding: 10px 12px; }
 .settings-check input { width: 16px; height: 16px; accent-color: var(--app-accent); }
 .word-goal-setting input[type="number"] { width: 100%; min-height: 34px; border: 1px solid var(--app-border); outline: none; background: var(--app-background); color: var(--app-text); padding: 0 9px; }

@@ -6,6 +6,8 @@
   --document-text-size: 1.17rem;
   --document-line-height: 1.72;
   --document-page-width: 760px;
+  --document-paragraph-gap: 1em;
+  --document-paragraph-indent: 0;
   --noise-opacity: 0.16;
 
   --bg: #0c0b09;

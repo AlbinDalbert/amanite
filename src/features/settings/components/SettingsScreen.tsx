@@ -187,6 +187,27 @@ function SettingsScreen({ settings, onChange, onClose, onCloseRequest }: Props) 
               <input max="2.1" min="1.35" onChange={(event) => patch({ lineHeight: Number(event.currentTarget.value) })} step="0.05" type="range" value={settings.lineHeight} />
               <output>{settings.lineHeight.toFixed(2)}</output>
             </label>
+            <div className="paragraph-style-setting">
+              <span><strong>Paragraph separation</strong><small>Presentation only; page HTML stays unchanged</small></span>
+              <div aria-label="Paragraph formatting" className="paragraph-style-options" role="group">
+                <button
+                  aria-pressed={settings.paragraphIndent}
+                  onClick={() => patch({ paragraphIndent: !settings.paragraphIndent })}
+                  title="Indent the first line of every paragraph"
+                  type="button"
+                >
+                  Indent
+                </button>
+                <button
+                  aria-pressed={settings.paragraphSpace}
+                  onClick={() => patch({ paragraphSpace: !settings.paragraphSpace })}
+                  title="Leave a visible gap between paragraphs"
+                  type="button"
+                >
+                  Space
+                </button>
+              </div>
+            </div>
             <label>
               <span><strong>Page width</strong><small>Maximum writing column</small></span>
               <input max="960" min="560" onChange={(event) => patch({ pageWidth: Number(event.currentTarget.value) })} step="20" type="range" value={settings.pageWidth} />
