@@ -26,22 +26,34 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function saved(projectSnapshot: FractalProject): FractalConditionalWriteResult {
+  const page = projectSnapshot.pages.find((candidate) => candidate.path === projectSnapshot.activePagePath)!;
+  return {
+    status: "saved",
+    savedPage: {
+      backlinks: projectSnapshot.activePageBacklinks,
+      contentHash: projectSnapshot.activePageContentHash!,
+      iframeBacklinks: projectSnapshot.activePageIframeBacklinks,
+      page
+    }
+  };
+}
+
 describe("document persistence", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("flushes edits made while a save is in flight before reporting success", async () => {
+  it("leaves edits made during a save dirty without writing or replacing them", async () => {
     const path = "index.fractal.html";
     const firstProject = project(path, "revision one", "hash-10");
     const firstBuffer = bufferFromProject(firstProject, "revision one", true)!;
     const buffersRef = { current: { [path]: firstBuffer } as DocumentBuffers };
     const projectRef = { current: firstProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
-    const publishProject = (next: FractalProject) => { projectRef.current = next; };
+    const publishProject = vi.fn((next: FractalProject) => { projectRef.current = next; });
     const firstWrite = deferred<FractalConditionalWriteResult>();
 
     vi.spyOn(fractalClient, "writePageIfUnchanged")
-      .mockImplementationOnce(() => firstWrite.promise)
-      .mockResolvedValueOnce({ status: "saved", project: project(path, "revision two", "hash-12") });
+      .mockImplementationOnce(() => firstWrite.promise);
 
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, projectRef, publishProject });
     const saving = persistence.saveDocument(path);
@@ -52,15 +64,21 @@ describe("document persistence", () => {
       ...current,
       [path]: { ...current[path], source: "revision two", dirty: true, revision: 2 }
     }));
-    firstWrite.resolve({ status: "saved", project: project(path, "revision one", "hash-11") });
+    firstWrite.resolve(saved(project(path, "revision one", "hash-11")));
 
     await expect(saving).resolves.toBe(true);
-    expect(fractalClient.writePageIfUnchanged).toHaveBeenCalledTimes(2);
+    expect(fractalClient.writePageIfUnchanged).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fractalClient.writePageIfUnchanged).mock.calls.map((call) => call[1])).toEqual([
-      "revision one",
-      "revision two"
+      "revision one"
     ]);
-    expect(buffersRef.current[path]).toMatchObject({ dirty: false, source: "revision two" });
+    expect(buffersRef.current[path]).toMatchObject({
+      contentHash: "hash-11",
+      dirty: true,
+      operation: null,
+      revision: 2,
+      source: "revision two"
+    });
+    expect(publishProject).not.toHaveBeenCalled();
   });
 
   it("rescans dirty buffers before save-all returns", async () => {
@@ -80,7 +98,7 @@ describe("document persistence", () => {
 
     vi.spyOn(fractalClient, "writePageIfUnchanged")
       .mockImplementationOnce(() => firstWrite.promise)
-      .mockResolvedValueOnce({ status: "saved", project: project(secondPath, "second changed", "hash-21") });
+      .mockResolvedValueOnce(saved(project(secondPath, "second changed", "hash-21")));
 
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, projectRef, publishProject });
     const saving = persistence.saveAll();
@@ -89,7 +107,7 @@ describe("document persistence", () => {
       ...current,
       [secondPath]: { ...current[secondPath], source: "second changed", dirty: true, revision: 1 }
     }));
-    firstWrite.resolve({ status: "saved", project: project(firstPath, "first", "hash-11") });
+    firstWrite.resolve(saved(project(firstPath, "first", "hash-11")));
 
     await expect(saving).resolves.toBe(true);
     expect(fractalClient.writePageIfUnchanged).toHaveBeenCalledTimes(2);

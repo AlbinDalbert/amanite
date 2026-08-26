@@ -1,6 +1,7 @@
 import { clearPageDraft } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalProject } from "@/lib/fractal/types";
+import type { FractalSavedPage } from "@/lib/fractal/types";
 import {
   bufferFromProject,
   errorMessage,
@@ -45,8 +46,11 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, projectRe
           if (!forceAttempt && !start.contentHash) {
             throw new Error(`Fractal did not provide a content hash for ${path}.`);
           }
-          const writeResult = forceAttempt
-            ? { status: "saved" as const, project: await fractalClient.writePage(snapshot, start.source) }
+          const forcedProject = forceAttempt
+            ? await fractalClient.writePage(snapshot, start.source)
+            : null;
+          const writeResult = forcedProject
+            ? { status: "saved" as const, savedPage: null }
             : await fractalClient.writePageIfUnchanged(snapshot, start.source, start.contentHash!);
           if (writeResult.status === "conflict") {
             commitBuffers((current) => {
@@ -65,24 +69,57 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, projectRe
             return false;
           }
 
-          const saved = writeResult.project;
-          const savedBuffer = bufferFromProject(saved);
-          if (!savedBuffer) throw new Error(`Fractal did not return ${path} after saving.`);
+          const savedPage = writeResult.savedPage;
+          const savedBuffer = forcedProject ? bufferFromProject(forcedProject) : null;
+          if (forcedProject && !savedBuffer) throw new Error(`Fractal did not return ${path} after saving.`);
+          if (!forcedProject && !savedPage) throw new Error(`Fractal did not return ${path} metadata after saving.`);
+          const savedHash = savedBuffer?.contentHash ?? savedPage!.contentHash;
 
           commitBuffers((current) => {
             const currentBuffer = current[path];
             const hasNewerEdits = Boolean(currentBuffer && currentBuffer.revision !== start.revision);
             if (!currentBuffer) return current;
-            const nextBuffer = hasNewerEdits
-              ? { ...savedBuffer, source: currentBuffer.source, dirty: true, revision: currentBuffer.revision }
-              : savedBuffer;
-            if (!hasNewerEdits) clearPageDraft(saved.rootPath, path);
+            const savedMetadata = savedPage ? {
+              backlinks: savedPage.backlinks,
+              contentHash: savedHash,
+              iframeBacklinks: savedPage.iframeBacklinks,
+              iframes: savedPage.page.iframes,
+              links: savedPage.page.links
+            } : savedBuffer!;
+            const nextBuffer = {
+              ...currentBuffer,
+              ...savedMetadata,
+              conflict: false,
+              dirty: hasNewerEdits,
+              error: null,
+              operation: null,
+              source: currentBuffer.source,
+              revision: currentBuffer.revision
+            };
+            if (!hasNewerEdits) clearPageDraft(projectRef.current.rootPath, path);
             return { ...current, [path]: nextBuffer };
           });
           forceRequests.delete(path);
-          publishProject(saved);
-
-          if (!buffersRef.current[path]?.dirty) return true;
+          if (forcedProject) {
+            publishProject(forcedProject);
+          } else {
+            const currentProject = projectRef.current;
+            const nextProject = {
+              ...currentProject,
+              pages: currentProject.pages.map((page) => page.path === path
+                ? { ...savedPage!.page, contentHash: savedHash }
+                : page),
+              ...(currentProject.activePagePath === path ? {
+                activePageBacklinks: savedPage!.backlinks,
+                activePageContentHash: savedHash,
+                activePageIframeBacklinks: savedPage!.iframeBacklinks,
+                activePageIframes: savedPage!.page.iframes,
+                activePageLinks: savedPage!.page.links
+              } : {})
+            };
+            projectRef.current = nextProject;
+          }
+          return true;
         } catch (error) {
           commitBuffers((current) => {
             const buffer = current[path];

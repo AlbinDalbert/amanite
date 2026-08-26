@@ -298,9 +298,21 @@ struct FractalHtmlExportReport {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalSavedPage {
+    page: fractal::Page,
+    content_hash: String,
+    backlinks: Vec<fractal::Backlink>,
+    iframe_backlinks: Vec<fractal::IframeBacklink>,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum FractalConditionalWriteResult {
-    Saved { project: FractalProject },
+    Saved {
+        #[serde(rename = "savedPage")]
+        saved_page: FractalSavedPage,
+    },
     Conflict { message: String },
 }
 
@@ -604,76 +616,117 @@ fn fractal_open_project_path(project_root: String) -> Result<FractalProject, Str
 }
 
 #[tauri::command]
-fn fractal_open_page(project_root: String, page_path: String) -> Result<FractalProject, String> {
-    read_project(PathBuf::from(project_root), Some(&page_path))
+async fn fractal_open_page(
+    project_root: String,
+    page_path: String,
+) -> Result<FractalProject, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_project(PathBuf::from(project_root), Some(&page_path))
+    })
+    .await
+    .map_err(|error| format!("Could not complete page open: {error}"))?
 }
 
 #[tauri::command]
-fn fractal_write_page(
+async fn fractal_write_page(
     project_root: String,
     page_path: String,
     source: String,
 ) -> Result<FractalProject, String> {
-    let mut project = open_mutable_project(&project_root)?;
-    project
-        .write_page(&page_path, &source)
-        .map_err(|error| format!("Could not write {page_path}: {error}"))?;
-    read_project(PathBuf::from(project_root), Some(&page_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut project = open_mutable_project(&project_root)?;
+        project
+            .write_page(&page_path, &source)
+            .map_err(|error| format!("Could not write {page_path}: {error}"))?;
+        read_project(PathBuf::from(project_root), Some(&page_path))
+    })
+    .await
+    .map_err(|error| format!("Could not complete page write: {error}"))?
 }
 
 #[tauri::command]
-fn fractal_write_page_if_unchanged(
+async fn fractal_write_page_if_unchanged(
     project_root: String,
     page_path: String,
     source: String,
     expected_hash: String,
 ) -> Result<FractalConditionalWriteResult, String> {
-    let mut project = open_mutable_project(&project_root)?;
-    match project.write_page_if_unchanged(&page_path, &source, &expected_hash) {
-        Ok(_) => Ok(FractalConditionalWriteResult::Saved {
-            project: read_project(PathBuf::from(project_root), Some(&page_path))?,
-        }),
-        Err(error) if error.code == fractal::FractalErrorCode::Conflict => {
-            Ok(FractalConditionalWriteResult::Conflict {
-                message: error.message,
-            })
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut project = open_mutable_project(&project_root)?;
+        match project.write_page_if_unchanged(&page_path, &source, &expected_hash) {
+            Ok(_) => {
+                let page = project
+                    .pages()
+                    .into_iter()
+                    .find(|page| page.path == page_path)
+                    .ok_or_else(|| format!("Fractal did not return {page_path} after saving."))?;
+                let backlinks = project
+                    .backlinks(&page_path)
+                    .map_err(|error| format!("Could not read backlinks for {page_path}: {error}"))?;
+                let iframe_backlinks = project
+                    .iframe_backlinks(&page_path)
+                    .map_err(|error| format!("Could not read iframe backlinks for {page_path}: {error}"))?;
+                Ok(FractalConditionalWriteResult::Saved {
+                    saved_page: FractalSavedPage {
+                        content_hash: page.content_hash.clone(),
+                        page,
+                        backlinks,
+                        iframe_backlinks,
+                    },
+                })
+            }
+            Err(error) if error.code == fractal::FractalErrorCode::Conflict => {
+                Ok(FractalConditionalWriteResult::Conflict {
+                    message: error.message,
+                })
+            }
+            Err(error) => Err(format!("Could not write {page_path}: {error}")),
         }
-        Err(error) => Err(format!("Could not write {page_path}: {error}")),
-    }
+    })
+    .await
+    .map_err(|error| format!("Could not complete conditional page write: {error}"))?
 }
 
 #[tauri::command]
-fn fractal_search_project(
+async fn fractal_search_project(
     project_root: String,
     query: String,
 ) -> Result<Vec<fractal::SearchResult>, String> {
-    let project = open_mutable_project(&project_root)?;
-    Ok(project.search(&query))
+    tauri::async_runtime::spawn_blocking(move || {
+        let project = open_mutable_project(&project_root)?;
+        Ok(project.search(&query))
+    })
+    .await
+    .map_err(|error| format!("Could not complete project search: {error}"))?
 }
 
 #[tauri::command]
-fn fractal_page_content_states(
+async fn fractal_page_content_states(
     project_root: String,
     page_paths: Vec<String>,
 ) -> Result<Vec<FractalPageContentState>, String> {
-    let root = validated_project_root(&project_root)?;
-    let project = fractal::Project::open(&root)
-        .map_err(|error| format!("Could not open Fractal project: {error}"))?;
-    let hashes = project
-        .pages()
-        .into_iter()
-        .map(|page| (page.path, page.content_hash))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    page_paths
-        .into_iter()
-        .map(|path| {
-            relative_page_path(&path)?;
-            Ok(FractalPageContentState {
-                content_hash: hashes.get(&path).cloned(),
-                path,
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = validated_project_root(&project_root)?;
+        let project = fractal::Project::open(&root)
+            .map_err(|error| format!("Could not open Fractal project: {error}"))?;
+        let hashes = project
+            .pages()
+            .into_iter()
+            .map(|page| (page.path, page.content_hash))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        page_paths
+            .into_iter()
+            .map(|path| {
+                relative_page_path(&path)?;
+                Ok(FractalPageContentState {
+                    content_hash: hashes.get(&path).cloned(),
+                    path,
+                })
             })
-        })
-        .collect()
+            .collect()
+    })
+    .await
+    .map_err(|error| format!("Could not check page content states: {error}"))?
 }
 
 #[tauri::command]

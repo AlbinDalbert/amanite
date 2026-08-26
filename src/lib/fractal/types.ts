@@ -96,8 +96,15 @@ export type FractalHtmlExportReport = {
   references: string[];
 };
 
+export type FractalSavedPage = {
+  page: FractalPage;
+  contentHash: string;
+  backlinks: FractalBacklink[];
+  iframeBacklinks: FractalIframeBacklink[];
+};
+
 export type FractalConditionalWriteResult =
-  | { status: "saved"; project: FractalProject }
+  | { status: "saved"; savedPage: FractalSavedPage }
   | { status: "conflict"; message: string };
 
 export type FractalClient = {

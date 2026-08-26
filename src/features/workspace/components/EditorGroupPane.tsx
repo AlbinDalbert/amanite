@@ -164,7 +164,7 @@ function EditorGroupPane(props: Props) {
                 borealisWorkspace={props.borealisWorkspace}
                 backlinks={tabBuffer.backlinks}
                 focusMode={props.focusMode}
-                isBusy={props.workspaceBusy || tabBuffer.operation !== null || (active && props.isLoading)}
+                isBusy={props.workspaceBusy || (active && props.isLoading)}
                 iframeBacklinks={tabBuffer.iframeBacklinks}
                 iframes={tabBuffer.iframes}
                 kind={tabPage.kind}

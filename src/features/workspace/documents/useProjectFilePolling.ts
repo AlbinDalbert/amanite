@@ -18,7 +18,9 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
     let checking = false;
     const interval = window.setInterval(async () => {
       if (checking) return;
-      const snapshot = Object.values(buffersRef.current).filter((buffer) => !buffer.operation);
+      const buffers = Object.values(buffersRef.current);
+      if (buffers.some((buffer) => buffer.operation)) return;
+      const snapshot = buffers;
       if (!snapshot.length) return;
 
       checking = true;

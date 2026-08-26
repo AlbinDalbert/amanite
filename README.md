@@ -65,6 +65,15 @@ pnpm run tauri:webdriver:open
 
 Artifacts are written below `artifacts/tauri-webdriver/`. See [`docs/tauri-webdriver.md`](docs/tauri-webdriver.md).
 
+```sh
+pnpm run tauri:build:appimage
+
+mkdir -p "$HOME/.local/bin"
+mv src-tauri/target/release/bundle/appimage/*.AppImage \
+  "$HOME/.local/bin/amanite.AppImage"
+chmod +x "$HOME/.local/bin/amanite.AppImage"
+```
+
 ## Structure
 
 ```text

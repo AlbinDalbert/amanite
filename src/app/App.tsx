@@ -92,7 +92,6 @@ function App() {
   const session = useFractalSession();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hasWorkspaceUnsavedChanges, setHasWorkspaceUnsavedChanges] = useState(false);
-  const allowCloseRef = useRef(false);
   const restoredSessionRef = useRef(false);
   const {
     activeProject,
@@ -114,8 +113,7 @@ function App() {
 
   const requestWindowClose = useCallback(async () => {
     if (hasWorkspaceUnsavedRef.current && saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
-    allowCloseRef.current = true;
-    if ("__TAURI_INTERNALS__" in window) await getCurrentWindow().close();
+    if ("__TAURI_INTERNALS__" in window) await getCurrentWindow().destroy();
     else window.close();
   }, []);
 
@@ -126,11 +124,10 @@ function App() {
     const appWindow = getCurrentWindow();
 
     void appWindow.onCloseRequested(async (event) => {
-      if (allowCloseRef.current || !hasWorkspaceUnsavedRef.current) return;
+      if (!hasWorkspaceUnsavedRef.current) return;
       event.preventDefault();
       if (saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
-      allowCloseRef.current = true;
-      await appWindow.close();
+      await appWindow.destroy();
     }).then((removeListener) => {
       if (disposed) removeListener();
       else unlisten = removeListener;

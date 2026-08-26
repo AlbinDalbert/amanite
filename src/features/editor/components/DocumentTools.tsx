@@ -8,8 +8,7 @@ export type DocumentCounts = {
   words: number;
 };
 
-function documentText(source: string, native: boolean) {
-  const document = new DOMParser().parseFromString(source, "text/html");
+function documentText(document: Document, native: boolean) {
   const root = native ? document.body.querySelector("main[data-fractal-document]") : document.body;
   if (!root) return "";
   const mirroredTitle = native && root.querySelector(":scope > h1")?.textContent?.trim() === document.title.trim()
@@ -27,7 +26,7 @@ function documentText(source: string, native: boolean) {
 export function countDocument(source: string, native: boolean): DocumentCounts {
   const document = new DOMParser().parseFromString(source, "text/html");
   const root = native ? document.body.querySelector("main[data-fractal-document]") : document.body;
-  const text = documentText(source, native);
+  const text = documentText(document, native);
   const words = text ? text.split(/\s+/u).length : 0;
   return {
     characters: text.length,
@@ -39,7 +38,8 @@ export function countDocument(source: string, native: boolean): DocumentCounts {
 
 export function countTextMatches(source: string, query: string, native: boolean) {
   if (!query) return 0;
-  const text = documentText(source, native).toLocaleLowerCase();
+  const document = new DOMParser().parseFromString(source, "text/html");
+  const text = documentText(document, native).toLocaleLowerCase();
   const needle = query.toLocaleLowerCase();
   let count = 0;
   let offset = 0;

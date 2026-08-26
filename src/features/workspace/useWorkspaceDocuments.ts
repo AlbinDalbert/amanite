@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft, readPageDraft } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalProject } from "@/lib/fractal/types";
@@ -38,7 +38,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
     const next = updater(buffersRef.current);
     if (next === buffersRef.current) return;
     buffersRef.current = next;
-    setBuffers(next);
+    startTransition(() => setBuffers(next));
   }, []);
 
   const publishProject = useCallback((next: FractalProject) => {
