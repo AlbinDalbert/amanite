@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalHtmlExportReport, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -22,6 +22,11 @@ export const fractalClient: FractalClient = {
     invokeFractal<FractalProject>("fractal_open_project_path", { projectRoot }),
   openPage: (project, pagePath) =>
     invokeFractal<FractalProject>("fractal_open_page", {
+      pagePath,
+      projectRoot: project.rootPath
+    }),
+  readPage: (project, pagePath) =>
+    invokeFractal<FractalLoadedPage>("fractal_read_page", {
       pagePath,
       projectRoot: project.rootPath
     }),
@@ -55,6 +60,20 @@ export const fractalClient: FractalClient = {
     invokeFractal<FractalProject>("fractal_create_folder", {
       activePagePath: project.activePagePath,
       folderPath,
+      projectRoot: project.rootPath
+    }),
+  setFolderTitle: (project, folderPath, title) =>
+    invokeFractal<FractalProject>("fractal_set_folder_title", {
+      activePagePath: project.activePagePath,
+      folderPath,
+      projectRoot: project.rootPath,
+      title
+    }),
+  reorderFolder: (project, folderPath, order) =>
+    invokeFractal<FractalProject>("fractal_reorder_folder", {
+      activePagePath: project.activePagePath,
+      folderPath,
+      order,
       projectRoot: project.rootPath
     }),
   deleteFolder: (project, folderPath) =>
@@ -96,6 +115,16 @@ export const fractalClient: FractalClient = {
       output,
       pagePath,
       projectRoot: project.rootPath
+    }),
+  exportFolderHtml: (project, folderPath, output, options) =>
+    invokeFractal<FractalFolderHtmlExportReport>("fractal_export_folder_html", {
+      folderPath,
+      includeDerivedLinks: options.includeDerivedLinks,
+      force: options.force,
+      numberSections: options.numberSections,
+      output,
+      projectRoot: project.rootPath,
+      selections: options.selections
     }),
   revealPage: (project, pagePath) =>
     invokeFractal<void>("fractal_reveal_page", {

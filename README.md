@@ -8,9 +8,10 @@ It follows Fractal's current contract directly:
 - native documents use `.fractal.html`, while other `.html` files are raw source;
 - files are the source of truth;
 - links, backlinks, iframes, and iframe backlinks are derived when a project is opened;
-- there is no generated index, graph store, note primitive, metadata schema, theme contract, or sync step.
+- folder `fractal.json` files may provide v2 titles and explicit child order;
+- there is no generated index, graph store, note primitive, theme contract, or sync step.
 
-Amanite can create and open projects, including projects outside its default library. It manages page folders and can create, import, duplicate, read, write, move, reveal, and delete pages. It searches page titles and visible text through Fractal, renders exact page-title mentions as derived links, inspects explicit links and iframe references, and runs Fractal validation.
+Amanite can create and open projects, including projects outside its default library. It manages page folders and can create, import, duplicate, read, write, move, reveal, and delete pages. Clicking a folder opens its ordered Fractal folder view. The view edits the folder title, reorders direct native pages and subfolders, reports missing ordered children, and can expand a native child into the rich editor without creating another stored document. A folder can be exported as one ordered HTML document with a nested selection tree, optional section numbers and title-mention links, and strict or skip-invalid validation. Amanite searches page titles and visible text through Fractal, renders exact page-title mentions as derived links, inspects explicit links and iframe references, and runs Fractal validation.
 
 Native `.fractal.html` documents stay in the rich editor and never expose an HTML source or preview mode in the workspace. The editor has document find and replace, undo and redo, semantic formatting, table controls, local image paste and drop, an internal-page link picker, an outline, counts, reading time, word goals, standalone HTML export, and a focus mode. Typing `@` opens a page picker at the caret and inserts an explicit file link. Exact page-title mentions become clickable derived links as the user types, without changing the saved HTML. A normal click follows explicit and derived internal links. Ordinary `.html` files open as rendered documents and can be toggled to their complete HTML source. Derived links are also applied to rendered raw pages without changing their files. Both editors persist complete HTML through Fractal.
 

@@ -54,11 +54,34 @@ export type FractalPage = {
   iframes: FractalIframe[];
 };
 
+export type FractalFolderChildKind = "folder" | "native";
+export type FractalFolderChildStatus = "present" | "missing";
+
+export type FractalFolderChild = {
+  name: string;
+  kind: FractalFolderChildKind;
+  status: FractalFolderChildStatus;
+};
+
+export type FractalFolderIssue = {
+  name: string;
+  message: string;
+};
+
+export type FractalFolder = {
+  path: string;
+  title: string;
+  order?: string[] | null;
+  children: FractalFolderChild[];
+  issues: FractalFolderIssue[];
+};
+
 export type FractalProject = {
   name: string;
+  version: number;
   rootPath: string;
   pages: FractalPage[];
-  folders: string[];
+  folders: FractalFolder[];
   activePagePath?: string | null;
   activePageSource?: string | null;
   activePageLinks: FractalLink[];
@@ -96,11 +119,40 @@ export type FractalHtmlExportReport = {
   references: string[];
 };
 
+export type FractalFolderHtmlExportOptions = {
+  selections: string[];
+  numberSections: boolean;
+  includeDerivedLinks: boolean;
+  force: boolean;
+};
+
+export type FractalSkippedExportPage = {
+  path: string;
+  reason: string;
+};
+
+export type FractalFolderHtmlExportReport = {
+  output: string;
+  pages: string[];
+  skipped: FractalSkippedExportPage[];
+  references: string[];
+};
+
 export type FractalSavedPage = {
   page: FractalPage;
   contentHash: string;
   backlinks: FractalBacklink[];
   iframeBacklinks: FractalIframeBacklink[];
+};
+
+export type FractalLoadedPage = {
+  path: string;
+  source: string;
+  links: FractalLink[];
+  backlinks: FractalBacklink[];
+  iframes: FractalIframe[];
+  iframeBacklinks: FractalIframeBacklink[];
+  contentHash: string;
 };
 
 export type FractalConditionalWriteResult =
@@ -113,11 +165,14 @@ export type FractalClient = {
   openProject: (directoryName: string) => Promise<FractalProject>;
   openProjectPath: (projectRoot: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
+  readPage: (project: FractalProject, pagePath: string) => Promise<FractalLoadedPage>;
   writePage: (project: FractalProject, source: string) => Promise<FractalProject>;
   writePageIfUnchanged: (project: FractalProject, source: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   createPage: (project: FractalProject, title: string, folderPath?: string) => Promise<FractalProject>;
   importNativePage: (project: FractalProject, title: string, source: string, folderPath?: string) => Promise<FractalProject>;
   createFolder: (project: FractalProject, folderPath: string) => Promise<FractalProject>;
+  setFolderTitle: (project: FractalProject, folderPath: string, title: string) => Promise<FractalProject>;
+  reorderFolder: (project: FractalProject, folderPath: string, order: string[]) => Promise<FractalProject>;
   deleteFolder: (project: FractalProject, folderPath: string) => Promise<FractalProject>;
   movePage: (project: FractalProject, pagePath: string, destination: string) => Promise<FractalProject>;
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
@@ -125,5 +180,6 @@ export type FractalClient = {
   searchProject: (project: FractalProject, query: string) => Promise<FractalSearchResult[]>;
   pageContentStates: (project: FractalProject, pagePaths: string[]) => Promise<FractalPageContentState[]>;
   exportHtml: (project: FractalProject, pagePath: string, output: string, includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport>;
+  exportFolderHtml: (project: FractalProject, folderPath: string, output: string, options: FractalFolderHtmlExportOptions) => Promise<FractalFolderHtmlExportReport>;
   revealPage: (project: FractalProject, pagePath?: string) => Promise<void>;
 };

@@ -143,14 +143,9 @@ function App() {
     if (restoredSessionRef.current || !appearance.settings.restoreLastSession || !projectCatalog || activeProject) return;
     restoredSessionRef.current = true;
     try {
-      const stored = JSON.parse(localStorage.getItem("amanite.last-session.v1") ?? "null") as { pagePath?: string; projectRoot?: string } | null;
+      const stored = JSON.parse(localStorage.getItem("amanite.last-session.v1") ?? "null") as { projectRoot?: string } | null;
       if (!stored?.projectRoot) return;
-      void session.loadProject(async () => {
-        const project = await fractalClient.openProjectPath(stored.projectRoot!);
-        return stored.pagePath && project.pages.some((page) => page.path === stored.pagePath)
-          ? fractalClient.openPage(project, stored.pagePath)
-          : project;
-      });
+      void session.loadProject(() => fractalClient.openProjectPath(stored.projectRoot!));
     } catch {
       // A stale session record should leave the start screen usable.
     }
@@ -224,6 +219,8 @@ function App() {
               onCloseRequest={() => void requestWindowClose()}
               onCreatePage={session.createProjectPage}
               onCreateFolder={session.createProjectFolder}
+              onSetFolderTitle={session.setProjectFolderTitle}
+              onReorderFolder={session.reorderProjectFolder}
               onDeletePage={session.deleteProjectPage}
               onDeleteFolder={session.deleteProjectFolder}
               onDuplicatePage={session.duplicateProjectPage}

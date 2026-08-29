@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BOREALIS_TAB_ID,
   closeGroupTab,
+  createProjectOverviewGroups,
   createWorkspaceGroups,
   moveGroupTab,
   navigateGroupHistory,
@@ -13,6 +14,12 @@ import {
 } from "./workspaceGroups";
 
 describe("workspace groups", () => {
+  it("starts a project on its root folder overview", () => {
+    const state = createProjectOverviewGroups();
+    expect(state.left.tabs).toEqual(["folder://"]);
+    expect(state.left.activePath).toBe("folder://");
+  });
+
   it("keeps independent ordered tabs and active pages", () => {
     let state = createWorkspaceGroups("one.fractal.html");
     state = openGroupTab(state, "left", "two.fractal.html");

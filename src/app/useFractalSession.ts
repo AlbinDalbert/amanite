@@ -62,7 +62,6 @@ export function useFractalSession() {
     setCommandResult(null);
     try {
       localStorage.setItem("amanite.last-session.v1", JSON.stringify({
-        pagePath: project.activePagePath,
         projectRoot: project.rootPath
       }));
     } catch {
@@ -148,6 +147,28 @@ export function useFractalSession() {
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Folder created.", details: folderPath.trim() });
+    }
+    return project;
+  }, [acceptProject, withBusy]);
+
+  const setProjectFolderTitle = useCallback(async (folderPath: string, title: string) => {
+    const current = activeProjectRef.current;
+    if (!current || busyRef.current || !title.trim()) return null;
+    const project = await withBusy("page", () => fractalClient.setFolderTitle(current, folderPath, title.trim()));
+    if (project) {
+      acceptProject(project);
+      setCommandResult({ ok: true, message: "Folder title changed.", details: title.trim() });
+    }
+    return project;
+  }, [acceptProject, withBusy]);
+
+  const reorderProjectFolder = useCallback(async (folderPath: string, order: string[]) => {
+    const current = activeProjectRef.current;
+    if (!current || busyRef.current) return null;
+    const project = await withBusy("page", () => fractalClient.reorderFolder(current, folderPath, order));
+    if (project) {
+      acceptProject(project);
+      setCommandResult({ ok: true, message: "Folder reordered.", details: project.folders.find((folder) => folder.path === folderPath)?.title });
     }
     return project;
   }, [acceptProject, withBusy]);
@@ -246,6 +267,8 @@ export function useFractalSession() {
     projectCatalog,
     createProjectPage,
     createProjectFolder,
+    setProjectFolderTitle,
+    reorderProjectFolder,
     deleteProjectPage,
     deleteProjectFolder,
     closeProject,

@@ -62,6 +62,66 @@
 .export-check-row input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--app-accent); }
 .export-error { margin: 0; border-left: 2px solid var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--app-text); padding: 10px 12px; font: .78rem/1.4 var(--font-body); }
 
+.folder-export-backdrop { padding: 18px; }
+.folder-export-dialog { position: relative; z-index: 1; isolation: isolate; display: grid; width: min(980px, 100%); max-height: calc(100vh - 36px); overflow: auto; gap: 17px; border: 1px solid var(--app-border-strong); border-radius: var(--radius-md); outline: 0; background: var(--app-panel); color: var(--app-text); padding: 24px; box-shadow: 0 30px 100px rgb(0 0 0 / 68%), inset 0 1px 0 color-mix(in srgb, var(--app-accent) 12%, transparent); animation: dialog-in 180ms ease-out both; }
+.folder-export-dialog .export-dialog-header h2 { margin: 4px 0 0; font: 800 1.65rem/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.folder-export-ticket { margin: 0; }
+.folder-export-layout { display: grid; min-height: 390px; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-background) 56%, transparent); }
+.folder-export-selection { display: grid; min-width: 0; grid-template-rows: auto auto minmax(0, 1fr); border-right: 1px solid var(--app-border); }
+.folder-export-selection > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 50px; border-bottom: 1px solid var(--app-border); padding: 8px 13px; }
+.folder-export-selection > header > div:first-child { display: grid; gap: 4px; }
+.folder-export-selection > header span, .folder-export-settings legend { color: var(--app-muted); font: 800 .62rem/1 var(--font-mono); letter-spacing: .11em; text-transform: uppercase; }
+.folder-export-selection > header small { color: var(--app-subtle); font: .66rem/1 var(--font-mono); }
+.folder-export-selection > header > div:last-child { display: flex; gap: 6px; }
+.folder-export-selection > header button { border-bottom: 1px solid var(--app-border); color: var(--app-muted); padding: 4px 3px; font: 750 .61rem/1 var(--font-mono); text-transform: uppercase; }
+.folder-export-selection > header button:hover { border-color: var(--app-accent); color: var(--app-accent); }
+.folder-export-root-row { display: grid; min-width: 0; grid-template-columns: 18px auto minmax(0, 1fr); align-items: center; gap: 10px; min-height: 43px; border-bottom: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-accent) 7%, transparent); padding: 6px 13px; }
+.folder-export-root-row input, .folder-export-tree-row input { width: 15px; height: 15px; margin: 0; accent-color: var(--app-accent); }
+.folder-export-root-row span { border: 1px solid color-mix(in srgb, var(--app-accent) 45%, var(--app-border)); color: var(--app-accent); padding: 3px 5px; font: 800 .53rem/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.folder-export-root-row strong { overflow: hidden; font: 750 .78rem/1 var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.folder-export-tree { margin: 0; overflow: auto; padding: 7px 0 12px; list-style: none; }
+.folder-export-tree ul { margin: 0; padding: 0; list-style: none; }
+.folder-export-tree-row { position: relative; display: grid; min-width: 0; grid-template-columns: 18px 18px 24px minmax(0, 1fr); align-items: center; gap: 7px; min-height: 39px; padding: 4px 12px 4px calc(12px + var(--tree-depth) * 19px); }
+.folder-export-tree-row::after { position: absolute; top: 0; bottom: 0; left: calc(55px + var(--tree-depth) * 19px); width: 1px; background: color-mix(in srgb, var(--app-border) 76%, transparent); content: ""; pointer-events: none; }
+.folder-export-tree-row:has(input:checked)::after, .folder-export-tree-row:has(input:indeterminate)::after { background: color-mix(in srgb, var(--app-accent) 55%, var(--app-border)); }
+.folder-export-tree-row:hover { background: color-mix(in srgb, var(--app-accent) 6%, transparent); }
+.folder-export-disclosure { display: grid; width: 18px; height: 18px; place-items: center; color: var(--app-muted); font: 1rem/1 var(--font-body); transform: rotate(0); transition: transform 120ms ease; }
+.folder-export-disclosure[aria-expanded="true"] { transform: rotate(90deg); }
+.folder-export-leaf { width: 18px; }
+.folder-export-node-mark { z-index: 1; display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--app-border); background: var(--app-panel); color: var(--app-subtle); font: 750 .52rem/1 var(--font-mono); }
+.folder-export-tree-row:has(input:checked) .folder-export-node-mark, .folder-export-tree-row:has(input:indeterminate) .folder-export-node-mark { border-color: color-mix(in srgb, var(--app-accent) 55%, var(--app-border)); color: var(--app-accent); }
+.folder-export-node-label { display: grid; min-width: 0; gap: 3px; color: var(--app-text); text-align: left; }
+.folder-export-node-label strong, .folder-export-node-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-export-node-label strong { font: 700 .76rem/1.1 var(--font-body); }
+.folder-export-node-label small { color: var(--app-subtle); font: .57rem/1 var(--font-mono); }
+.folder-export-empty { align-self: start; margin: 20px; border: 1px dashed var(--app-border); color: var(--app-muted); padding: 18px; font: .76rem/1.5 var(--font-body); }
+.folder-export-settings { display: grid; align-content: start; gap: 20px; padding: 18px; }
+.folder-export-format { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--app-border); padding-bottom: 16px; }
+.folder-export-format > span { display: grid; width: 48px; height: 48px; place-items: center; border: 1px solid color-mix(in srgb, var(--app-accent) 52%, var(--app-border)); background: color-mix(in srgb, var(--app-accent) 9%, transparent); color: var(--app-accent); font: 850 .62rem/1 var(--font-mono); }
+.folder-export-format > div { display: grid; gap: 4px; }
+.folder-export-format strong { font: 750 .82rem/1 var(--font-body); }
+.folder-export-format small { color: var(--app-muted); font: .7rem/1.35 var(--font-body); }
+.folder-export-settings .export-check-row { padding: 11px 2px; }
+.folder-export-settings .export-check-row + .export-check-row { border-top: 0; }
+.folder-export-validity { display: grid; gap: 6px; margin: 0; border: 0; padding: 0; }
+.folder-export-validity legend { margin-bottom: 6px; }
+.folder-export-validity label { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid var(--app-border); padding: 10px; }
+.folder-export-validity label.selected { border-color: color-mix(in srgb, var(--app-accent) 48%, var(--app-border)); background: color-mix(in srgb, var(--app-accent) 6%, transparent); }
+.folder-export-validity input { width: 14px; height: 14px; margin: 1px 0 0; accent-color: var(--app-accent); }
+.folder-export-validity label span { display: grid; gap: 4px; }
+.folder-export-validity strong { font: 700 .75rem/1 var(--font-body); }
+.folder-export-validity small { color: var(--app-muted); font: .67rem/1.35 var(--font-body); }
+.folder-export-report { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; border-left: 3px solid var(--success); background: color-mix(in srgb, var(--success) 7%, transparent); padding: 11px 13px; }
+.folder-export-report strong { grid-row: span 3; align-self: center; color: var(--success); font: 800 .64rem/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.folder-export-report span, .folder-export-report small { color: var(--app-muted); font: .73rem/1.3 var(--font-body); }
+.folder-export-report code { overflow: hidden; color: var(--app-subtle); font: .59rem/1.3 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .folder-export-dialog { padding: 18px; }
+  .folder-export-layout { grid-template-columns: 1fr; }
+  .folder-export-selection { min-height: 340px; border-right: 0; border-bottom: 1px solid var(--app-border); }
+}
+
 .dialog-header {
   display: grid;
   gap: 6px;

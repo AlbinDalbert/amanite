@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import type { FractalPage } from "@/lib/fractal/types";
+import type { FractalFolder, FractalPage } from "@/lib/fractal/types";
 
 type Props = {
   activePagePath: string | null;
+  activeFolderPath: string | null;
   isBusy: boolean;
-  folders: string[];
+  folders: FractalFolder[];
   pages: FractalPage[];
   onCreateFolder: (parent?: string) => void;
   onCreatePage: (parent?: string) => void;
@@ -14,6 +15,7 @@ type Props = {
   onMovePage: (path: string) => void;
   onDropPage: (path: string, folder?: string) => void;
   onSelectPage: (path: string) => void;
+  onSelectFolder: (path: string) => void;
   onRevealPage: (path?: string) => void;
   onValidate: () => void;
 };
@@ -21,7 +23,7 @@ type Props = {
 type Menu = { kind?: "folder" | "page"; path?: string; x: number; y: number };
 
 export type ExplorerEntry =
-  | { kind: "folder"; path: string; children: ExplorerEntry[] }
+  | { kind: "folder"; path: string; folder: FractalFolder; children: ExplorerEntry[] }
   | { kind: "page"; path: string; page: FractalPage };
 
 export function compareExplorerEntries(a: ExplorerEntry, b: ExplorerEntry) {
@@ -29,16 +31,12 @@ export function compareExplorerEntries(a: ExplorerEntry, b: ExplorerEntry) {
   return rank(a) - rank(b) || a.path.localeCompare(b.path, undefined, { sensitivity: "base", numeric: true });
 }
 
-export function buildExplorerTree(folders: string[], pages: FractalPage[]) {
+export function buildExplorerTree(folders: FractalFolder[], pages: FractalPage[]) {
   const roots: ExplorerEntry[] = [];
   const folderNodes = new Map<string, Extract<ExplorerEntry, { kind: "folder" }>>();
-  const allFolders = new Set(folders);
-  for (const page of pages) {
-    const parts = page.path.split("/");
-    for (let index = 1; index < parts.length; index += 1) allFolders.add(parts.slice(0, index).join("/"));
-  }
-  for (const path of [...allFolders].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))) {
-    const node: Extract<ExplorerEntry, { kind: "folder" }> = { kind: "folder", path, children: [] };
+  for (const folder of folders.filter((candidate) => candidate.path).sort((a, b) => a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path))) {
+    const path = folder.path;
+    const node: Extract<ExplorerEntry, { kind: "folder" }> = { kind: "folder", path, folder, children: [] };
     folderNodes.set(path, node);
     const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
     const parent = parentPath ? folderNodes.get(parentPath) : null;
@@ -49,11 +47,19 @@ export function buildExplorerTree(folders: string[], pages: FractalPage[]) {
     const parent = parentPath ? folderNodes.get(parentPath) : null;
     (parent?.children ?? roots).push({ kind: "page", path: page.path, page });
   }
-  const sort = (entries: ExplorerEntry[]) => {
-    entries.sort(compareExplorerEntries);
-    for (const entry of entries) if (entry.kind === "folder") sort(entry.children);
+  const sort = (entries: ExplorerEntry[], parentPath: string) => {
+    const order = new Map(folders.find((folder) => folder.path === parentPath)?.children.map((child, index) => [child.name, index]) ?? []);
+    entries.sort((a, b) => {
+      const aName = a.path.split("/").at(-1)!;
+      const bName = b.path.split("/").at(-1)!;
+      const aIndex = order.get(aName);
+      const bIndex = order.get(bName);
+      if (aIndex != null || bIndex != null) return (aIndex ?? Number.MAX_SAFE_INTEGER) - (bIndex ?? Number.MAX_SAFE_INTEGER);
+      return compareExplorerEntries(a, b);
+    });
+    for (const entry of entries) if (entry.kind === "folder") sort(entry.children, entry.path);
   };
-  sort(roots);
+  sort(roots, "");
   return roots;
 }
 
@@ -95,19 +101,18 @@ function FileExplorer(props: Props) {
 
   function renderEntries(entries: ExplorerEntry[]): ReactNode {
     return entries.map((entry) => entry.kind === "folder" ? (
-      <li className="file-tree-node folder-node" key={`folder:${entry.path}`} role="treeitem" aria-expanded={!collapsedFolders.has(entry.path)}>
-        <button
-          className={dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}
-          onClick={() => toggleFolder(entry.path)}
+      <li className="file-tree-node folder-node" key={`folder:${entry.path}`} role="treeitem" aria-expanded={!collapsedFolders.has(entry.path)} aria-selected={entry.path === props.activeFolderPath}>
+        <div
+          className={`${dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}${entry.path === props.activeFolderPath ? " active" : ""}`}
           onContextMenu={(event) => openMenu(event, entry.path, "folder")}
           onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDropTarget(entry.path); }}
           onDragLeave={() => setDropTarget(null)}
           onDrop={(event) => dropPage(event, entry.path)}
           title={entry.path}
-          type="button"
         >
-          <span className={collapsedFolders.has(entry.path) ? "explorer-twist" : "explorer-twist open"} /><span className="explorer-icon folder" /><span className="explorer-name">{entry.path.split("/").at(-1)}</span>
-        </button>
+          <button aria-label={`${collapsedFolders.has(entry.path) ? "Expand" : "Collapse"} ${entry.folder.title}`} className="explorer-folder-toggle" onClick={() => toggleFolder(entry.path)} type="button"><span className={collapsedFolders.has(entry.path) ? "explorer-twist" : "explorer-twist open"} /></button>
+          <button className="explorer-folder-open" onClick={() => props.onSelectFolder(entry.path)} type="button"><span className="explorer-icon folder" /><span className="explorer-name">{entry.folder.title}</span></button>
+        </div>
         {!collapsedFolders.has(entry.path) && entry.children.length ? <ul className="file-tree-group nested" role="group">{renderEntries(entry.children)}</ul> : null}
       </li>
     ) : (
@@ -151,6 +156,7 @@ function FileExplorer(props: Props) {
             <div className="file-context-separator" />
           </> : null}
           {menu.kind === "folder" && menu.path ? <>
+            <button disabled={props.isBusy} onClick={() => run(() => props.onSelectFolder(menu.path!))} role="menuitem">Open folder</button>
             <button disabled={props.isBusy} onClick={() => run(() => props.onCreatePage(menu.path))} role="menuitem">New page here</button>
             <button disabled={props.isBusy} onClick={() => run(() => props.onCreateFolder(menu.path))} role="menuitem">New subfolder</button>
             <button className="danger" disabled={props.isBusy} onClick={() => run(() => props.onDeleteFolder(menu.path!))} role="menuitem">Delete folder</button>

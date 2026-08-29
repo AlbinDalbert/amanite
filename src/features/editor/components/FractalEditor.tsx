@@ -9,7 +9,7 @@ import type {
 } from "@/lib/fractal/types";
 import { countDocument, countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
-import { inspectEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
+import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
 import RawHtmlEditor from "./RawHtmlEditor";
 import RenderedHtmlPage from "./RenderedHtmlPage";
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
@@ -79,23 +79,17 @@ function FractalEditor(props: FractalEditorProps) {
   const [currentMatch, setCurrentMatch] = useState(0);
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
-  const page = useMemo(() => readEditablePage(source), [source]);
-  const pageInspection = useMemo(() => kind === "native" ? inspectEditablePage(source) : null, [kind, source]);
-  const counts = useMemo(() => countDocument(source, kind === "native"), [kind, source]);
+  const nativeAnalysis = useMemo(() => kind === "native" ? analyzeEditablePage(source) : null, [kind, source]);
+  const page = useMemo(() => nativeAnalysis?.page ?? readEditablePage(source), [nativeAnalysis, source]);
+  const pageInspection = nativeAnalysis?.inspection ?? null;
+  const counts = useMemo(() => nativeAnalysis?.counts ?? countDocument(source, false), [nativeAnalysis, source]);
   const matchCount = useMemo(
     () => kind === "raw" && isSourceMode
       ? (findQuery ? source.toLocaleLowerCase().split(findQuery.toLocaleLowerCase()).length - 1 : 0)
       : countTextMatches(source, findQuery, kind === "native"),
     [findQuery, isSourceMode, kind, source]
   );
-  const outline = useMemo(() => {
-    const document = new DOMParser().parseFromString(page.bodyHtml, "text/html");
-    return Array.from(document.body.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((heading, index) => ({
-      index,
-      label: heading.textContent?.trim() || "Untitled heading",
-      level: Number(heading.tagName.slice(1))
-    }));
-  }, [page.bodyHtml]);
+  const outline = nativeAnalysis?.outline ?? [];
 
   useEffect(() => {
     setIsInspectorOpen(false);

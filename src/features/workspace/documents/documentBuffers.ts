@@ -1,4 +1,4 @@
-import type { FractalProject } from "@/lib/fractal/types";
+import type { FractalLoadedPage, FractalProject } from "@/lib/fractal/types";
 
 export type DocumentBuffer = {
   path: string;
@@ -36,6 +36,23 @@ export function bufferFromProject(
     iframes: project.activePageIframes,
     iframeBacklinks: project.activePageIframeBacklinks,
     contentHash: project.activePageContentHash ?? null,
+    dirty,
+    revision: dirty ? 1 : 0,
+    operation: null,
+    error: null,
+    conflict: false
+  };
+}
+
+export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false): DocumentBuffer {
+  return {
+    path: loaded.path,
+    source,
+    links: loaded.links,
+    backlinks: loaded.backlinks,
+    iframes: loaded.iframes,
+    iframeBacklinks: loaded.iframeBacklinks,
+    contentHash: loaded.contentHash,
     dirty,
     revision: dirty ? 1 : 0,
     operation: null,

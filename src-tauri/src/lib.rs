@@ -180,11 +180,13 @@ async fn ai_chat(
             .content
             .as_deref()
             .is_none_or(|content| content.trim().is_empty()),
-        "assistant" => message
-            .content
-            .as_deref()
-            .is_none_or(|content| content.trim().is_empty())
-            && message.tool_calls.is_empty(),
+        "assistant" => {
+            message
+                .content
+                .as_deref()
+                .is_none_or(|content| content.trim().is_empty())
+                && message.tool_calls.is_empty()
+        }
         "tool" => {
             message
                 .content
@@ -247,9 +249,10 @@ async fn ai_chat(
 #[serde(rename_all = "camelCase")]
 struct FractalProject {
     name: String,
+    version: u32,
     root_path: String,
     pages: Vec<fractal::Page>,
-    folders: Vec<String>,
+    folders: Vec<fractal::Folder>,
     active_page_path: Option<String>,
     active_page_source: Option<String>,
     active_page_links: Vec<fractal::Link>,
@@ -257,6 +260,18 @@ struct FractalProject {
     active_page_iframes: Vec<fractal::Iframe>,
     active_page_iframe_backlinks: Vec<fractal::IframeBacklink>,
     active_page_content_hash: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalLoadedPage {
+    path: String,
+    source: String,
+    links: Vec<fractal::Link>,
+    backlinks: Vec<fractal::Backlink>,
+    iframes: Vec<fractal::Iframe>,
+    iframe_backlinks: Vec<fractal::IframeBacklink>,
+    content_hash: String,
 }
 
 #[derive(Serialize)]
@@ -299,6 +314,15 @@ struct FractalHtmlExportReport {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct FractalFolderHtmlExportReport {
+    output: String,
+    pages: Vec<String>,
+    skipped: Vec<fractal::SkippedExportPage>,
+    references: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FractalSavedPage {
     page: fractal::Page,
     content_hash: String,
@@ -313,7 +337,9 @@ enum FractalConditionalWriteResult {
         #[serde(rename = "savedPage")]
         saved_page: FractalSavedPage,
     },
-    Conflict { message: String },
+    Conflict {
+        message: String,
+    },
 }
 
 fn projects_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -477,12 +503,12 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         None => (None, vec![], vec![], vec![], vec![], None),
     };
 
-    let folders = list_page_folders(&root)?;
     Ok(FractalProject {
         name: project.manifest().name.clone(),
+        version: project.manifest().version,
         root_path: root.to_string_lossy().into(),
         pages,
-        folders,
+        folders: project.folders(),
         active_page_path: active_path,
         active_page_source,
         active_page_links,
@@ -545,37 +571,6 @@ fn validated_page_target(project_root: &Path, page_path: &str) -> Result<PathBuf
     Ok(target)
 }
 
-fn list_page_folders(project_root: &Path) -> Result<Vec<String>, String> {
-    fn visit(root: &Path, directory: &Path, folders: &mut Vec<String>) -> Result<(), String> {
-        let entries = fs::read_dir(directory)
-            .map_err(|error| format!("Could not read folder {}: {error}", directory.display()))?;
-        for entry in entries {
-            let entry = entry.map_err(|error| format!("Could not read folder entry: {error}"))?;
-            if entry
-                .file_type()
-                .map_err(|error| error.to_string())?
-                .is_dir()
-            {
-                let path = entry.path();
-                folders.push(
-                    path.strip_prefix(root)
-                        .map_err(|error| error.to_string())?
-                        .to_string_lossy()
-                        .replace('\\', "/"),
-                );
-                visit(root, &path, folders)?;
-            }
-        }
-        Ok(())
-    }
-
-    let pages_root = project_root.join("pages");
-    let mut folders = vec![];
-    visit(&pages_root, &pages_root, &mut folders)?;
-    folders.sort_by_key(|folder| folder.to_lowercase());
-    Ok(folders)
-}
-
 fn open_mutable_project(root: &str) -> Result<fractal::Project, String> {
     fractal::Project::open(root).map_err(|error| format!("Could not open Fractal project: {error}"))
 }
@@ -628,6 +623,43 @@ async fn fractal_open_page(
 }
 
 #[tauri::command]
+async fn fractal_read_page(
+    project_root: String,
+    page_path: String,
+) -> Result<FractalLoadedPage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(project_root)
+            .canonicalize()
+            .map_err(|error| format!("Could not open project: {error}"))?;
+        let project = fractal::Project::open(&root)
+            .map_err(|error| format!("Could not open Fractal project: {error}"))?;
+        let page = project
+            .page(&page_path)
+            .map_err(|error| format!("Could not open {page_path}: {error}"))?;
+        let path = page.path.clone();
+        Ok(FractalLoadedPage {
+            path: path.clone(),
+            source: project
+                .source(&path)
+                .map_err(|error| format!("Could not read {path}: {error}"))?,
+            links: page.links,
+            backlinks: project
+                .backlinks(&path)
+                .map_err(|error| format!("Could not read backlinks for {path}: {error}"))?,
+            iframes: page.iframes,
+            iframe_backlinks: project
+                .iframe_backlinks(&path)
+                .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
+            content_hash: project
+                .content_hash(&path)
+                .map_err(|error| format!("Could not hash {path}: {error}"))?,
+        })
+    })
+    .await
+    .map_err(|error| format!("Could not complete page read: {error}"))?
+}
+
+#[tauri::command]
 async fn fractal_write_page(
     project_root: String,
     page_path: String,
@@ -660,12 +692,12 @@ async fn fractal_write_page_if_unchanged(
                     .into_iter()
                     .find(|page| page.path == page_path)
                     .ok_or_else(|| format!("Fractal did not return {page_path} after saving."))?;
-                let backlinks = project
-                    .backlinks(&page_path)
-                    .map_err(|error| format!("Could not read backlinks for {page_path}: {error}"))?;
-                let iframe_backlinks = project
-                    .iframe_backlinks(&page_path)
-                    .map_err(|error| format!("Could not read iframe backlinks for {page_path}: {error}"))?;
+                let backlinks = project.backlinks(&page_path).map_err(|error| {
+                    format!("Could not read backlinks for {page_path}: {error}")
+                })?;
+                let iframe_backlinks = project.iframe_backlinks(&page_path).map_err(|error| {
+                    format!("Could not read iframe backlinks for {page_path}: {error}")
+                })?;
                 Ok(FractalConditionalWriteResult::Saved {
                     saved_page: FractalSavedPage {
                         content_hash: page.content_hash.clone(),
@@ -748,6 +780,42 @@ fn fractal_export_html(
         .map_err(|error| format!("Could not export {page_path}: {error}"))?;
     Ok(FractalHtmlExportReport {
         output: report.output.to_string_lossy().into_owned(),
+        references: report.references,
+    })
+}
+
+#[tauri::command]
+fn fractal_export_folder_html(
+    project_root: String,
+    folder_path: String,
+    output: String,
+    selections: Vec<String>,
+    number_sections: bool,
+    include_derived_links: bool,
+    force: bool,
+) -> Result<FractalFolderHtmlExportReport, String> {
+    let project = open_mutable_project(&project_root)?;
+    let folder = if folder_path.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        relative_folder_path(&folder_path)?
+    };
+    let report = project
+        .export_folder_html(
+            folder,
+            &output,
+            fractal::FolderHtmlExportOptions {
+                selections: selections.into_iter().map(PathBuf::from).collect(),
+                number_sections,
+                include_derived_links,
+                force,
+            },
+        )
+        .map_err(|error| format!("Could not export folder: {error}"))?;
+    Ok(FractalFolderHtmlExportReport {
+        output: report.output.to_string_lossy().into_owned(),
+        pages: report.pages,
+        skipped: report.skipped,
         references: report.references,
     })
 }
@@ -861,6 +929,44 @@ fn fractal_create_folder(
 }
 
 #[tauri::command]
+fn fractal_set_folder_title(
+    project_root: String,
+    folder_path: String,
+    title: String,
+    active_page_path: Option<String>,
+) -> Result<FractalProject, String> {
+    let mut project = open_mutable_project(&project_root)?;
+    let folder = if folder_path.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        relative_folder_path(&folder_path)?
+    };
+    project
+        .set_folder_title(folder, &title)
+        .map_err(|error| format!("Could not rename folder: {error}"))?;
+    read_project(PathBuf::from(project_root), active_page_path.as_deref())
+}
+
+#[tauri::command]
+fn fractal_reorder_folder(
+    project_root: String,
+    folder_path: String,
+    order: Vec<String>,
+    active_page_path: Option<String>,
+) -> Result<FractalProject, String> {
+    let mut project = open_mutable_project(&project_root)?;
+    let folder = if folder_path.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        relative_folder_path(&folder_path)?
+    };
+    project
+        .reorder_folder(folder, order)
+        .map_err(|error| format!("Could not reorder folder: {error}"))?;
+    read_project(PathBuf::from(project_root), active_page_path.as_deref())
+}
+
+#[tauri::command]
 fn fractal_delete_folder(
     project_root: String,
     folder_path: String,
@@ -944,7 +1050,8 @@ fn fractal_validate_project(project_root: String) -> Result<FractalCommandResult
 #[cfg(test)]
 mod tests {
     use super::{
-        ai_api_url, fractal_delete_folder, fractal_export_html, list_project_summaries,
+        ai_api_url, fractal_delete_folder, fractal_export_folder_html, fractal_export_html,
+        fractal_reorder_folder, fractal_set_folder_title, list_project_summaries,
         project_directory_name, relative_folder_path, relative_page_path,
     };
     use std::fs;
@@ -1008,6 +1115,54 @@ mod tests {
     }
 
     #[test]
+    fn folder_metadata_mutations_use_fractal_and_refresh_the_snapshot() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let mut project = fractal::Project::init(&root, "Test").unwrap();
+        project
+            .create_page_at("notes/one.fractal.html", "One")
+            .unwrap();
+        project
+            .create_page_at("notes/two.fractal.html", "Two")
+            .unwrap();
+        let root_string = root.to_string_lossy().into_owned();
+
+        let titled = fractal_set_folder_title(
+            root_string.clone(),
+            "notes".into(),
+            "Field notes".into(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            titled
+                .folders
+                .iter()
+                .find(|folder| folder.path == "notes")
+                .unwrap()
+                .title,
+            "Field notes"
+        );
+
+        let reordered = fractal_reorder_folder(
+            root_string,
+            "notes".into(),
+            vec!["two.fractal.html".into(), "one.fractal.html".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            reordered
+                .folders
+                .iter()
+                .find(|folder| folder.path == "notes")
+                .unwrap()
+                .order,
+            Some(vec!["two.fractal.html".into(), "one.fractal.html".into()])
+        );
+    }
+
+    #[test]
     fn html_export_uses_fractals_exporter() {
         let temporary = tempdir().unwrap();
         let root = temporary.path().join("project");
@@ -1026,6 +1181,38 @@ mod tests {
 
         assert_eq!(report.output, output.to_string_lossy());
         assert!(output.is_file());
+    }
+
+    #[test]
+    fn folder_html_export_uses_fractals_selection_and_options() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        fractal::Project::init(&root, "Test").unwrap();
+        fs::create_dir(root.join("pages/book")).unwrap();
+        let mut project = fractal::Project::open(&root).unwrap();
+        project
+            .create_page_at("book/first.fractal.html", "First")
+            .unwrap();
+        project
+            .create_page_at("book/second.fractal.html", "Second")
+            .unwrap();
+        let output = temporary.path().join("book.html");
+
+        let report = fractal_export_folder_html(
+            root.to_string_lossy().into_owned(),
+            "book".into(),
+            output.to_string_lossy().into_owned(),
+            vec!["second.fractal.html".into()],
+            true,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(report.pages, vec!["book/second.fractal.html"]);
+        assert!(fs::read_to_string(output)
+            .unwrap()
+            .contains("<h1>1. Second</h1>"));
     }
 
     #[test]
@@ -1060,15 +1247,19 @@ pub fn run() {
             fractal_open_project,
             fractal_open_project_path,
             fractal_open_page,
+            fractal_read_page,
             fractal_write_page,
             fractal_write_page_if_unchanged,
             fractal_search_project,
             fractal_page_content_states,
             fractal_export_html,
+            fractal_export_folder_html,
             fractal_reveal_page,
             fractal_create_page,
             fractal_import_native_page,
             fractal_create_folder,
+            fractal_set_folder_title,
+            fractal_reorder_folder,
             fractal_delete_folder,
             fractal_move_page,
             fractal_delete_page,

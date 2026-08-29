@@ -2,14 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import type { FractalProject } from "@/lib/fractal/types";
 import type { DocumentBuffers } from "@/features/workspace/documents/documentBuffers";
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
+import { folderTabId } from "@/features/workspace/folderTabs";
 import type { AiToolCall } from "./client";
 import { executeWorkspaceTool, type AiWorkspace, workspaceSystemPrompt } from "./workspaceTools";
 
 function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
   const project = {
     name: "Field notes",
+    version: 2,
     rootPath: "/projects/field-notes",
-    folders: ["drafts"],
+    folders: [
+      { path: "", title: "Field notes", order: null, children: [{ name: "drafts", kind: "folder", status: "present" }], issues: [] },
+      { path: "drafts", title: "Drafts", order: null, children: [], issues: [] }
+    ],
     pages: [
       {
         path: "drafts/day-one.fractal.html",
@@ -80,6 +85,25 @@ describe("workspaceSystemPrompt", () => {
     const prompt = workspaceSystemPrompt(workspace({ groups }));
 
     expect(prompt).not.toContain(BOREALIS_TAB_ID);
+    expect(prompt).toContain('"activePage":null');
+  });
+
+  it("does not present folder tabs as project pages", () => {
+    const current = workspace();
+    const folderTab = folderTabId("drafts");
+    const groups: WorkspaceGroups = {
+      ...current.groups,
+      left: {
+        ...current.groups.left,
+        tabs: ["drafts/day-one.fractal.html", folderTab],
+        activePath: folderTab,
+        history: ["drafts/day-one.fractal.html", folderTab],
+        historyIndex: 1
+      }
+    };
+    const prompt = workspaceSystemPrompt(workspace({ groups }));
+
+    expect(prompt).not.toContain(folderTab);
     expect(prompt).toContain('"activePage":null');
   });
 });

@@ -16,7 +16,7 @@ import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin";
 import { $getRoot, $insertNodes } from "lexical";
-import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo } from "react";
+import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo, useState } from "react";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import { DerivedLinkNode } from "./DerivedLinkNode";
 import { editorLexicalTheme } from "./editorLexicalTheme";
@@ -24,9 +24,11 @@ import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
 import InlinePageLinksPlugin from "./InlinePageLinksPlugin";
 import { $createImageNode, IframeNode, ImageNode } from "./MediaNodes";
+import DocumentLoadingPreview from "./DocumentLoadingPreview";
 
 type Props = {
   bodyHtml: string;
+  embedded?: boolean;
   isBusy: boolean;
   pagePath: string;
   pages: FractalPage[];
@@ -34,10 +36,13 @@ type Props = {
   title: string;
   onChangeBody: (html: string) => void;
   onChangeTitle: (title: string) => void;
-  onToggleInspector: () => void;
+  onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle">;
+type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle"> & {
+  onContentLoaded: () => void;
+  onContentLoading: () => void;
+};
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
@@ -59,7 +64,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
   }
 }
 
-function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle }: WritingAreaProps) {
+function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
@@ -114,7 +119,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onC
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
         </div>
       </div>
@@ -122,7 +127,9 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onC
   );
 }
 
-function RichDocumentEditor({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
+  const [isContentReady, setIsContentReady] = useState(false);
+  const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => ({
     namespace: `amanite-${pagePath}`,
     nodes: [CodeNode, DerivedLinkNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
@@ -131,22 +138,24 @@ function RichDocumentEditor({ bodyHtml, isBusy, pagePath, pages, spellCheck, tit
   }), [pagePath]);
 
   return (
-    <section className="rich-document-shell" aria-label="Rich text editor">
+    <section className={embedded ? "rich-document-shell embedded" : "rich-document-shell"} aria-label="Rich text editor">
+      {!isContentReady ? <DocumentLoadingPreview title={title || "Untitled"} /> : null}
       <LexicalComposer initialConfig={config} key={pagePath}>
         <header className="rich-editor-header">
-          <EditorToolbar disabled={isBusy} pagePath={pagePath} pages={pages} />
-          <span className="toolbar-divider" />
-          <button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button>
+          <EditorToolbar disabled={editorBusy} pagePath={pagePath} pages={pages} />
+          {onToggleInspector ? <><span className="toolbar-divider" /><button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button></> : null}
         </header>
         <WritingArea
           bodyHtml={bodyHtml}
-          isBusy={isBusy}
+          isBusy={editorBusy}
           pagePath={pagePath}
           pages={pages}
           spellCheck={spellCheck}
           title={title}
           onChangeBody={onChangeBody}
           onChangeTitle={onChangeTitle}
+          onContentLoaded={() => setIsContentReady(true)}
+          onContentLoading={() => setIsContentReady(false)}
         />
       </LexicalComposer>
     </section>

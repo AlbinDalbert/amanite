@@ -1,3 +1,5 @@
+import { PROJECT_OVERVIEW_TAB_ID } from "./folderTabs";
+
 export type EditorGroupId = "left" | "right";
 
 export const BOREALIS_TAB_ID = "borealis://chat";
@@ -23,6 +25,10 @@ function createGroup(id: EditorGroupId, path?: string | null): EditorGroup {
 
 export function createWorkspaceGroups(path?: string | null): WorkspaceGroups {
   return { activeGroupId: "left", left: createGroup("left", path), right: null };
+}
+
+export function createProjectOverviewGroups(): WorkspaceGroups {
+  return createWorkspaceGroups(PROJECT_OVERVIEW_TAB_ID);
 }
 
 function withHistory(group: EditorGroup, path: string): EditorGroup {

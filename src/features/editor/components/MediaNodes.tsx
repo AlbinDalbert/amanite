@@ -76,7 +76,9 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     return <img
       alt={this.__attributes.alt ?? ""}
       className="rich-image"
+      decoding="async"
       height={this.__attributes.height || undefined}
+      loading="lazy"
       src={this.__attributes.src ?? ""}
       title={this.__attributes.title || undefined}
       width={this.__attributes.width || undefined}

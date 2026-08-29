@@ -3,24 +3,30 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
-import { AMANITE_HTML_LOAD_TAG, cleanEditorHtml, importHtmlIntoEditor } from "./editorHtml";
+import { AMANITE_HTML_LOAD_TAG, cleanEditorHtml, importHtmlIntoEditorInBatches } from "./editorHtml";
 
 type Props = {
   bodyHtml: string;
   pagePath: string;
   onChange: (html: string) => void;
+  onLoaded?: () => void;
+  onLoading?: () => void;
 };
 
 const HTML_EXPORT_DELAY_MS = 120;
 
-function HtmlBridgePlugin({ bodyHtml, pagePath, onChange }: Props) {
+function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onLoaded, onLoading }: Props) {
   const [editor] = useLexicalComposerContext();
   const loadedPage = useRef<string | null>(null);
   const lastHtml = useRef(bodyHtml);
   const onChangeRef = useRef(onChange);
+  const onLoadedRef = useRef(onLoaded);
+  const onLoadingRef = useRef(onLoading);
   const pendingState = useRef<EditorState | null>(null);
   const exportTimeout = useRef<number | null>(null);
   onChangeRef.current = onChange;
+  onLoadedRef.current = onLoaded;
+  onLoadingRef.current = onLoading;
 
   const exportPendingState = useCallback(() => {
     if (exportTimeout.current != null) {
@@ -37,9 +43,13 @@ function HtmlBridgePlugin({ bodyHtml, pagePath, onChange }: Props) {
 
   useEffect(() => {
     if (loadedPage.current === pagePath && bodyHtml === lastHtml.current) return;
-    editor.update(() => importHtmlIntoEditor(editor, bodyHtml), { tag: AMANITE_HTML_LOAD_TAG });
-    loadedPage.current = pagePath;
-    lastHtml.current = bodyHtml;
+    onLoadingRef.current?.();
+    const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
+      loadedPage.current = pagePath;
+      lastHtml.current = bodyHtml;
+      onLoadedRef.current?.();
+    });
+    return cancelImport;
   }, [bodyHtml, editor, pagePath]);
 
   useEffect(() => {

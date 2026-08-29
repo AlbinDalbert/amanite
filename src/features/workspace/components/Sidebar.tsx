@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
-import type { FractalPage } from "@/lib/fractal/types";
+import type { FractalFolder, FractalPage } from "@/lib/fractal/types";
 import type { LogoMark } from "@/app/useAppearanceSettings";
 import Icon from "@/components/ui/Icon";
 import FileExplorer from "./FileExplorer";
 
 type SidebarProps = {
   activePagePath: string | null;
+  activeFolderPath: string | null;
   isBusy: boolean;
   logoMark: LogoMark;
-  folders: string[];
+  folders: FractalFolder[];
   pages: FractalPage[];
   projectName: string;
   onCreatePage: (title: string, folderPath?: string) => void;
@@ -21,6 +22,7 @@ type SidebarProps = {
   onMovePage: (pagePath: string, destination: string) => void;
   onOpenSettings: () => void;
   onSelectPage: (pagePath: string) => void;
+  onSelectFolder: (folderPath: string) => void;
   onRevealPage: (pagePath?: string) => void;
   onValidate: () => void;
   onResizeStart: (event: PointerEvent<HTMLDivElement>) => void;
@@ -37,6 +39,7 @@ function Sidebar(props: SidebarProps) {
   const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isCreateDialogOpen = createTitle !== null;
+  const rootFolder = props.folders.find((folder) => folder.path === "");
 
   useEffect(() => {
     if (!isCreateDialogOpen && createFolderName === null && movePath === null) return;
@@ -86,11 +89,12 @@ function Sidebar(props: SidebarProps) {
     <aside className="sidebar" aria-label="File explorer">
       <div aria-label="Resize page explorer" className="sidebar-resize-handle" onDoubleClick={props.onResizeReset} onPointerDown={props.onResizeStart} role="separator" />
       <div className="brand"><span className={`brand-mark logo-${props.logoMark}`} aria-hidden="true"><i /></span><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
-      <div className="explorer-header"><span>Pages</span><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button"><Icon name="upload" size={15} /></button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button"><Icon name="folder-plus" size={16} /></button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button"><Icon name="file-plus" size={16} /></button></div></div>
+      <div className="explorer-header"><button className={props.activeFolderPath === "" ? "explorer-root-open active" : "explorer-root-open"} onClick={() => props.onSelectFolder("")} title="Open the pages folder" type="button">{rootFolder?.title || "Pages"}</button><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button"><Icon name="upload" size={15} /></button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button"><Icon name="folder-plus" size={16} /></button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button"><Icon name="file-plus" size={16} /></button></div></div>
       <label className="sidebar-filter"><Icon name="search" size={14} /><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
       <nav className="file-explorer" aria-label="Project files">
         <FileExplorer
           activePagePath={props.activePagePath}
+          activeFolderPath={props.activeFolderPath}
           isBusy={props.isBusy}
           folders={props.folders}
           pages={filter.trim() ? props.pages.filter((page) => `${page.title ?? ""} ${page.path} ${page.text}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())) : props.pages}
@@ -106,6 +110,7 @@ function Sidebar(props: SidebarProps) {
             if (nextPath !== path) props.onMovePage(path, nextPath);
           }}
           onSelectPage={props.onSelectPage}
+          onSelectFolder={props.onSelectFolder}
           onRevealPage={props.onRevealPage}
           onValidate={props.onValidate}
         />

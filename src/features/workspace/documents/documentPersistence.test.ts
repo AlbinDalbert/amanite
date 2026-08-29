@@ -7,6 +7,7 @@ import { createDocumentPersistence } from "./documentPersistence";
 function project(path: string, source: string, hash: string): FractalProject {
   return {
     name: "Test",
+    version: 2,
     rootPath: "/tmp/amanite-test",
     pages: [{ path, contentHash: hash, kind: "native", title: "Test", text: "", links: [], iframes: [] }],
     folders: [],

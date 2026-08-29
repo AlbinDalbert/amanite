@@ -247,9 +247,29 @@ class DesktopWebDriverClient {
   }
 
   async setValue(selector, value, timeout) {
-    const id = await this.find(selector, timeout);
-    await this.request("POST", this.sessionPath(`/element/${id}/clear`), {});
-    await this.request("POST", this.sessionPath(`/element/${id}/value`), { text: value });
+    const setFormControl = await this.executeScript(`
+      const element = document.querySelector(arguments[0]);
+      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return false;
+      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, arguments[1]);
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, data: arguments[1], inputType: "insertText" }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    `, [selector, value]);
+    if (setFormControl) return;
+
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const id = await this.find(selector, timeout);
+        await this.request("POST", this.sessionPath(`/element/${id}/clear`), {});
+        await this.request("POST", this.sessionPath(`/element/${id}/value`), { text: value });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
   }
 
   async sendKeys(selector, value, timeout) {
@@ -329,6 +349,10 @@ class DesktopWebDriverClient {
     return json.value;
   }
 
+  async refresh() {
+    await this.request("POST", this.sessionPath("/refresh"), {});
+  }
+
   async text(selector, timeout) {
     const id = await this.find(selector, timeout);
     const json = await this.request("GET", this.sessionPath(`/element/${id}/text`));
@@ -349,6 +373,8 @@ async function takeScreenshot(driver, screenshotsDir, name) {
 }
 
 async function runSmoke(driver, screenshotsDir, projectRoot) {
+  await driver.executeScript(`localStorage.removeItem("amanite.last-session.v1");`);
+  await driver.refresh();
   try {
     await driver.find(".start-screen", 1_000);
   } catch {
@@ -366,7 +392,13 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click("button.primary-action");
 
   await driver.find(".workspace", 30_000);
-  await driver.click(".editor-group-empty .primary-action");
+  await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
+  await driver.find('.editor-group-tab.folder.active button[role="tab"][title="Pages"]');
+  await takeScreenshot(driver, screenshotsDir, "02-project-overview");
+  await driver.click(".folder-view-empty");
+  await driver.click(".folder-empty-row .folder-add-menu button:first-child");
+  await driver.setValue(".create-page-dialog input", "Index");
+  await driver.click(".create-page-dialog .primary-action");
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
 
@@ -377,7 +409,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".ai-chat-trigger");
   await driver.find(".ai-chat-panel");
   const chatEmptyState = await driver.text(".ai-chat-empty h2");
-  if (chatEmptyState !== "Connect Borealis") {
+  if (chatEmptyState !== "Connect Borealis" && chatEmptyState !== "Start here") {
     throw new Error(`Borealis did not show its connection state: ${chatEmptyState}`);
   }
   await takeScreenshot(driver, screenshotsDir, "02a-borealis");
@@ -409,7 +441,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     const row = document.querySelector('.explorer-row.folder[title="Field Notes"]');
     row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
   `);
-  await driver.click('.file-context-menu button:nth-of-type(1)');
+  await driver.click('.file-context-menu button:nth-of-type(2)');
   await driver.setValue('.create-page-dialog input', "Inside Folder");
   await driver.click('.create-page-dialog .primary-action');
   await driver.find('[title="Field Notes/inside-folder.fractal.html"]', 30_000);
@@ -421,6 +453,82 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.ctrlS();
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "03-after-edit-save-shortcut");
+
+  await driver.click('.explorer-row.folder[title="Field Notes"] .explorer-folder-open');
+  await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
+  await takeScreenshot(driver, screenshotsDir, "03a-folder-view");
+
+  const folderAddControlCount = await driver.executeScript(`return document.querySelectorAll('.editor-tab-panel.active .folder-add-row .folder-add-ghost').length;`);
+  if (folderAddControlCount !== 2) throw new Error(`Folder view has ${folderAddControlCount} add controls instead of two.`);
+  await driver.click('.editor-tab-panel.active .folder-add-row.top .folder-add-ghost');
+  const firstFolderAddAction = await driver.text('.editor-tab-panel.active .folder-add-row.top .folder-add-menu button:first-child strong');
+  if (firstFolderAddAction !== "New page") throw new Error(`The first folder add action is ${firstFolderAddAction}.`);
+  await takeScreenshot(driver, screenshotsDir, "03aa-folder-add-menu");
+  await driver.click('.editor-tab-panel.active .folder-add-row.top .folder-add-menu button:first-child');
+  await driver.setValue('.create-page-dialog input', "Folder View Page");
+  await driver.click('.create-page-dialog .primary-action');
+  await driver.find('[aria-label="Body for Field Notes/folder-view-page.fractal.html"]', 30_000);
+
+  await driver.click('.workspace-nav-controls button[title="Back in left"]');
+  await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
+  await driver.click('.editor-tab-panel.active .folder-add-row.bottom .folder-add-ghost');
+  await driver.click('.editor-tab-panel.active .folder-add-row.bottom .folder-add-menu button:nth-child(2)');
+  await driver.setValue('.create-page-dialog input', "Nested View");
+  await driver.click('.create-page-dialog .primary-action');
+  await driver.find('.explorer-row.folder[title="Field Notes/Nested View"]', 30_000);
+  await takeScreenshot(driver, screenshotsDir, "03ab-folder-created-items");
+
+  const openedNestedFolder = await driver.executeScript(`
+    const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.folder .folder-sequence-card')]
+      .find((candidate) => candidate.querySelector('code')?.textContent === 'Field Notes/Nested View');
+    card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    return Boolean(card);
+  `);
+  if (!openedNestedFolder) throw new Error("Could not find the new nested folder card for double-click.");
+  await driver.find('.folder-view[aria-label="Folder Nested View"]', 30_000);
+  const emptyFolderEdgeControls = await driver.executeScript(`return document.querySelectorAll('.editor-tab-panel.active .folder-add-row').length;`);
+  if (emptyFolderEdgeControls !== 0) throw new Error(`Empty folder has ${emptyFolderEdgeControls} edge add controls.`);
+  await driver.click('.editor-tab-panel.active .folder-view-empty');
+  await driver.find('.editor-tab-panel.active .folder-empty-row .folder-add-menu');
+
+  await driver.click('.editor-group-tab.folder button[role="tab"][title="Field Notes"]');
+  await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
+  const openedFolderPage = await driver.executeScript(`
+    const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-card')]
+      .find((candidate) => candidate.querySelector('code')?.textContent === 'Field Notes/folder-view-page.fractal.html');
+    card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    return Boolean(card);
+  `);
+  if (!openedFolderPage) throw new Error("Could not find the new page card for double-click.");
+  await driver.find('[aria-label="Body for Field Notes/folder-view-page.fractal.html"]', 30_000);
+
+  await driver.click('.workspace-nav-controls button[title="Back in left"]');
+  await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
+  await driver.click('.editor-tab-panel.active .folder-view-eyebrow button');
+  await driver.find('.folder-export-dialog[aria-labelledby="folder-export-title"]');
+  const folderExportSelection = await driver.text('.folder-export-selection > header small');
+  if (folderExportSelection !== "2 of 2 selected") {
+    throw new Error(`Folder export did not select the native page: ${folderExportSelection}`);
+  }
+  await driver.click('.folder-export-selection > header > div:last-child button:nth-child(2)');
+  await driver.find('.folder-export-dialog .export-error');
+  await driver.click('.folder-export-selection > header > div:last-child button:nth-child(1)');
+  await driver.click('.folder-export-settings .export-check-row:nth-of-type(1) input');
+  await driver.click('.folder-export-validity label:nth-of-type(2) input');
+  await takeScreenshot(driver, screenshotsDir, "03b-folder-export");
+  await driver.click('.folder-export-dialog .export-dialog-header > button');
+  await driver.click('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-actions button:nth-of-type(1)');
+  await driver.find('.editor-tab-panel.active .folder-document-editor .rich-content-editable', 30_000);
+  await driver.sendKeys('.editor-tab-panel.active .folder-document-editor .rich-content-editable', " Edited from the folder view.");
+  await driver.ctrlS();
+  await driver.find(".save-state.saved");
+  await takeScreenshot(driver, screenshotsDir, "03c-folder-inline-editor");
+  await driver.click('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-actions button:nth-of-type(2)');
+  await driver.find('.editor-tab-panel.active .rich-content-editable', 30_000);
+  const folderEdit = await driver.text('.editor-tab-panel.active .rich-content-editable');
+  if (!folderEdit.includes("Edited from the folder view.")) {
+    throw new Error(`Folder edit did not reach the child page: ${folderEdit}`);
+  }
 
   await driver.click('.explorer-header button[title="Create page"]');
   await driver.setValue(".create-page-dialog input", "My file");
@@ -614,6 +722,15 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.ctrlS();
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "08-recovered-draft");
+
+  await driver.click('.brand > button[title="Close project"]');
+  await driver.find(".start-screen", 30_000);
+  await driver.click(`.project-list-option[title="${activeProjectRoot}"]`);
+  await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
+  await driver.find('.editor-group-tab.folder.active button[role="tab"][title="Pages"]');
+  const reopenedOnDocument = await driver.executeScript(`return Boolean(document.querySelector('.editor-tab-panel.active .rich-content-editable'));`);
+  if (reopenedOnDocument) throw new Error("Reopened project started on a document instead of the project overview.");
+  await takeScreenshot(driver, screenshotsDir, "09-reopened-project-overview");
 }
 
 function startApp({ appBinary, artifactsDir, port, projectRoot }) {

@@ -14,7 +14,7 @@ React UI
 
 ## Project and document ownership
 
-`useFractalSession` owns the project catalog, the current project snapshot, command status, and confirmation dialogs. It does not own editable page state.
+`useFractalSession` owns the project catalog, the current project snapshot, folder metadata mutations, command status, and confirmation dialogs. It does not own editable page state.
 
 `useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known Fractal content hash, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
 
@@ -34,7 +34,7 @@ Recovery drafts contain complete HTML and live in browser-local storage. They ar
 
 ## Editor groups
 
-The workspace has left and optional right editor groups. Each group owns its ordered tab paths, active path, and navigation history. Groups share the document buffer map, so dirty state and save conflicts belong to a path rather than a pane.
+The workspace has left and optional right editor groups. Each group owns its ordered tab identifiers, active tab, and navigation history. A tab may contain a page, a Fractal folder view, or Borealis. Every newly opened project starts on the root folder tab, which acts as the project overview. Groups share the document buffer map, so dirty state and save conflicts belong to a page path rather than a pane. Folder views load their expanded child pages into that same map and write through the normal page persistence path.
 
 `workspaceGroups.ts` contains pure tab and history transitions. `EditorGroupPane.tsx` renders either group with the same component. The layout is intentionally limited to two columns; Amanite does not carry a general docking tree.
 
@@ -44,6 +44,10 @@ Raw HTML previews run without script permission. Iframes embedded in native rich
 
 ## Folders and filesystem paths
 
-Fractal does not model empty directories. Amanite lists and creates directories below `pages/` with validated relative paths. Folder deletion calls `Project::delete_page` for contained pages before removing the remaining directory.
+Fractal v2 models every directory below `pages/`, including the pages root, as a folder. Amanite consumes `Project::folders` directly. Folder titles and effective child order therefore come from Fractal, including missing ordered children. Title and reorder mutations call `Project::set_folder_title` and `Project::reorder_folder`; Amanite does not read or write folder metadata files itself.
+
+Folder HTML export also stays behind the Fractal boundary. Amanite builds the selection tree from Fractal's ordered folder snapshots and passes relative selected page paths plus export options to `Project::export_folder_html`. Fractal owns traversal, validation, link rewriting, document assembly, and the export report.
+
+Amanite still creates empty directories below `pages/` with validated relative paths because Fractal currently has no folder-creation operation. It immediately reopens the project so Fractal discovers the directory. Folder deletion uses `Project::delete_folder`.
 
 Commands that inspect or reveal a page canonicalize the target and verify that it remains below the project's canonical `pages/` directory. Project roots may still live outside Amanite's default library when the user opens them explicitly.

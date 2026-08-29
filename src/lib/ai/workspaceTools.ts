@@ -1,6 +1,7 @@
 import type { FractalSearchResult, FractalProject } from "@/lib/fractal/types";
 import type { DocumentBuffers } from "@/features/workspace/documents/documentBuffers";
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
+import { isFolderTab } from "@/features/workspace/folderTabs";
 import type { AiTool, AiToolCall } from "./client";
 
 export type AiWorkspace = {
@@ -62,8 +63,8 @@ function groupContext(workspace: AiWorkspace, id: "left" | "right") {
   return {
     id,
     focused: workspace.groups.activeGroupId === id,
-    activePage: group.activePath === BOREALIS_TAB_ID ? null : group.activePath,
-    tabs: group.tabs.filter((path) => path !== BOREALIS_TAB_ID).map((path) => ({
+    activePage: group.activePath === BOREALIS_TAB_ID || isFolderTab(group.activePath) ? null : group.activePath,
+    tabs: group.tabs.filter((path) => path !== BOREALIS_TAB_ID && !isFolderTab(path)).map((path) => ({
       path,
       dirty: workspace.buffers[path]?.dirty ?? false
     }))

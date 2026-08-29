@@ -59,6 +59,7 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
 .native-document-guard small { display: block; overflow: hidden; color: var(--project-subtle); text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 
 .rich-document-shell {
+  position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;
@@ -66,6 +67,15 @@ body.resizing-panel { cursor: col-resize; user-select: none; }
   overflow: hidden;
   background: color-mix(in srgb, var(--project-background) 94%, #050403);
 }
+
+.rich-document-shell > .document-loading-preview { position: absolute; z-index: 8; inset: 0; }
+.rich-document-shell.embedded { grid-template-rows: auto auto; overflow: visible; background: transparent; }
+.rich-document-shell.embedded .rich-editor-header { position: sticky; top: 0; min-height: 44px; padding: 5px 9px; }
+.rich-document-shell.embedded .rich-page-canvas { overflow: visible; background: transparent; padding: 36px clamp(22px, 6vw, 72px) 54px; }
+.rich-document-shell.embedded .rich-page-column { min-height: 0; }
+.rich-document-shell.embedded .document-title-field { margin-bottom: 30px; }
+.rich-document-shell.embedded .document-title-field input { font-size: clamp(2rem, 4vw, 3rem); }
+.rich-document-shell.embedded .rich-body-frame { min-height: 280px; }
 
 .raw-source-shell {
   display: grid;
