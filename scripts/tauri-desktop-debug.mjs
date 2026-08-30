@@ -512,7 +512,8 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
 
   await driver.click('.workspace-nav-controls button[title="Back in left"]');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
-  await driver.click('.editor-tab-panel.active .folder-status-bar button:nth-child(1)');
+  await driver.executeScript(`window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'f' }))`);
+  await driver.find('.editor-tab-panel.active .folder-find-drawer input');
   await driver.setValue('.editor-tab-panel.active .folder-find-drawer input', "Folder View");
   await driver.find('.editor-tab-panel.active .folder-find-page');
   await takeScreenshot(driver, screenshotsDir, "03ac-folder-find");

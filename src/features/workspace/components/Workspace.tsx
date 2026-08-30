@@ -534,19 +534,11 @@ function Workspace(props: WorkspaceProps) {
           canGoBack={activeGroup.historyIndex > 0}
           canGoForward={activeGroup.historyIndex < activeGroup.history.length - 1}
           dirtyCount={documents.dirtyCount}
-          isBusy={props.isBusy}
           isSaving={anySaving}
           onBack={() => setGroups((current) => navigateGroupHistory(current, current.activeGroupId, -1))}
           onCloseRequest={props.onCloseRequest}
           onForward={() => setGroups((current) => navigateGroupHistory(current, current.activeGroupId, 1))}
           onOpenQuick={() => setQuickOpen(true)}
-          onSave={() => {
-            if (documents.dirtyCount > 1) void documents.saveAll();
-            else {
-              const dirty = Object.values(documents.buffers).find((buffer) => buffer.dirty);
-              if (dirty) void documents.saveDocument(dirty.path);
-            }
-          }}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
         />
         <div className="workspace-status-stack" aria-live="polite">

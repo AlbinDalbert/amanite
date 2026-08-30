@@ -6,13 +6,11 @@ type WorkspaceToolbarProps = {
   canGoBack: boolean;
   canGoForward: boolean;
   dirtyCount: number;
-  isBusy: boolean;
   isSaving: boolean;
   onBack: () => void;
   onCloseRequest: () => void;
   onForward: () => void;
   onOpenQuick: () => void;
-  onSave: () => void;
   onToggleSidebar: () => void;
 };
 
@@ -29,7 +27,6 @@ function WorkspaceToolbar(props: WorkspaceToolbarProps) {
       <div className="workspace-focus-readout"><i /><span>{props.activeGroupLabel} group</span></div>
       <div className="workspace-save-controls">
         <span aria-live="polite" className={`save-state ${props.isSaving ? "saving" : props.dirtyCount ? "unsaved" : "saved"}`}><i aria-hidden="true" />{saveLabel}</span>
-        <button className="workspace-save-button" disabled={props.isBusy || !props.dirtyCount} onClick={props.onSave} title={props.dirtyCount > 1 ? "Save all pages" : "Save page (Ctrl+S)"} type="button">{props.dirtyCount > 1 ? "Save all" : "Save"}</button>
       </div>
       <WindowControls onCloseRequest={props.onCloseRequest} />
     </header>

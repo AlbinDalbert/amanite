@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
 import { APP_VERSION } from "@/app/appVersion";
 import type { AiSettings } from "@/app/useAiSettings";
 import { aiClient } from "@/lib/ai/client";
@@ -16,7 +15,6 @@ type Props = {
   settings: AppearanceSettings;
   onAiChange: (settings: AiSettings) => void;
   onChange: (settings: AppearanceSettings) => void;
-  onCloseRequest: () => void;
   onClose: () => void;
 };
 
@@ -44,11 +42,23 @@ function percent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose, onCloseRequest }: Props) {
+function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const requestId = useRef(0);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
 
   function patch(next: Partial<AppearanceSettings>) {
     onChange({ ...settings, ...next });
@@ -90,22 +100,19 @@ function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose, o
   }, [aiSettings.endpoint, aiSettings.apiKey, loadModels]);
 
   return (
-    <main className="settings-screen">
-      <header className="settings-titlebar" data-tauri-drag-region onMouseDown={handleWindowDragMouseDown}>
-        <button className="settings-back" onClick={onClose} type="button">
-          <span aria-hidden="true">←</span> Back
+    <div className="settings-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()} role="presentation">
+    <main aria-labelledby="settings-title" aria-modal="true" className="settings-screen" role="dialog">
+      <header className="settings-titlebar">
+        <div className="settings-brand">
+          <span className={`brand-mark logo-${settings.logoMark}`} aria-hidden="true"><i /></span>
+          <h1 id="settings-title">Settings</h1>
+        </div>
+        <button aria-label="Close settings" className="settings-back" onClick={onClose} ref={closeButtonRef} type="button">
+          Close
         </button>
-        <WindowControls onCloseRequest={onCloseRequest} />
       </header>
 
       <div className="settings-layout">
-        <aside className="settings-intro">
-          <div className="start-brand"><span className="brand-mark" aria-hidden="true" /><p>Amanite</p></div>
-          <p className="settings-kicker">Local preferences</p>
-          <h1>Settings</h1>
-          <p>These choices belong to this copy of Amanite. They do not alter the Fractal project or its pages.</p>
-        </aside>
-
         <section className="settings-sheet" aria-label="Application settings">
           <header className="settings-sheet-header">
             <p>Preferences</p>
@@ -319,6 +326,7 @@ function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose, o
         </section>
       </div>
     </main>
+    </div>
   );
 }
 

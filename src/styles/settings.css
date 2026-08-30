@@ -1,18 +1,33 @@
+.settings-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 5 4 / 48%);
+  padding: clamp(18px, 4vw, 52px);
+  backdrop-filter: blur(14px) saturate(.8);
+}
+
 .settings-screen {
-  height: 100vh;
-  min-height: 100vh;
+  position: relative;
+  width: min(880px, 100%);
+  max-height: min(860px, calc(100vh - clamp(36px, 8vw, 104px)));
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border: 1px solid var(--app-border-strong);
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--app-accent) 7%, transparent), transparent 28%),
     var(--bg-deep);
   color: var(--app-text);
-  padding: 92px clamp(28px, 7vw, 108px) 70px;
+  padding: 64px clamp(18px, 3vw, 30px) 30px;
+  box-shadow: 0 42px 120px rgb(0 0 0 / 62%), inset 0 1px 0 color-mix(in srgb, var(--app-accent-strong) 8%, transparent);
 }
 
 .settings-titlebar {
-  position: fixed;
+  position: absolute;
   z-index: 70;
   top: 0;
   right: 0;
@@ -22,7 +37,7 @@
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid color-mix(in srgb, var(--app-border-strong) 48%, transparent);
-  background: color-mix(in srgb, var(--bg-deep) 86%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
   padding: 4px 8px 4px 14px;
   backdrop-filter: blur(16px);
 }
@@ -36,29 +51,16 @@
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
-.settings-back span { margin-right: 7px; color: var(--app-accent); }
+.settings-brand { display: flex; align-items: center; gap: 9px; }
+.settings-brand .brand-mark { width: 19px; height: 19px; }
+.settings-brand h1 { margin: 0; color: var(--app-text); font: 800 .68rem/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
 .settings-back:hover, .settings-back:focus-visible { border-color: var(--app-border-strong); color: var(--app-text); outline: none; }
 
 .settings-layout {
   display: grid;
-  width: min(1240px, 100%);
-  grid-template-columns: minmax(250px, 0.7fr) minmax(560px, 1.55fr);
-  gap: clamp(42px, 6vw, 88px);
+  width: 100%;
   margin: 0 auto;
 }
-
-.settings-intro {
-  position: sticky;
-  top: 90px;
-  display: grid;
-  align-self: start;
-  gap: 16px;
-  padding-top: 16px;
-}
-.settings-intro .start-brand { margin-bottom: 34px; }
-.settings-kicker { margin: 0; color: var(--app-accent); font: 800 0.66rem/1 var(--font-mono); letter-spacing: 0.15em; text-transform: uppercase; }
-.settings-intro h1 { margin: 0; color: var(--text-strong); font: 800 clamp(3.6rem, 6vw, 6.2rem)/0.84 var(--font-display); letter-spacing: 0.015em; text-transform: uppercase; }
-.settings-intro > p:last-child { max-width: 330px; margin: 12px 0 0; color: var(--app-muted); font-size: 0.93rem; line-height: 1.65; }
 
 .settings-sheet {
   display: grid;
@@ -168,11 +170,8 @@
 .word-goal-setting input[type="number"]:focus { border-color: var(--app-accent); }
 
 @media (max-width: 820px) {
-  .settings-screen { padding: 70px 22px 48px; }
-  .settings-layout { grid-template-columns: 1fr; gap: 28px; }
-  .settings-intro { position: static; }
-  .settings-intro .start-brand { margin-bottom: 12px; }
-  .settings-intro h1 { font-size: 4rem; }
+  .settings-backdrop { padding: 10px; }
+  .settings-screen { max-height: calc(100vh - 20px); padding: 60px 12px 12px; }
   .theme-options { grid-template-columns: 1fr; }
   .logo-options { grid-template-columns: 1fr; }
   .ai-settings > label { grid-template-columns: 1fr; gap: 7px; }
@@ -180,9 +179,7 @@
 }
 
 @media (min-width: 821px) and (max-height: 820px) {
-  .settings-screen { padding-top: 68px; padding-bottom: 32px; }
-  .settings-intro { top: 68px; }
-  .settings-intro .start-brand { margin-bottom: 16px; }
+  .settings-screen { padding-top: 58px; padding-bottom: 18px; }
   .settings-group { padding-top: 18px; padding-bottom: 20px; }
   .theme-swatch { height: 42px; }
 }

@@ -187,9 +187,7 @@ function App() {
 
   return (
     <UniversalContextMenu actions={contextMenuActions}>
-      {!activeProject ? (isSettingsOpen ? (
-        <Suspense fallback={<AppLoading />}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense>
-      ) : (
+      {!activeProject ? (
         <StartScreen
           error={error}
           isBusy={isBusy}
@@ -205,9 +203,9 @@ function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRefreshProjects={session.refreshProjectCatalog}
         />
-      )) : (
+      ) : (
         <>
-          <div className={isSettingsOpen ? "workspace-view settings-hidden" : "workspace-view"}>
+          <div className="workspace-view">
             <Suspense fallback={<AppLoading />}><Workspace
               commandResult={commandResult}
               error={error}
@@ -237,9 +235,10 @@ function App() {
               onValidate={session.validateProject}
             /></Suspense>
           </div>
-          {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} onCloseRequest={() => void requestWindowClose()} /></Suspense> : null}
         </>
       )}
+
+      {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} /></Suspense> : null}
 
       {confirmDialog ? <ConfirmDialog {...confirmDialog} /> : null}
     </UniversalContextMenu>

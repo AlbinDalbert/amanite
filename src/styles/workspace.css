@@ -271,26 +271,6 @@
 .save-state.saving { color: var(--success); }
 .save-state.saving i { animation: save-pulse 800ms ease-in-out infinite alternate; }
 
-.workspace-save-button {
-  min-width: 56px;
-  min-height: 28px;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 46%, var(--app-border));
-  background: color-mix(in srgb, var(--app-accent) 9%, var(--app-panel));
-  color: var(--app-accent-strong);
-  font: 800 0.62rem/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border-radius: var(--radius-sm);
-}
-
-.workspace-save-button:hover:not(:disabled),
-.workspace-save-button:focus-visible:not(:disabled) {
-  border-color: var(--app-accent);
-  background: var(--signal-soft);
-}
-
-.workspace-save-button:disabled { color: var(--app-subtle); }
-
 @keyframes save-pulse {
   from { opacity: 0.32; }
   to { opacity: 1; }

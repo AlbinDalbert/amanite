@@ -197,7 +197,6 @@ a[href], label:has(input), input[type="checkbox"], input[type="range"], select, 
 }
 
 .workspace-view { display: contents; }
-.workspace-view.settings-hidden { display: none; }
 
 input,
 textarea,

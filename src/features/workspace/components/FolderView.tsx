@@ -166,6 +166,7 @@ function InlineFolderEditor({ buffer, isBusy, pages, spellCheck, onChangeSource 
 }
 
 function FolderView(props: Props) {
+  const viewRef = useRef<HTMLElement>(null);
   const [title, setTitle] = useState(props.folder.title);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [draggedName, setDraggedName] = useState<string | null>(null);
@@ -179,6 +180,16 @@ function FolderView(props: Props) {
   const createInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => setTitle(props.folder.title), [props.folder.path, props.folder.title]);
   useEffect(() => setEditingPath(null), [props.folder.path]);
+  useEffect(() => {
+    const openFind = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "f") return;
+      if (!viewRef.current?.closest(".editor-tab-panel.active")) return;
+      event.preventDefault();
+      setIsFindOpen(true);
+    };
+    window.addEventListener("keydown", openFind);
+    return () => window.removeEventListener("keydown", openFind);
+  }, []);
   useEffect(() => {
     if (!addMenu) return;
     const closeMenu = (event: globalThis.MouseEvent) => {
@@ -274,7 +285,7 @@ function FolderView(props: Props) {
   }
 
   return (
-    <section className="folder-view-shell" aria-label={`Folder ${props.folder.title}`}>
+    <section className="folder-view-shell" aria-label={`Folder ${props.folder.title}`} ref={viewRef}>
       <div aria-label={`Folder ${props.folder.title}`} className="folder-view">
       <header className="folder-view-header">
         <div className="folder-view-eyebrow">
