@@ -17,3 +17,7 @@ export function folderPathFromTabId(tabId: string) {
 export function isFolderTab(tabId: string | null | undefined) {
   return Boolean(tabId && folderPathFromTabId(tabId) !== null);
 }
+
+export function parentFolderPath(path: string) {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+}

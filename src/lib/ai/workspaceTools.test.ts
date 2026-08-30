@@ -105,6 +105,7 @@ describe("workspaceSystemPrompt", () => {
 
     expect(prompt).not.toContain(folderTab);
     expect(prompt).toContain('"activePage":null');
+    expect(prompt).toContain('"activeFolder":{"path":"drafts","title":"Drafts"}');
   });
 });
 
@@ -113,12 +114,15 @@ describe("executeWorkspaceTool", () => {
     const buffers: DocumentBuffers = {
       "drafts/day-one.fractal.html": {
         path: "drafts/day-one.fractal.html",
+        kind: "native",
         source: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',
         links: [],
         backlinks: [],
         iframes: [],
         iframeBacklinks: [],
         contentHash: "saved-hash",
+        nativeDocumentParts: null,
+        nativeEdits: {},
         dirty: true,
         revision: 1,
         operation: null,

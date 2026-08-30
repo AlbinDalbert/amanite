@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
-import { resolveEditorLinkTarget } from "./RichDocumentEditor";
+import { displayPagePath, resolveEditorLinkTarget } from "./RichDocumentEditor";
 
 const pages = [
   { path: "index.fractal.html" },
@@ -8,6 +8,11 @@ const pages = [
 ] as FractalPage[];
 
 describe("rich editor link navigation", () => {
+  it("shows native page paths with the compact .F suffix", () => {
+    expect(displayPagePath("characters/vivian.fractal.html")).toBe("characters/vivian.F");
+    expect(displayPagePath("notes/reference.html")).toBe("notes/reference.html");
+  });
+
   it("uses Fractal's resolved internal target", () => {
     const links = [{ href: "../index.fractal.html", text: "Index", target: { kind: "internal", value: "index.fractal.html" } }] as FractalLink[];
     expect(resolveEditorLinkTarget("../index.fractal.html", links, "notes/today.fractal.html", pages)).toBe("index.fractal.html");

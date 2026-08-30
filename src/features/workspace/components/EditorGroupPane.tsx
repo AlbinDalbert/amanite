@@ -5,7 +5,7 @@ import DocumentLoadingPreview from "@/features/editor/components/DocumentLoading
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { AiSettings } from "@/app/useAiSettings";
-import type { FractalProject } from "@/lib/fractal/types";
+import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
 import { folderPathFromTabId, isFolderTab } from "../folderTabs";
@@ -34,7 +34,7 @@ type Props = {
   project: FractalProject;
   settings: AppearanceSettings;
   onActivate: () => void;
-  onChangeSource: (path: string, source: string) => void;
+  onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onCreateFolder: (path: string) => void;
   onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFirstPage?: () => void;
@@ -51,6 +51,7 @@ type Props = {
   onOpenSettings: () => void;
   onReload: (path: string) => void;
   onReplace: (path: string) => void;
+  onRepair: (path: string) => void;
   onRemoveMissing: (kind: "folder" | "native", path: string) => void;
   onReorderFolder: (path: string, order: string[]) => void;
   onSave: (path: string) => void;
@@ -180,13 +181,17 @@ function EditorGroupPane(props: Props) {
             return (
               <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} key={path} role="tabpanel">
                 <FolderView
+                  borealisOpen={props.borealisOpen}
+                  borealisWorkspace={props.borealisWorkspace}
                   buffers={props.buffers}
                   folder={folder}
+                  focusMode={props.focusMode}
                   folders={props.project.folders}
                   isBusy={props.workspaceBusy}
                   loadingPaths={props.loadingPaths}
                   loadErrors={props.loadErrors}
                   pages={props.project.pages}
+                  projectName={props.project.name}
                   spellCheck={props.settings.spellCheck}
                   onChangeSource={props.onChangeSource}
                   onCreateFolder={props.onCreateFolder}
@@ -199,6 +204,8 @@ function EditorGroupPane(props: Props) {
                   onReorder={(order) => props.onReorderFolder(folderPath, order)}
                   onSavePage={props.onSave}
                   onSetTitle={(title) => props.onSetFolderTitle(folderPath, title)}
+                  onToggleBorealis={props.onToggleBorealis}
+                  onToggleFocus={props.onToggleFocus}
                 />
               </div>
             );
@@ -221,12 +228,15 @@ function EditorGroupPane(props: Props) {
                 links={tabBuffer.links}
                 pages={props.project.pages}
                 pagePath={path}
+                projectName={props.project.name}
                 source={tabBuffer.source}
                 spellCheck={props.settings.spellCheck}
                 wordGoal={props.settings.wordGoal}
-                onChangeSource={(source) => props.onChangeSource(path, source)}
+                onChangeSource={(source, nativeSection) => props.onChangeSource(path, source, nativeSection)}
                 onExport={(includeDerivedLinks) => props.onExport(path, includeDerivedLinks)}
                 onNavigatePage={(nextPath) => props.onNavigatePage(group.id, nextPath)}
+                onOpenFolder={(folderPath) => props.onOpenFolder(group.id, folderPath)}
+                onRepair={() => props.onRepair(path)}
                 onSave={() => props.onSave(path)}
                 onToggleFocus={props.onToggleFocus}
                 onToggleBorealis={props.onToggleBorealis}

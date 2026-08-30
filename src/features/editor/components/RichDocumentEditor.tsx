@@ -17,6 +17,7 @@ import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin";
 import { $getRoot, $insertNodes } from "lexical";
 import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo, useState } from "react";
+import TreeLocation, { displayPagePath } from "@/components/ui/TreeLocation";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import { DerivedLinkNode } from "./DerivedLinkNode";
 import { editorLexicalTheme } from "./editorLexicalTheme";
@@ -32,14 +33,16 @@ type Props = {
   isBusy: boolean;
   pagePath: string;
   pages: FractalPage[];
+  projectName?: string;
   spellCheck: boolean;
   title: string;
   onChangeBody: (html: string) => void;
   onChangeTitle: (title: string) => void;
+  onOpenFolder?: (folderPath: string) => void;
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "projectName" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle" | "onOpenFolder"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
 };
@@ -64,8 +67,11 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
   }
 }
 
-function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading }: WritingAreaProps) {
+export { displayPagePath };
+
+function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
+  const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
     if (event.button !== 0) return;
@@ -103,9 +109,22 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onC
   return (
     <article className="rich-page-canvas">
       <div className="rich-page-column" onPointerDown={handlePointerDown}>
-        <label className="document-title-field">
-          <input aria-label="Document title" disabled={isBusy} onChange={(event) => onChangeTitle(event.currentTarget.value)} placeholder="Untitled" value={title} />
-        </label>
+        <div className="document-page-heading">
+          {onOpenFolder && projectName ? (
+            <TreeLocation
+              currentKind="page"
+              disabled={isBusy}
+              onNavigateFolder={onOpenFolder}
+              onUp={() => onOpenFolder(parentFolder)}
+              path={pagePath}
+              projectName={projectName}
+              upTitle={`Go up to ${parentFolder || "Pages"}`}
+            />
+          ) : null}
+          <label className="document-title-field">
+            <input aria-label="Document title" disabled={isBusy} onChange={(event) => onChangeTitle(event.currentTarget.value)} placeholder="Untitled" value={title} />
+          </label>
+        </div>
         <div className="rich-body-frame">
           <RichTextPlugin
             contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" onDrop={handleDrop} onPaste={handlePaste} spellCheck={spellCheck} />}
@@ -127,7 +146,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, spellCheck, title, onC
   );
 }
 
-function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, spellCheck, title, onChangeBody, onChangeTitle, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onOpenFolder, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => ({
@@ -150,12 +169,14 @@ function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, page
           isBusy={editorBusy}
           pagePath={pagePath}
           pages={pages}
+          projectName={projectName}
           spellCheck={spellCheck}
           title={title}
           onChangeBody={onChangeBody}
           onChangeTitle={onChangeTitle}
           onContentLoaded={() => setIsContentReady(true)}
           onContentLoading={() => setIsContentReady(false)}
+          onOpenFolder={onOpenFolder}
         />
       </LexicalComposer>
     </section>

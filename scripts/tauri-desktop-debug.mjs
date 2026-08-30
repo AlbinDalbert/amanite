@@ -166,21 +166,28 @@ class DesktopWebDriverClient {
     this.sessionId = null;
   }
 
-  async request(method, path, body) {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body)
-    });
-    const text = await response.text();
-    const json = text ? JSON.parse(text) : {};
+  async request(method, path, body, timeoutMs = 10_000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      const json = text ? JSON.parse(text) : {};
 
-    if (!response.ok) {
-      const error = json.value?.message || json.error || text || response.statusText;
-      throw new Error(`${method} ${path} failed with HTTP ${response.status}: ${error}`);
+      if (!response.ok) {
+        const error = json.value?.message || json.error || text || response.statusText;
+        throw new Error(`${method} ${path} failed with HTTP ${response.status}: ${error}`);
+      }
+
+      return json;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return json;
   }
 
   async createSession() {
@@ -203,7 +210,7 @@ class DesktopWebDriverClient {
 
     const sessionId = this.sessionId;
     this.sessionId = null;
-    await this.request("DELETE", `/session/${sessionId}`);
+    await this.request("DELETE", `/session/${sessionId}`, undefined, 2_000);
   }
 
   sessionPath(path) {
@@ -373,6 +380,7 @@ async function takeScreenshot(driver, screenshotsDir, name) {
 }
 
 async function runSmoke(driver, screenshotsDir, projectRoot) {
+  await driver.find("body");
   await driver.executeScript(`localStorage.removeItem("amanite.last-session.v1");`);
   await driver.refresh();
   try {
@@ -436,16 +444,16 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.explorer-header button[title="Create folder"]');
   await driver.setValue('.create-page-dialog input', "Field Notes");
   await driver.click('.create-page-dialog .primary-action');
-  await driver.find('.explorer-row.folder[title="Field Notes"]', 30_000);
+  await driver.find('.explorer-row.folder[title="field-notes"]', 30_000);
   await driver.executeScript(`
-    const row = document.querySelector('.explorer-row.folder[title="Field Notes"]');
+    const row = document.querySelector('.explorer-row.folder[title="field-notes"]');
     row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
   `);
   await driver.click('.file-context-menu button:nth-of-type(2)');
   await driver.setValue('.create-page-dialog input', "Inside Folder");
   await driver.click('.create-page-dialog .primary-action');
-  await driver.find('[title="Field Notes/inside-folder.fractal.html"]', 30_000);
-  await driver.find('[aria-label="Body for Field Notes/inside-folder.fractal.html"]', 30_000);
+  await driver.find('[title="field-notes/inside-folder.fractal.html"]', 30_000);
+  await driver.find('[aria-label="Body for field-notes/inside-folder.fractal.html"]', 30_000);
 
   await driver.setValue(".editor-tab-panel.active .document-title-field input", projectName);
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved from the desktop WebDriver smoke test.");
@@ -454,7 +462,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "03-after-edit-save-shortcut");
 
-  await driver.click('.explorer-row.folder[title="Field Notes"] .explorer-folder-open');
+  await driver.click('.explorer-row.folder[title="field-notes"] .explorer-folder-open');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
   await takeScreenshot(driver, screenshotsDir, "03a-folder-view");
 
@@ -467,7 +475,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.editor-tab-panel.active .folder-add-row.top .folder-add-menu button:first-child');
   await driver.setValue('.create-page-dialog input', "Folder View Page");
   await driver.click('.create-page-dialog .primary-action');
-  await driver.find('[aria-label="Body for Field Notes/folder-view-page.fractal.html"]', 30_000);
+  await driver.find('[aria-label="Body for field-notes/folder-view-page.fractal.html"]', 30_000);
 
   await driver.click('.workspace-nav-controls button[title="Back in left"]');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
@@ -475,12 +483,12 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.editor-tab-panel.active .folder-add-row.bottom .folder-add-menu button:nth-child(2)');
   await driver.setValue('.create-page-dialog input', "Nested View");
   await driver.click('.create-page-dialog .primary-action');
-  await driver.find('.explorer-row.folder[title="Field Notes/Nested View"]', 30_000);
+  await driver.find('.explorer-row.folder[title="field-notes/nested-view"]', 30_000);
   await takeScreenshot(driver, screenshotsDir, "03ab-folder-created-items");
 
   const openedNestedFolder = await driver.executeScript(`
     const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.folder .folder-sequence-card')]
-      .find((candidate) => candidate.querySelector('code')?.textContent === 'Field Notes/Nested View');
+      .find((candidate) => candidate.querySelector('code')?.textContent === 'field-notes/nested-view');
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
@@ -491,20 +499,25 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.editor-tab-panel.active .folder-view-empty');
   await driver.find('.editor-tab-panel.active .folder-empty-row .folder-add-menu');
 
-  await driver.click('.editor-group-tab.folder button[role="tab"][title="Field Notes"]');
+  await driver.click('.editor-group-tab.folder button[role="tab"][title="field-notes"]');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
   const openedFolderPage = await driver.executeScript(`
     const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-card')]
-      .find((candidate) => candidate.querySelector('code')?.textContent === 'Field Notes/folder-view-page.fractal.html');
+      .find((candidate) => candidate.querySelector('code')?.textContent === 'field-notes/folder-view-page.fractal.html');
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
   if (!openedFolderPage) throw new Error("Could not find the new page card for double-click.");
-  await driver.find('[aria-label="Body for Field Notes/folder-view-page.fractal.html"]', 30_000);
+  await driver.find('[aria-label="Body for field-notes/folder-view-page.fractal.html"]', 30_000);
 
   await driver.click('.workspace-nav-controls button[title="Back in left"]');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
-  await driver.click('.editor-tab-panel.active .folder-view-eyebrow button');
+  await driver.click('.editor-tab-panel.active .folder-status-bar button:nth-child(1)');
+  await driver.setValue('.editor-tab-panel.active .folder-find-drawer input', "Folder View");
+  await driver.find('.editor-tab-panel.active .folder-find-page');
+  await takeScreenshot(driver, screenshotsDir, "03ac-folder-find");
+  await driver.click('.editor-tab-panel.active .folder-find-drawer > header button');
+  await driver.click('.editor-tab-panel.active .folder-status-bar button:nth-child(2)');
   await driver.find('.folder-export-dialog[aria-labelledby="folder-export-title"]');
   const folderExportSelection = await driver.text('.folder-export-selection > header small');
   if (folderExportSelection !== "2 of 2 selected") {
@@ -701,7 +714,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('[title="my-file.fractal.html"]');
   await takeScreenshot(driver, screenshotsDir, "07-buffer-after-switch");
 
-  const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title></head><body><main data-fractal-document><h1>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
+  const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
   await driver.executeScript(`
     const tab = document.querySelector('.editor-group-tab [title="index.fractal.html"]')?.closest('.editor-group-tab');
     tab?.querySelector('.editor-group-tab-close')?.click();
@@ -818,7 +831,7 @@ async function main() {
   let driver = null;
 
   const cleanup = async () => {
-    if (driver) {
+    if (driver && appProcess.exitCode === null) {
       try {
         await driver.deleteSession();
       } catch {

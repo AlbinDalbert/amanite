@@ -228,6 +228,7 @@ function App() {
               onMovePage={session.moveProjectPage}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onImportNativePage={session.importNativePage}
+              onRepairPage={session.repairProjectPage}
               onProjectSnapshot={session.adoptProjectSnapshot}
               onRegisterWorkspace={registerWorkspace}
               onRequestConfirmation={session.requestConfirmation}

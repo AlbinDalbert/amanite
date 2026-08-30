@@ -1,11 +1,12 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft, readPageDraft } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalLoadedPage, FractalProject } from "@/lib/fractal/types";
+import type { FractalLoadedPage, FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import {
   bufferFromLoadedPage,
   bufferFromProject,
   errorMessage,
+  nativeEditsFromSource,
   type BufferUpdater,
   type DocumentBuffers
 } from "./documents/documentBuffers";
@@ -19,10 +20,11 @@ type Options = {
   autoSave: boolean;
   initialProject: FractalProject;
   onProjectSnapshot: (project: FractalProject) => void;
+  onDocumentPathChange: (from: string, to: string) => void;
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
 };
 
-export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnapshot, onRequestConfirmation }: Options) {
+export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPathChange, onProjectSnapshot, onRequestConfirmation }: Options) {
   const initialBuffer = bufferFromProject(initialProject);
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
@@ -52,9 +54,10 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
+    onDocumentPathChange,
     projectRef,
     publishProject
-  }), [commitBuffers, publishProject]);
+  }), [commitBuffers, onDocumentPathChange, publishProject]);
 
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath) {
@@ -134,7 +137,10 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
         contentHash: loaded.contentHash,
         iframes: loaded.iframes,
         links: loaded.links
-      } : page)
+      } : page),
+      ...(currentProject.activePagePath === path ? {
+        activePageNativeDocumentParts: loaded.nativeDocumentParts ?? null
+      } : {})
     });
     return true;
   }, [commitBuffers, onRequestConfirmation, publishProject]);
@@ -183,13 +189,19 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onProjectSnaps
     return loadPromise;
   }, [installLoadedPage, installLoadedProject]);
 
-  const updateSource = useCallback((path: string, source: string) => {
+  const updateSource = useCallback((path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => {
     commitBuffers((current) => {
       const buffer = current[path];
       if (!buffer) return current;
+      let nativeEdits = buffer.nativeEdits;
+      if (buffer.kind === "native" && buffer.nativeDocumentParts) {
+        nativeEdits = nativeSection
+          ? { ...buffer.nativeEdits, [nativeSection.section]: nativeSection.value }
+          : nativeEditsFromSource(source, buffer.nativeDocumentParts);
+      }
       return {
         ...current,
-        [path]: { ...buffer, source, dirty: true, revision: buffer.revision + 1, error: null }
+        [path]: { ...buffer, source, nativeEdits, dirty: true, revision: buffer.revision + 1, error: null }
       };
     });
   }, [commitBuffers]);

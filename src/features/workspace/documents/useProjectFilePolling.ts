@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalProject } from "@/lib/fractal/types";
-import type { BufferUpdater, DocumentBuffers } from "./documentBuffers";
+import type { FractalPageContentState, FractalProject } from "@/lib/fractal/types";
+import type { BufferUpdater, DocumentBuffer, DocumentBuffers } from "./documentBuffers";
 import { errorMessage } from "./documentBuffers";
 
 type MutableValue<T> = { current: T };
@@ -12,6 +12,21 @@ type Options = {
   onError: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
 };
+
+function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentState) {
+  if (buffer.kind !== "native" || !buffer.nativeDocumentParts || !state.nativeDocumentHashes) {
+    return state.contentHash !== buffer.contentHash;
+  }
+  const hashes = state.nativeDocumentHashes;
+  const pendingSections = Object.keys(buffer.nativeEdits) as Array<keyof typeof buffer.nativeEdits>;
+  if (pendingSections.length) {
+    return pendingSections.some((section) => {
+      const hashKey = section === "headLinks" ? "headLinksHash" : `${section}Hash` as keyof typeof hashes;
+      return hashes[hashKey] !== buffer.nativeDocumentParts?.[hashKey];
+    });
+  }
+  return hashes.sourceHash !== buffer.nativeDocumentParts.sourceHash;
+}
 
 export function useProjectFilePolling({ buffersRef, commitBuffers, onError, projectRef }: Options) {
   useEffect(() => {
@@ -33,7 +48,7 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
             const checked = expected.get(state.path);
             const latest = current[state.path];
             if (!checked || !latest || latest.contentHash !== checked.contentHash || latest.operation) continue;
-            if (state.contentHash != null && checked.contentHash != null && state.contentHash === checked.contentHash) continue;
+            if (!hasExternalChange(checked, state)) continue;
             if (next === current) next = { ...current };
             next[state.path] = {
               ...latest,

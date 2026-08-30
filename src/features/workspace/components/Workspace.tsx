@@ -52,6 +52,7 @@ type WorkspaceProps = {
   onDismissStatus: () => void;
   onDuplicatePage: (pagePath: string) => ProjectMutation;
   onImportNativePage: (source: string, folderPath?: string) => ProjectMutation;
+  onRepairPage: (pagePath: string) => ProjectMutation;
   onMovePage: (pagePath: string, destination: string) => ProjectMutation;
   onOpenSettings: () => void;
   onProjectSnapshot: (project: FractalProject) => void;
@@ -119,10 +120,14 @@ function Workspace(props: WorkspaceProps) {
   const previousRootRef = useRef(props.project.rootPath);
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
+  const onDocumentPathChange = useCallback((from: string, to: string) => {
+    setGroups((current) => renameGroupTab(current, from, to));
+  }, []);
 
   const documents = useWorkspaceDocuments({
     autoSave: props.settings.autoSave,
     initialProject: props.project,
+    onDocumentPathChange,
     onProjectSnapshot: props.onProjectSnapshot,
     onRequestConfirmation: props.onRequestConfirmation
   });
@@ -223,6 +228,14 @@ function Workspace(props: WorkspaceProps) {
     await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
   }, [documents.publishProject, documents.saveAll, openInGroup, props.onImportNativePage]);
 
+  const repairPage = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const next = await props.onRepairPage(path);
+    if (!next) return;
+    documents.publishProject(next);
+    await documents.reloadDocument(path);
+  }, [documents.publishProject, documents.reloadDocument, documents.saveAll, props.onRepairPage]);
+
   const duplicatePage = useCallback(async (path: string) => {
     if (!(await documents.saveAll())) return;
     const next = await props.onDuplicatePage(path);
@@ -239,9 +252,36 @@ function Workspace(props: WorkspaceProps) {
 
   const setFolderTitle = useCallback(async (path: string, title: string) => {
     if (!(await documents.saveAll())) return;
+    const previousProject = documents.project;
     const next = await props.onSetFolderTitle(path, title);
-    if (next) documents.publishProject(next);
-  }, [documents.publishProject, documents.saveAll, props.onSetFolderTitle]);
+    if (!next) return;
+    const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const renamedFolder = path
+      ? next.folders.find((folder) => {
+        const folderParent = folder.path.includes("/") ? folder.path.slice(0, folder.path.lastIndexOf("/")) : "";
+        return folder.path !== path && folderParent === parentPath && folder.title === title.trim();
+      })
+      : undefined;
+    if (renamedFolder) {
+      setGroups((current) => renameGroupTab(current, folderTabId(path), folderTabId(renamedFolder.path)));
+      for (const folder of previousProject.folders.filter((candidate) => candidate.path.startsWith(`${path}/`))) {
+        const suffix = folder.path.slice(path.length + 1);
+        const nextPath = `${renamedFolder.path}/${suffix}`;
+        if (next.folders.some((candidate) => candidate.path === nextPath)) {
+          setGroups((current) => renameGroupTab(current, folderTabId(folder.path), folderTabId(nextPath)));
+        }
+      }
+      for (const page of previousProject.pages.filter((candidate) => candidate.path.startsWith(`${path}/`))) {
+        const suffix = page.path.slice(path.length + 1);
+        const nextPath = next.pages.find((candidate) => candidate.path === `${renamedFolder.path}/${suffix}`)?.path;
+        if (nextPath) {
+          documents.renameDocument(page.path, nextPath);
+          setGroups((current) => renameGroupTab(current, page.path, nextPath));
+        }
+      }
+    }
+    documents.publishProject(next);
+  }, [documents.project, documents.publishProject, documents.renameDocument, documents.saveAll, props.onSetFolderTitle]);
 
   const reorderFolder = useCallback(async (path: string, order: string[]) => {
     if (!(await documents.saveAll())) return;
@@ -450,6 +490,7 @@ function Workspace(props: WorkspaceProps) {
     onOpenSettings: () => { void openSettings(); },
     onReload: (path: string) => { void documents.reloadDocument(path); },
     onReplace: (path: string) => { void documents.saveDocument(path, true); },
+    onRepair: (path: string) => { void repairPage(path); },
     onRemoveMissing: (kind: "folder" | "native", path: string) => { if (kind === "folder") void deleteFolder(path); else void deletePage(path); },
     onReorderFolder: (path: string, order: string[]) => { void reorderFolder(path, order); },
     onSave: (path: string) => { void documents.saveDocument(path); },
@@ -458,7 +499,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.aiSettings, props.isBusy, props.settings, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.aiSettings, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   return (
     <BorealisSessionProvider settings={props.aiSettings} workspace={aiWorkspace}>

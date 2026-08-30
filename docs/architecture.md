@@ -16,19 +16,19 @@ React UI
 
 `useFractalSession` owns the project catalog, the current project snapshot, folder metadata mutations, command status, and confirmation dialogs. It does not own editable page state.
 
-`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known Fractal content hash, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
+`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known Fractal hashes, native pending section edits, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
 
 The workspace saves buffers before project mutations and before closing the project. Window-close handling calls the workspace's `saveAll` function. Autosave and recovery drafts also operate on the same buffers. Each path has one save queue. If the editor changes while a write is running, the queue writes the newer revision before reporting success to a close or project mutation.
 
-Open-file change detection opens Fractal once every three seconds and compares all open pages against the returned content hashes. Normal saves use Fractal's conditional write under its project lock, so checking the expected hash and atomically replacing the page are one operation. Explicit conflict replacement uses Fractal's unconditional write.
+Open-file change detection opens Fractal once every three seconds and compares the pending native sections or the raw source hash. Normal native saves use Fractal's section mutations under its project lock. Raw saves use `Project::write_raw_page_if_unchanged`. Explicit conflict replacement rereads native section hashes before applying the local sections, or uses the raw unconditional write.
 
 ## Persistence boundary
 
 The backend opens a fresh `fractal::Project` for each command and delegates page mutations to its public methods. It does not keep another index or reproduce Fractal's page and link rules.
 
-For native `.fractal.html` documents, the frontend reads the editable title and body from `main[data-fractal-document]`. It folds rich-editor changes back into the complete HTML document and writes that source through `Project::write_page`.
+For native `.fractal.html` documents, the frontend reads the editable title and body from `main[data-fractal-document]`. It folds rich-editor changes back into the complete HTML view, then sends the changed title or content section to Fractal with its section hash. Title changes also follow Fractal's derived filename and path update.
 
-Ordinary `.html` files render in a sandboxed frame. Their source mode edits the same complete document. Successful writes return a fresh project snapshot with updated pages, links, backlinks, iframes, and modification time.
+Ordinary `.html` files render in a sandboxed frame. Their source mode edits the same complete document and persists it through Fractal's raw-page write API. Successful writes return a fresh project snapshot with updated pages, links, backlinks, iframes, and modification time.
 
 Recovery drafts contain complete HTML and live in browser-local storage. They are temporary crash recovery data, not another page format. Amanite removes a draft after a confirmed Fractal write or an explicit discard.
 
@@ -48,6 +48,6 @@ Fractal v2 models every directory below `pages/`, including the pages root, as a
 
 Folder HTML export also stays behind the Fractal boundary. Amanite builds the selection tree from Fractal's ordered folder snapshots and passes relative selected page paths plus export options to `Project::export_folder_html`. Fractal owns traversal, validation, link rewriting, document assembly, and the export report.
 
-Amanite still creates empty directories below `pages/` with validated relative paths because Fractal currently has no folder-creation operation. It immediately reopens the project so Fractal discovers the directory. Folder deletion uses `Project::delete_folder`.
+Amanite still creates empty directories below `pages/` because Fractal currently has no folder-creation operation. It derives each directory segment from the requested title, then records the new folder title through Fractal before refreshing the project. Folder deletion uses `Project::delete_folder`.
 
 Commands that inspect or reveal a page canonicalize the target and verify that it remains below the project's canonical `pages/` directory. Project roots may still live outside Amanite's default library when the user opens them explicitly.

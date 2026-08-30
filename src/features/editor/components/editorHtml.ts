@@ -13,6 +13,7 @@ const ALLOWED_ELEMENTS = new Set([
 function allowedAttributes(tag: string) {
   return tag === "a" ? ["href", "title"]
     : tag === "img" || tag === "iframe" ? null
+    : tag === "h1" ? ["data-fractal-title"]
     : tag === "time" ? ["datetime"]
     : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
     : tag === "col" || tag === "colgroup" ? ["span"]

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalNativeDocumentImport, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -30,18 +30,58 @@ export const fractalClient: FractalClient = {
       pagePath,
       projectRoot: project.rootPath
     }),
-  writePage: (project, source) =>
-    invokeFractal<FractalProject>("fractal_write_page", {
+  writeRawPage: (project, source) =>
+    invokeFractal<FractalProject>("fractal_write_raw_page", {
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       source
     }),
-  writePageIfUnchanged: (project, source, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_write_page_if_unchanged", {
+  writeRawPageIfUnchanged: (project, source, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_write_raw_page_if_unchanged", {
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       source
+    }),
+  setPageTitle: (project, title, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_title", {
+      expectedHash,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath,
+      title
+    }),
+  setPageContent: (project, contentHtml, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_content", {
+      contentHtml,
+      expectedHash,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath
+    }),
+  setPageStyle: (project, styleCss, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_style", {
+      expectedHash,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath,
+      styleCss
+    }),
+  setPageMetadata: (project, metadataHtml, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_metadata", {
+      expectedHash,
+      metadataHtml,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath
+    }),
+  setPageHeadLinks: (project, headLinksHtml, expectedHash) =>
+    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_head_links", {
+      expectedHash,
+      headLinksHtml,
+      pagePath: project.activePagePath,
+      projectRoot: project.rootPath
+    }),
+  repairPageStructure: (project, pagePath) =>
+    invokeFractal<FractalProject>("fractal_repair_page_structure", {
+      pagePath,
+      projectRoot: project.rootPath
     }),
   createPage: (project, title, folderPath) =>
     invokeFractal<FractalProject>("fractal_create_page", {
@@ -49,11 +89,14 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       title
     }),
-  importNativePage: (project, title, source, folderPath) =>
+  importNativePage: (project, title, sections: FractalNativeDocumentImport, folderPath) =>
     invokeFractal<FractalProject>("fractal_import_native_page", {
+      contentHtml: sections.contentHtml,
       folderPath,
+      headLinksHtml: sections.headLinksHtml,
+      metadataHtml: sections.metadataHtml,
       projectRoot: project.rootPath,
-      source,
+      styleCss: sections.styleCss,
       title
     }),
   createFolder: (project, folderPath) =>

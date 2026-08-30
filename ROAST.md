@@ -54,7 +54,7 @@ Smallest fix: use one shared term matcher for both branches. Either make both si
 
 ### Medium: "Replace disk" cannot repair a page deleted outside Amanite
 
-Polling correctly marks a missing page as a conflict, but the conflict UI still offers `Replace disk`. Force-save calls `writePage`, and Fractal's write requires the page to already exist. The advertised recovery action fails for the missing-file case.
+Polling correctly marks a missing page as a conflict, but the conflict UI still offers `Replace disk`. Force-save calls the raw or native section write path, and Fractal's write requires the page to already exist. The advertised recovery action fails for the missing-file case.
 
 Smallest fix: label this case `Recreate page` and provide a create-or-replace command, or make the backend distinguish a missing target before showing the action.
 

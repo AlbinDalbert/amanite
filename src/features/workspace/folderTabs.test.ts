@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { folderPathFromTabId, folderTabId, isFolderTab, PROJECT_OVERVIEW_TAB_ID } from "./folderTabs";
+import { folderPathFromTabId, folderTabId, isFolderTab, parentFolderPath, PROJECT_OVERVIEW_TAB_ID } from "./folderTabs";
 
 describe("folder workspace tabs", () => {
   it("round-trips nested and root folder paths", () => {
@@ -9,5 +9,10 @@ describe("folder workspace tabs", () => {
     expect(isFolderTab(PROJECT_OVERVIEW_TAB_ID)).toBe(true);
     expect(isFolderTab(folderTabId("drafts"))).toBe(true);
     expect(isFolderTab("drafts/page.fractal.html")).toBe(false);
+  });
+
+  it("finds the folder containing a page", () => {
+    expect(parentFolderPath("stories/characters/hero.fractal.html")).toBe("stories/characters");
+    expect(parentFolderPath("index.fractal.html")).toBe("");
   });
 });

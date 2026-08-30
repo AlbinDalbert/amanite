@@ -1,23 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from "react";
 import Icon from "@/components/ui/Icon";
+import TreeLocation from "@/components/ui/TreeLocation";
+import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
 import RichDocumentEditor from "@/features/editor/components/RichDocumentEditor";
 import { analyzeEditablePage, writeEditableBody, writeEditableTitle } from "@/features/editor/components/pageSource";
-import type { FractalFolder, FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalPage } from "@/lib/fractal/types";
+import type { FractalFolder, FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalNativeSection, FractalPage } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
-import FolderExportDialog from "./FolderExportDialog";
+import FolderExportDialog, { buildFolderExportTree, type FolderExportNode } from "./FolderExportDialog";
 
 const FOLDER_CHILD_MIME = "application/x-amanite-folder-child";
 
 type Props = {
   buffers: Record<string, DocumentBuffer>;
+  borealisOpen: boolean;
+  borealisWorkspace: boolean;
   folder: FractalFolder;
   folders: FractalFolder[];
   isBusy: boolean;
   loadingPaths: Set<string>;
   loadErrors: Record<string, string>;
   pages: FractalPage[];
+  projectName: string;
   spellCheck: boolean;
-  onChangeSource: (path: string, source: string) => void;
+  focusMode: boolean;
+  onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onCreateFolder: (path: string) => void;
   onCreatePage: (title: string, folderPath?: string) => void;
   onEnsurePage: (path: string) => Promise<boolean>;
@@ -28,19 +34,60 @@ type Props = {
   onReorder: (order: string[]) => void;
   onSavePage: (path: string) => void;
   onSetTitle: (title: string) => void;
+  onToggleBorealis: () => void;
+  onToggleFocus: () => void;
 };
 
 export function folderChildPath(folderPath: string, name: string) {
   return folderPath ? `${folderPath}/${name}` : name;
 }
 
-function directParent(path: string) {
+export function directParent(path: string) {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 }
 
 function wordLabel(text: string) {
   const words = text.trim() ? text.trim().split(/\s+/u).length : 0;
   return `${words.toLocaleString()} ${words === 1 ? "word" : "words"}`;
+}
+
+export type FolderFindPage = { path: string; title: string; matches: string[] };
+export type FolderFindGroup = { path: string; title: string; pages: FolderFindPage[] };
+
+function matchSnippets(text: string, query: string) {
+  if (!query.trim()) return [];
+  const matches: string[] = [];
+  const lowerText = text.toLocaleLowerCase();
+  const lowerQuery = query.toLocaleLowerCase();
+  let offset = 0;
+  while ((offset = lowerText.indexOf(lowerQuery, offset)) >= 0) {
+    const start = Math.max(0, offset - 52);
+    const end = Math.min(text.length, offset + query.length + 76);
+    matches.push(`${start ? "…" : ""}${text.slice(start, end).replace(/\s+/gu, " ")}${end < text.length ? "…" : ""}`);
+    offset += Math.max(1, lowerQuery.length);
+  }
+  return matches;
+}
+
+export function buildFolderFindGroups(nodes: FolderExportNode[], pages: FractalPage[], query: string, rootTitle: string, rootPath: string): FolderFindGroup[] {
+  const pageByPath = new Map(pages.map((page) => [page.path, page]));
+  const groups: FolderFindGroup[] = [];
+  function visit(children: FolderExportNode[], title: string, path: string) {
+    let group: FolderFindGroup | undefined;
+    for (const node of children) {
+      if (node.kind === "folder") visit(node.children, node.title, node.projectPath);
+      else {
+        const page = pageByPath.get(node.projectPath);
+        const matches = matchSnippets(`${page?.title ?? ""}\n${page?.text ?? ""}`, query);
+        if (matches.length) {
+          if (!group) { group = { path, title, pages: [] }; groups.push(group); }
+          group.pages.push({ path: node.projectPath, title: node.title, matches });
+        }
+      }
+    }
+  }
+  visit(nodes, rootTitle, rootPath);
+  return groups;
 }
 
 export function shouldOpenFolderChild(target: EventTarget | null) {
@@ -95,7 +142,7 @@ function InlineFolderEditor({ buffer, isBusy, pages, spellCheck, onChangeSource 
   isBusy: boolean;
   pages: FractalPage[];
   spellCheck: boolean;
-  onChangeSource: (source: string) => void;
+  onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
   const analysis = useMemo(() => analyzeEditablePage(buffer.source), [buffer.source]);
   const protectedDocument = analysis.inspection.structuralIssues.length || analysis.inspection.compatibilityIssues.length;
@@ -112,8 +159,8 @@ function InlineFolderEditor({ buffer, isBusy, pages, spellCheck, onChangeSource 
       pages={pages}
       spellCheck={spellCheck}
       title={analysis.page.title}
-      onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(buffer.source, bodyHtml, analysis.page.hasTitleHeading))}
-      onChangeTitle={(title) => onChangeSource(writeEditableTitle(buffer.source, title, analysis.page.hasTitleHeading))}
+      onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(buffer.source, bodyHtml, analysis.page.hasTitleHeading), { section: "content", value: bodyHtml })}
+      onChangeTitle={(title) => onChangeSource(writeEditableTitle(buffer.source, title, analysis.page.hasTitleHeading), { section: "title", value: title })}
     />
   );
 }
@@ -124,6 +171,8 @@ function FolderView(props: Props) {
   const [draggedName, setDraggedName] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
   const [addMenu, setAddMenu] = useState<"top" | "bottom" | "empty" | null>(null);
   const [createKind, setCreateKind] = useState<"page" | "folder" | null>(null);
   const [createName, setCreateName] = useState("");
@@ -153,6 +202,18 @@ function FolderView(props: Props) {
   const rawPages = props.pages.filter((page) => page.kind === "raw" && directParent(page.path) === props.folder.path);
   const nativeCount = props.folder.children.filter((child) => child.kind === "native" && child.status === "present").length;
   const folderCount = props.folder.children.filter((child) => child.kind === "folder" && child.status === "present").length;
+  const exportTree = useMemo(() => buildFolderExportTree(props.folder, props.folders, props.pages), [props.folder, props.folders, props.pages]);
+  const orderedPagePaths = useMemo(() => {
+    const paths: string[] = [];
+    const visit = (nodes: FolderExportNode[]) => nodes.forEach((node) => node.kind === "page" ? paths.push(node.projectPath) : visit(node.children));
+    visit(exportTree);
+    return paths;
+  }, [exportTree]);
+  const scopedPages = orderedPagePaths.map((path) => props.pages.find((page) => page.path === path)).filter((page): page is FractalPage => Boolean(page));
+  const folderWords = scopedPages.reduce((total, page) => total + (page.text.trim() ? page.text.trim().split(/\s+/u).length : 0), 0);
+  const folderCharacters = scopedPages.reduce((total, page) => total + page.text.length, 0);
+  const findGroups = useMemo(() => buildFolderFindGroups(exportTree, props.pages, findQuery, props.folder.title, props.folder.path), [exportTree, findQuery, props.folder.path, props.folder.title, props.pages]);
+  const findCount = findGroups.reduce((total, group) => total + group.pages.reduce((subtotal, page) => subtotal + page.matches.length, 0), 0);
 
   function commitTitle() {
     const next = title.trim();
@@ -213,9 +274,20 @@ function FolderView(props: Props) {
   }
 
   return (
-    <section className="folder-view" aria-label={`Folder ${props.folder.title}`}>
+    <section className="folder-view-shell" aria-label={`Folder ${props.folder.title}`}>
+      <div aria-label={`Folder ${props.folder.title}`} className="folder-view">
       <header className="folder-view-header">
-        <div className="folder-view-eyebrow"><p>{props.folder.path || "Pages"}</p><button disabled={props.isBusy} onClick={() => setIsExportOpen(true)} type="button">Export folder</button></div>
+        <div className="folder-view-eyebrow">
+          <TreeLocation
+            currentKind="folder"
+            disabled={props.isBusy}
+            onNavigateFolder={props.onOpenFolder}
+            onUp={props.folder.path ? () => props.onOpenFolder(directParent(props.folder.path)) : undefined}
+            path={props.folder.path}
+            projectName={props.projectName}
+            upTitle={`Go up to ${directParent(props.folder.path) || "Pages"}`}
+          />
+        </div>
         <input
           aria-label="Folder title"
           disabled={props.isBusy}
@@ -282,7 +354,7 @@ function FolderView(props: Props) {
                   {isEditing && props.loadErrors[path] ? <p className="folder-inline-state error">{props.loadErrors[path]}</p> : null}
                   {isEditing && buffer ? (
                     <div className="folder-document-editor">
-                      <InlineFolderEditor buffer={buffer} isBusy={props.isBusy} pages={props.pages} spellCheck={props.spellCheck} onChangeSource={(source) => props.onChangeSource(path, source)} />
+                      <InlineFolderEditor buffer={buffer} isBusy={props.isBusy} pages={props.pages} spellCheck={props.spellCheck} onChangeSource={(source, nativeSection) => props.onChangeSource(path, source, nativeSection)} />
                       {buffer.error ? <p className="folder-inline-state error">{buffer.error}</p> : null}
                     </div>
                   ) : null}
@@ -305,6 +377,22 @@ function FolderView(props: Props) {
           <section className="folder-issues"><span>Folder issues</span>{props.folder.issues.map((issue) => <p key={`${issue.name}:${issue.message}`}><strong>{issue.name}</strong>{issue.message}</p>)}</section>
         ) : null}
       </div>
+      </div>
+      {isFindOpen ? (
+        <aside aria-label="Find in folder" className="folder-find-drawer">
+          <header><div><small>Find in folder</small><strong>{props.folder.title}</strong></div><button aria-label="Close find" onClick={() => setIsFindOpen(false)} type="button">×</button></header>
+          <label><span>Search</span><input autoFocus onChange={(event) => setFindQuery(event.currentTarget.value)} placeholder="Find text in this folder" value={findQuery} /></label>
+          <p className="folder-find-count">{findQuery ? `${findCount} ${findCount === 1 ? "match" : "matches"}` : "Type to search every page in export order."}</p>
+          <div className="folder-find-results">
+            {findQuery && !findCount ? <p>No matches in this folder.</p> : null}
+            {findGroups.map((group) => <section key={group.path}><header><strong>{group.title}</strong><code>{group.path || "Pages"}</code></header>{group.pages.map((page) => <div className="folder-find-page" key={page.path}><button onClick={() => props.onOpenPage(page.path)} type="button"><strong>{page.title}</strong><small>{page.matches.length} {page.matches.length === 1 ? "match" : "matches"}</small></button>{page.matches.map((snippet, index) => <p key={`${page.path}:${index}`}>{snippet}</p>)}</div>)}</section>)}
+          </div>
+        </aside>
+      ) : null}
+      <footer className="document-status-bar folder-status-bar">
+        <div><span>{folderWords.toLocaleString()} words</span><span>{folderCharacters.toLocaleString()} characters</span><span>{scopedPages.length.toLocaleString()} pages</span></div>
+        <div className="document-status-actions"><button aria-pressed={isFindOpen} onClick={() => setIsFindOpen((open) => !open)} type="button">Find</button><button disabled={props.isBusy} onClick={() => setIsExportOpen(true)} type="button">Export</button><BorealisTrigger isOpen={props.borealisOpen} isWorkspace={props.borealisWorkspace} onClick={props.onToggleBorealis} /><button aria-pressed={props.focusMode} onClick={props.onToggleFocus} type="button">{props.focusMode ? "Exit focus" : "Focus"}</button></div>
+      </footer>
       {isExportOpen ? <FolderExportDialog folder={props.folder} folders={props.folders} pages={props.pages} onClose={() => setIsExportOpen(false)} onExport={props.onExport} /> : null}
       {createKind ? (
         <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setCreateKind(null)}>

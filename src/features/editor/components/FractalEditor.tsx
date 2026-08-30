@@ -4,6 +4,7 @@ import type {
   FractalIframe,
   FractalIframeBacklink,
   FractalLink,
+  FractalNativeSection,
   FractalPage,
   FractalPageKind
 } from "@/lib/fractal/types";
@@ -31,12 +32,15 @@ type FractalEditorProps = {
   links: FractalLink[];
   pages: FractalPage[];
   pagePath: string;
+  projectName: string;
   source: string;
   spellCheck: boolean;
   wordGoal: number;
-  onChangeSource: (source: string) => void;
+  onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (pagePath: string) => void;
+  onOpenFolder: (folderPath: string) => void;
+  onRepair: () => void;
   onSave: () => void;
   onToggleFocus: () => void;
   onToggleBorealis: () => void;
@@ -69,7 +73,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { aiSettings, backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onSave, onToggleBorealis, onToggleFocus } = props;
+  const { aiSettings, backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onSave, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
@@ -130,7 +134,8 @@ function FractalEditor(props: FractalEditorProps) {
       onChangeSource(source.replace(pattern, replacement));
       setIsSourceMode(true);
     } else {
-      onChangeSource(replaceDocumentText(source, findQuery, replacement, true));
+      const next = replaceDocumentText(source, findQuery, replacement, true);
+      onChangeSource(next, { section: "content", value: readEditablePage(next).bodyHtml });
     }
     setCurrentMatch(0);
   }
@@ -214,6 +219,7 @@ function FractalEditor(props: FractalEditorProps) {
               <p>{protection.copy}</p>
               <ul>{protection.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
               <small>{pagePath}</small>
+              {pageInspection?.structuralIssues.length ? <button className="primary-action" disabled={isBusy} onClick={onRepair} type="button">Repair document structure</button> : null}
             </div>
           </section>
         ) : kind === "native" ? (
@@ -222,10 +228,12 @@ function FractalEditor(props: FractalEditorProps) {
             isBusy={isBusy}
             pagePath={pagePath}
             pages={pages}
+            projectName={projectName}
             spellCheck={spellCheck}
             title={page.title}
-            onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading))}
-            onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading))}
+            onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading), { section: "content", value: bodyHtml })}
+            onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading), { section: "title", value: title })}
+            onOpenFolder={onOpenFolder}
             onToggleInspector={() => setIsInspectorOpen((open) => !open)}
           />
         ) : isSourceMode ? (

@@ -264,3 +264,16 @@ select option:checked {
     transition-duration: 0.01ms !important;
   }
 }
+.tree-location { display: flex; min-width: 0; align-items: center; gap: 5px; color: var(--project-accent); font: 750 .62rem/1.3 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+.tree-location ol { display: flex; min-width: 0; align-items: center; margin: 0; overflow: hidden; padding: 0; list-style: none; }
+.tree-crumb { display: flex; min-width: 0; align-items: center; }
+.tree-crumb + .tree-crumb::before { flex: 0 0 auto; margin: 0 7px; color: var(--project-border); content: "/"; }
+.tree-crumb button, .tree-crumb span { display: block; min-width: 0; overflow: hidden; color: inherit; font: inherit; letter-spacing: inherit; text-overflow: ellipsis; text-transform: inherit; white-space: nowrap; }
+.tree-crumb button { border-bottom: 1px solid transparent; }
+.tree-crumb button:hover:not(:disabled), .tree-crumb button:focus-visible { outline: 0; border-color: currentColor; color: var(--project-accent-strong); }
+.tree-crumb button:disabled { cursor: default; opacity: .45; }
+.tree-crumb.ellipsis { flex: 0 0 auto; color: var(--project-subtle); }
+.tree-crumb.current { color: var(--project-accent-strong); }
+.tree-go-up { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 0; border-radius: var(--radius-xs); color: var(--project-muted); }
+.tree-go-up:hover:not(:disabled), .tree-go-up:focus-visible { outline: 0; background: color-mix(in srgb, var(--project-accent) 10%, transparent); color: var(--project-accent-strong); }
+.tree-go-up:disabled { cursor: default; opacity: .35; }
