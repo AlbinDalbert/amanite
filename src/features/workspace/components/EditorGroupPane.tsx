@@ -1,5 +1,4 @@
 import type { DragEvent } from "react";
-import Icon from "@/components/ui/Icon";
 import BorealisChat from "@/features/ai-chat/components/AiChat";
 import DocumentLoadingPreview from "@/features/editor/components/DocumentLoadingPreview";
 import FractalEditor from "@/features/editor/components/FractalEditor";
@@ -11,10 +10,7 @@ import type { DocumentBuffer } from "../useWorkspaceDocuments";
 import { folderPathFromTabId, isFolderTab } from "../folderTabs";
 import { BOREALIS_TAB_ID, type EditorGroup, type EditorGroupId } from "../workspaceGroups";
 import FolderView from "./FolderView";
-
-export const WORKSPACE_TAB_MIME = "application/x-amanite-workspace-tab";
-
-export type DraggedWorkspaceTab = { groupId: EditorGroupId; path: string };
+import { WORKSPACE_TAB_MIME, type DraggedWorkspaceTab } from "./WorkspaceTabs";
 
 type Props = {
   aiSettings: AiSettings;
@@ -99,71 +95,6 @@ function EditorGroupPane(props: Props) {
       onDrop={(event) => acceptDrop(event)}
       onPointerDownCapture={props.onActivate}
     >
-      <header className="editor-group-header">
-        <span className="editor-group-label">{group.id}</span>
-        <div aria-label={`${group.id} editor tabs`} className="editor-group-tabs" role="tablist">
-          {group.tabs.map((path, index) => {
-            const borealis = path === BOREALIS_TAB_ID;
-            const folderPath = folderPathFromTabId(path);
-            const tabFolder = folderPath == null ? undefined : props.project.folders.find((candidate) => candidate.path === folderPath);
-            const tabPage = props.project.pages.find((candidate) => candidate.path === path);
-            const tabBuffer = props.buffers[path];
-            const active = path === group.activePath;
-            const title = borealis ? "Borealis" : tabFolder?.title || tabPage?.title?.trim() || path;
-            return (
-              <div
-                className={`editor-group-tab${borealis ? " borealis" : ""}${tabFolder ? " folder" : ""} ${active ? "active" : ""}${tabBuffer?.conflict ? " conflict" : ""}`}
-                draggable={!borealis || group.id === "right" || group.tabs.length > 1}
-                key={path}
-                onDragEnd={props.onDragEnd}
-                onDragOver={(event) => {
-                  if (event.dataTransfer.types.includes(WORKSPACE_TAB_MIME)) event.preventDefault();
-                }}
-                onDragStart={(event) => {
-                  const tab = { groupId: group.id, path };
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(WORKSPACE_TAB_MIME, JSON.stringify(tab));
-                  props.onDragStart(tab);
-                }}
-                onDrop={(event) => acceptDrop(event, index)}
-              >
-                <button
-                  aria-selected={active}
-                  onClick={() => props.onSelectTab(group.id, path)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                    event.preventDefault();
-                    const direction = event.key === "ArrowLeft" ? -1 : 1;
-                    const nextIndex = Math.max(0, Math.min(index + direction, group.tabs.length - 1));
-                    if (nextIndex === index) return;
-                    const nextPath = group.tabs[nextIndex];
-                    if (event.altKey && event.shiftKey) props.onDropTab({ groupId: group.id, path }, group.id, nextIndex);
-                    else props.onSelectTab(group.id, nextPath);
-                    const tablist = event.currentTarget.closest("[role='tablist']");
-                    requestAnimationFrame(() => {
-                      const tabs = tablist?.querySelectorAll<HTMLButtonElement>("button[role='tab']");
-                      tabs?.[nextIndex]?.focus();
-                    });
-                  }}
-                  role="tab"
-                  tabIndex={active ? 0 : -1}
-                  title={borealis ? "Borealis chat" : folderPath != null ? folderPath || "Pages" : path}
-                  type="button"
-                >
-                  {borealis ? <span className="editor-group-tab-borealis-mark" aria-hidden="true"><i /><i /><i /></span> : null}
-                  <span className="editor-group-tab-title">{title}</span>
-                  {!borealis && !tabFolder ? <span className={`editor-group-tab-state${tabBuffer?.dirty ? " dirty" : ""}${tabBuffer?.conflict ? " conflict" : ""}`} aria-label={tabBuffer?.conflict ? "Changed on disk" : tabBuffer?.dirty ? "Unsaved" : "Saved"} /> : null}
-                </button>
-                {group.id === "left" && (!borealis || group.tabs.length > 1) ? <button aria-label={`Open ${title} in right group`} className="editor-group-tab-split" onClick={() => props.onSplitTab(group.id, path)} title="Open in right group" type="button"><Icon name="split" size={13} /></button> : null}
-                <button aria-label={`Close ${title}`} className="editor-group-tab-close" onClick={() => props.onCloseTab(group.id, path)} type="button"><Icon name="close" size={13} /></button>
-              </div>
-            );
-          })}
-        </div>
-        <span className="editor-group-count">{group.tabs.length}</span>
-        {props.onCloseGroup ? <button aria-label={`Close ${group.id} editor group`} className="editor-group-close" onClick={props.onCloseGroup} title="Close editor group" type="button"><Icon name="close" size={14} /></button> : null}
-      </header>
-
       <div className="editor-group-body">
         {group.tabs.map((path) => {
           const active = path === group.activePath;

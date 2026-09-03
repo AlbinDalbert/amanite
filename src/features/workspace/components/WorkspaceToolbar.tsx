@@ -1,5 +1,6 @@
 import WindowControls, { handleWindowDragMouseDown } from "@/components/ui/WindowControls";
 import Icon from "@/components/ui/Icon";
+import type { ReactNode } from "react";
 
 type WorkspaceToolbarProps = {
   activeGroupLabel: string;
@@ -12,6 +13,7 @@ type WorkspaceToolbarProps = {
   onForward: () => void;
   onOpenQuick: () => void;
   onToggleSidebar: () => void;
+  tabs: ReactNode;
 };
 
 function WorkspaceToolbar(props: WorkspaceToolbarProps) {
@@ -24,10 +26,8 @@ function WorkspaceToolbar(props: WorkspaceToolbarProps) {
         <button disabled={!props.canGoForward} onClick={props.onForward} title={`Forward in ${props.activeGroupLabel}`} type="button"><Icon name="arrow-right" /></button>
         <button onClick={props.onOpenQuick} title={`Quick open in ${props.activeGroupLabel} (Ctrl+P)`} type="button"><Icon name="search" /></button>
       </div>
-      <div className="workspace-focus-readout"><i /><span>{props.activeGroupLabel} group</span></div>
-      <div className="workspace-save-controls">
-        <span aria-live="polite" className={`save-state ${props.isSaving ? "saving" : props.dirtyCount ? "unsaved" : "saved"}`}><i aria-hidden="true" />{saveLabel}</span>
-      </div>
+      <div className="workspace-tabs">{props.tabs}</div>
+      <span aria-live="polite" className={`workspace-save-status save-state ${props.isSaving ? "saving" : props.dirtyCount ? "unsaved" : "saved"}`}>{saveLabel}</span>
       <WindowControls onCloseRequest={props.onCloseRequest} />
     </header>
   );

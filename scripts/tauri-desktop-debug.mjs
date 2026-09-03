@@ -380,6 +380,14 @@ async function takeScreenshot(driver, screenshotsDir, name) {
 }
 
 async function runSmoke(driver, screenshotsDir, projectRoot) {
+  async function openRootExplorerMenu() {
+    await driver.executeScript(`
+      const explorer = document.querySelector('.file-explorer-surface');
+      explorer?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
+    `);
+    await driver.find(".file-context-menu");
+  }
+
   await driver.find("body");
   await driver.executeScript(`localStorage.removeItem("amanite.last-session.v1");`);
   await driver.refresh();
@@ -409,6 +417,23 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".create-page-dialog .primary-action");
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
   await takeScreenshot(driver, screenshotsDir, "02-workspace");
+  const compactSidebarState = await driver.executeScript(`
+    const notifications = document.querySelector('.workspace-status-stack');
+    const formatting = document.querySelector('.rich-editor-header');
+    return {
+      actions: Boolean(document.querySelector('.explorer-header')),
+      filter: Boolean(document.querySelector('.sidebar-filter')),
+      notificationLayer: Number(getComputedStyle(notifications).zIndex),
+      formattingLayer: Number(getComputedStyle(formatting).zIndex)
+    };
+  `);
+  if (compactSidebarState.actions || compactSidebarState.filter || compactSidebarState.notificationLayer <= compactSidebarState.formattingLayer) {
+    throw new Error(`Sidebar cleanup or notification layering regressed: ${JSON.stringify(compactSidebarState)}`);
+  }
+  await driver.click(".brand-home");
+  await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
+  await driver.click('[title="index.fractal.html"]');
+  await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
 
   const borealisPlacement = await driver.executeScript(`return document.querySelector('.ai-chat-trigger')?.parentElement?.className;`);
   if (borealisPlacement !== "document-status-actions") {
@@ -422,26 +447,27 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   }
   await takeScreenshot(driver, screenshotsDir, "02a-borealis");
   await driver.click('.ai-chat-header button[aria-label="Open Borealis in the workspace"]');
-  await driver.find('.editor-group[data-group-id="left"] .editor-group-tab.borealis.active');
+  await driver.find('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.borealis.active');
   await driver.find('.borealis-tab-panel .ai-chat-workspace');
   const staleBorealisTooltip = await driver.executeScript(`return Boolean(document.querySelector('.themed-tooltip'));`);
   if (staleBorealisTooltip) throw new Error("The Borealis maximize tooltip remained after the popover closed.");
   await takeScreenshot(driver, screenshotsDir, "02b-borealis-tab");
 
-  await driver.click('.editor-group[data-group-id="left"] .editor-group-tab.borealis .editor-group-tab-split');
-  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.borealis.active');
-  await driver.click('.editor-group[data-group-id="left"] .editor-group-tab:not(.borealis) button[role="tab"]');
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.borealis .editor-group-tab-split');
+  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.borealis.active');
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab:not(.borealis) button[role="tab"]');
   await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
   const focusedBorealisGroup = await driver.executeScript(`return document.querySelector('.editor-group[data-group-id="right"]')?.classList.contains('focused');`);
   if (!focusedBorealisGroup) throw new Error("The footer Borealis button did not focus its workspace tab.");
   await takeScreenshot(driver, screenshotsDir, "02c-borealis-split");
 
-  await driver.click('.editor-group[data-group-id="right"] .editor-group-tab.borealis .editor-group-tab-close');
+  await driver.click('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.borealis .editor-group-tab-close');
   await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
   await driver.find('.ai-chat-panel:not(.ai-chat-workspace)');
   await driver.click('.ai-chat-header button[title="Close Borealis"]');
 
-  await driver.click('.explorer-header button[title="Create folder"]');
+  await openRootExplorerMenu();
+  await driver.click(".file-context-menu button:nth-of-type(2)");
   await driver.setValue('.create-page-dialog input', "Field Notes");
   await driver.click('.create-page-dialog .primary-action');
   await driver.find('.explorer-row.folder[title="field-notes"]', 30_000);
@@ -544,7 +570,8 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     throw new Error(`Folder edit did not reach the child page: ${folderEdit}`);
   }
 
-  await driver.click('.explorer-header button[title="Create page"]');
+  await openRootExplorerMenu();
+  await driver.click(".file-context-menu button:first-of-type");
   await driver.setValue(".create-page-dialog input", "My file");
   await driver.click(".create-page-dialog .primary-action");
   await driver.find('[title="my-file.fractal.html"]', 30_000);
@@ -603,14 +630,15 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
 
   for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) {
-    await driver.click('.explorer-header button[title="Create page"]');
+    await openRootExplorerMenu();
+    await driver.click(".file-context-menu button:first-of-type");
     await driver.setValue(".create-page-dialog input", title);
     await driver.click(".create-page-dialog .primary-action");
     await driver.find(`[title="${title.toLowerCase()}.fractal.html"]`, 30_000);
   }
 
   await driver.executeScript(`
-    const tab = document.querySelector('.editor-group[data-group-id="left"] [title="index.fractal.html"]')?.closest('.editor-group-tab');
+    const tab = document.querySelector('.workspace-tab-strip[data-group-id="left"] [title="index.fractal.html"]')?.closest('.editor-group-tab');
     const transfer = new DataTransfer();
     window.__amaniteSmokeTransfer = transfer;
     tab?.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
@@ -622,22 +650,22 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     target?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     target?.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
   `);
-  await driver.find('.editor-groups.split .editor-group[data-group-id="right"] [title="index.fractal.html"]', 30_000);
+  await driver.find('.workspace-tab-strip[data-group-id="right"] [title="index.fractal.html"]', 30_000);
 
   await driver.executeScript(`
-    const tab = document.querySelector('.editor-group[data-group-id="left"] [title="my-file.fractal.html"]')?.closest('.editor-group-tab');
-    const target = document.querySelector('.editor-group[data-group-id="right"] .editor-group-tabs');
+    const tab = document.querySelector('.workspace-tab-strip[data-group-id="left"] [title="my-file.fractal.html"]')?.closest('.editor-group-tab');
+    const target = document.querySelector('.workspace-tab-strip[data-group-id="right"] .editor-group-tabs');
     const transfer = new DataTransfer();
     tab?.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     target?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     target?.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     tab?.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
   `);
-  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
+  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
   const groupCounts = await driver.executeScript(`
     return {
-      left: document.querySelectorAll('.editor-group[data-group-id="left"] .editor-group-tab').length,
-      right: document.querySelectorAll('.editor-group[data-group-id="right"] .editor-group-tab').length
+      left: document.querySelectorAll('.workspace-tab-strip[data-group-id="left"] .editor-group-tab').length,
+      right: document.querySelectorAll('.workspace-tab-strip[data-group-id="right"] .editor-group-tab').length
     };
   `);
   if (groupCounts.left < 4 || groupCounts.right !== 2) throw new Error(`Unexpected editor group tab counts: ${JSON.stringify(groupCounts)}`);
@@ -651,13 +679,13 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
   await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
   await driver.setValue('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', "Written in the right editor group.");
-  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab-state.dirty');
+  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab-state.dirty');
   await takeScreenshot(driver, screenshotsDir, "04b-split-pane");
   await driver.ctrlW();
-  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="index.fractal.html"]', 30_000);
+  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="index.fractal.html"]', 30_000);
   await driver.ctrlShiftT();
-  await driver.find('.editor-group[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
-  await driver.click('.editor-group[data-group-id="right"] .editor-group-close');
+  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
+  await driver.click('.workspace-tab-strip[data-group-id="right"] .editor-group-close');
   await driver.find(".editor-groups:not(.split)", 30_000);
   await takeScreenshot(driver, screenshotsDir, "04c-split-pane-closed");
 
@@ -699,7 +727,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".editor-tab-panel.active .document-status-bar button:last-child");
   await driver.find(".app-shell:not(.focus-mode)");
 
-  const editedPath = await driver.executeScript(`return document.querySelector('.editor-group.focused .editor-group-tab.active button[title]')?.getAttribute('title');`);
+  const editedPath = await driver.executeScript(`return document.querySelector('.workspace-tab-strip.focused .editor-group-tab.active button[title]')?.getAttribute('title');`);
   if (!editedPath) throw new Error("Focused editor group did not expose an active tab.");
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved during a page switch.");
   await driver.find(".save-state.unsaved");

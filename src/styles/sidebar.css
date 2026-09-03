@@ -24,16 +24,18 @@
 
 .brand {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 56px;
-  padding: 0 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-accent) 10%, transparent);
+  padding: 0 0 8px;
 }
-.brand > button { min-height: 26px; border: 1px solid transparent; color: var(--app-subtle); padding: 0 7px; font: 750 .56rem/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
-.brand > button:hover { color: var(--app-accent-strong); }
-
-.brand h1 {
+.brand-home { display: grid; min-width: 0; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid transparent; padding: 7px; text-align: left; }
+.brand-home > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.brand-home:hover, .brand-home:focus-visible { outline: none; border-color: color-mix(in srgb, var(--app-border-strong) 70%, transparent); background: var(--sidebar-hover); }
+.brand-home.active { color: var(--app-accent-strong); }
+.brand-home strong {
   color: var(--app-text);
   font-family: var(--font-display);
   font-size: 1.04rem;
@@ -42,8 +44,8 @@
   line-height: 1;
   text-transform: uppercase;
 }
-
-.brand p {
+.brand-home small {
+  display: block;
   max-width: 155px;
   overflow: hidden;
   color: var(--app-muted);
@@ -53,43 +55,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.explorer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid color-mix(in srgb, var(--app-accent) 11%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--app-accent) 7%, transparent);
-  padding: 9px 7px;
-  color: var(--app-muted);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.explorer-header button {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border: 1px solid transparent;
-  color: var(--app-muted);
-}
-.explorer-header-actions { display: flex; align-items: center; gap: 2px; }
-
-.explorer-header button:hover {
-  border-color: color-mix(in srgb, var(--app-border-strong) 70%, transparent);
-  background: var(--sidebar-hover);
-  color: var(--app-accent-strong);
-}
-.explorer-header .explorer-root-open { width: auto; max-width: calc(100% - 88px); justify-content: start; overflow: hidden; color: var(--app-muted); padding: 0 5px; text-overflow: ellipsis; white-space: nowrap; }
-.explorer-header .explorer-root-open.active { color: var(--app-accent-strong); box-shadow: inset 0 -1px 0 var(--app-accent); }
-
-.sidebar-filter { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--sidebar-background) 78%, var(--app-panel)); color: var(--app-subtle); padding: 0 8px; transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease; }
-.sidebar-filter input { min-width: 0; min-height: 34px; border: 0; outline: none; background: transparent; color: var(--app-text); font: .7rem/1 var(--font-body); }
-.sidebar-filter:focus-within { border-color: color-mix(in srgb, var(--app-accent) 62%, var(--app-border)); background: var(--app-panel); color: var(--app-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 7%, transparent); }
+.brand-projects { min-height: 26px; border: 1px solid transparent; color: var(--app-subtle); padding: 0 7px; font: 750 .56rem/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.brand-projects:hover, .brand-projects:focus-visible { outline: none; color: var(--app-accent-strong); }
 
 .file-explorer {
   flex: 1;

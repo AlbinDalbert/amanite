@@ -24,9 +24,10 @@ import {
   type WorkspaceGroups
 } from "../workspaceGroups";
 import CommandStatus from "./CommandStatus";
-import EditorGroupPane, { type DraggedWorkspaceTab } from "./EditorGroupPane";
+import EditorGroupPane from "./EditorGroupPane";
 import Sidebar from "./Sidebar";
 import WorkspaceToolbar from "./WorkspaceToolbar";
+import WorkspaceTabs, { type DraggedWorkspaceTab } from "./WorkspaceTabs";
 
 type ProjectMutation = Promise<FractalProject | null | undefined>;
 
@@ -219,14 +220,6 @@ function Workspace(props: WorkspaceProps) {
     documents.publishProject(next);
     await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
   }, [documents.publishProject, documents.saveAll, openInGroup, props.onCreatePage]);
-
-  const importPage = useCallback(async (source: string, folderPath?: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = await props.onImportNativePage(source, folderPath);
-    if (!next?.activePagePath) return;
-    documents.publishProject(next);
-    await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
-  }, [documents.publishProject, documents.saveAll, openInGroup, props.onImportNativePage]);
 
   const repairPage = useCallback(async (path: string) => {
     if (!(await documents.saveAll())) return;
@@ -518,7 +511,6 @@ function Workspace(props: WorkspaceProps) {
         onDeleteFolder={(path) => { void deleteFolder(path); }}
         onDeletePage={(path) => { void deletePage(path); }}
         onDuplicatePage={(path) => { void duplicatePage(path); }}
-        onImportNativePage={(source, folder) => { void importPage(source, folder); }}
         onMovePage={(path, destination) => { void movePage(path, destination); }}
         onOpenSettings={() => void openSettings()}
         onResizeReset={() => setSidebarWidth(244)}
@@ -540,6 +532,41 @@ function Workspace(props: WorkspaceProps) {
           onForward={() => setGroups((current) => navigateGroupHistory(current, current.activeGroupId, 1))}
           onOpenQuick={() => setQuickOpen(true)}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          tabs={(
+            <>
+              <WorkspaceTabs
+                buffers={documents.buffers}
+                draggedTab={draggedTab}
+                focused={groups.activeGroupId === "left"}
+                group={groups.left}
+                project={documents.project}
+                onActivate={() => setGroups((current) => activateGroup(current, "left"))}
+                onCloseTab={paneProps.onCloseTab}
+                onDragEnd={paneProps.onDragEnd}
+                onDragStart={paneProps.onDragStart}
+                onDropTab={paneProps.onDropTab}
+                onSelectTab={paneProps.onSelectTab}
+                onSplitTab={paneProps.onSplitTab}
+              />
+              {groups.right ? (
+                <WorkspaceTabs
+                  buffers={documents.buffers}
+                  draggedTab={draggedTab}
+                  focused={groups.activeGroupId === "right"}
+                  group={groups.right}
+                  project={documents.project}
+                  onActivate={() => setGroups((current) => activateGroup(current, "right"))}
+                  onCloseGroup={() => void closeRightGroup()}
+                  onCloseTab={paneProps.onCloseTab}
+                  onDragEnd={paneProps.onDragEnd}
+                  onDragStart={paneProps.onDragStart}
+                  onDropTab={paneProps.onDropTab}
+                  onSelectTab={paneProps.onSelectTab}
+                  onSplitTab={paneProps.onSplitTab}
+                />
+              ) : null}
+            </>
+          )}
         />
         <div className="workspace-status-stack" aria-live="polite">
           <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />

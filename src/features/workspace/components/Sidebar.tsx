@@ -18,7 +18,6 @@ type SidebarProps = {
   onDeletePage: (pagePath: string) => void;
   onDeleteFolder: (folderPath: string) => void;
   onDuplicatePage: (pagePath: string) => void;
-  onImportNativePage: (source: string, folderPath?: string) => void;
   onMovePage: (pagePath: string, destination: string) => void;
   onOpenSettings: () => void;
   onSelectPage: (pagePath: string) => void;
@@ -36,10 +35,8 @@ function Sidebar(props: SidebarProps) {
   const [createFolderParent, setCreateFolderParent] = useState<string | null>(null);
   const [movePath, setMovePath] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
-  const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isCreateDialogOpen = createTitle !== null;
-  const rootFolder = props.folders.find((folder) => folder.path === "");
 
   useEffect(() => {
     if (!isCreateDialogOpen && createFolderName === null && movePath === null) return;
@@ -72,32 +69,23 @@ function Sidebar(props: SidebarProps) {
 
   function startCreatePage(folder?: string) { setCreateParent(folder ?? null); setCreateTitle("Untitled"); }
   function startCreateFolder(folder?: string) { setCreateFolderParent(folder ?? null); setCreateFolderName("New folder"); }
-  function importDocument(folder?: string) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".fractal.html,text/html";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".fractal.html")) return;
-      void file.text().then((source) => props.onImportNativePage(source, folder));
-    };
-    input.click();
-  }
-
   return (
     <aside className="sidebar" aria-label="File explorer">
       <div aria-label="Resize page explorer" className="sidebar-resize-handle" onDoubleClick={props.onResizeReset} onPointerDown={props.onResizeStart} role="separator" />
-      <div className="brand"><span className={`brand-mark logo-${props.logoMark}`} aria-hidden="true"><i /></span><div><h1>Amanite</h1><p>{props.projectName}</p></div><button onClick={props.onCloseProject} title="Close project" type="button">Projects</button></div>
-      <div className="explorer-header"><button className={props.activeFolderPath === "" ? "explorer-root-open active" : "explorer-root-open"} onClick={() => props.onSelectFolder("")} title="Open the pages folder" type="button">{rootFolder?.title || "Pages"}</button><div className="explorer-header-actions"><button disabled={props.isBusy} onClick={() => importDocument()} title="Import .fractal.html" type="button"><Icon name="upload" size={15} /></button><button disabled={props.isBusy} onClick={() => startCreateFolder()} title="Create folder" type="button"><Icon name="folder-plus" size={16} /></button><button disabled={props.isBusy} onClick={() => startCreatePage()} title="Create page" type="button"><Icon name="file-plus" size={16} /></button></div></div>
-      <label className="sidebar-filter"><Icon name="search" size={14} /><input aria-label="Filter pages" onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Filter pages" value={filter} /></label>
+      <div className="brand">
+        <button className={props.activeFolderPath === "" ? "brand-home active" : "brand-home"} onClick={() => props.onSelectFolder("")} title="Open project pages" type="button">
+          <span className={`brand-mark logo-${props.logoMark}`} aria-hidden="true"><i /></span>
+          <span><strong>Amanite</strong><small>{props.projectName}</small></span>
+        </button>
+        <button className="brand-projects" onClick={props.onCloseProject} title="Close project" type="button">Projects</button>
+      </div>
       <nav className="file-explorer" aria-label="Project files">
         <FileExplorer
           activePagePath={props.activePagePath}
           activeFolderPath={props.activeFolderPath}
           isBusy={props.isBusy}
           folders={props.folders}
-          pages={filter.trim() ? props.pages.filter((page) => `${page.title ?? ""} ${page.path} ${page.text}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())) : props.pages}
+          pages={props.pages}
           onCreateFolder={startCreateFolder}
           onCreatePage={startCreatePage}
           onDeletePage={props.onDeletePage}
