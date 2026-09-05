@@ -1,138 +1,104 @@
-# Amanite code roast
+# Amanite and Fractal review
 
-Reviewed 2026-08-26. This review includes the current worktree, including the uncommitted changes in `README.md`, `src-tauri/capabilities/default.json`, and `src/app/App.tsx`. No `CONTEXT.md` exists.
+Reviewed 2026-09-03 against Amanite `0afae9a`, its locked Fractal dependency `1974c93`, and Fractal `ba5cabf`.
 
 ## Verdict
 
-**Tag line: The save path is careful. The edges still leak state.**
+Amanite has crossed out of prototype territory. The persistence design is thoughtful, the real desktop smoke test covers meaningful behavior, and the folder view gives the product a character that Obsidian does not have by default.
 
-Amanite has a good core design for a small local editor. Fractal remains the file owner. Open documents have one buffer per path. Conditional writes, recovery drafts, and the real desktop smoke path are all better than the usual editor prototype.
+It is not ready to ask for unconditional trust yet. The remaining problems sit exactly where users notice them most: recovery storage is best effort, some mutations make the frontend guess what Fractal did, opening a project can silently rename or rewrite files, and the Fractal revision currently locked by Amanite predates a known folder-rename transaction fix.
 
-The weak spots are concrete, not architectural doom. Page moves do not use Fractal's normalized destination, external links can be mistaken for local pages, and Borealis has search semantics that differ between saved and dirty pages. I would keep building on this code, but I would fix those before calling the workspace reliable.
+The next Amanite release should be a trust release, not another editor-feature release. Fractal can remain on an explicitly unstable v2 contract while that work happens. Its larger direction is dependable conversion into and out of Fractal projects, with validation and clear reports whenever a conversion cannot preserve something.
 
 ## Structure and maintainability
 
-The ownership split is mostly right. `useWorkspaceDocuments` owns buffers and persistence. `useFractalSession` owns the project snapshot and commands. The two editor groups share buffers instead of inventing a second draft for the same file. That is the right amount of machinery for two panes.
+The main ownership split is sound. Fractal owns files, validation, graph derivation, and mutations. Amanite owns editor buffers, save timing, recovery prompts, and presentation. One buffer per page across both editor groups is the right model.
 
-The Tauri adapter is now a large mixed-responsibility file. `src-tauri/src/lib.rs` contains the AI protocol, project catalog scanning, filesystem policy, Fractal commands, platform file-manager launching, and tests. It is still readable, so I would not split it into a framework for the sake of symmetry. Split the AI commands or filesystem helpers when the next change needs them.
+### Medium: mutation outcomes are inferred instead of returned as receipts
 
-### Low: dead loading state in document buffers
+Several Amanite flows compare snapshots or reuse user input to infer renamed paths. `Workspace.tsx` uses the requested destination after a page move even though Fractal may normalize it. Folder rename reconciliation searches for a matching title and reconstructs descendant paths.
 
-`DocumentBuffer.operation` permits `"load"` in `src/features/workspace/documents/documentBuffers.ts`, but loading is tracked by `loadingPaths` and no code assigns the `load` value. This gives future code a state that cannot occur.
+Smallest fix: make every Fractal mutation return a typed receipt with changed paths, deleted paths, old-to-new path mappings, committed hashes, and repairs. Have Amanite apply that receipt instead of rediscovering the result.
 
-Smallest fix: remove the unused variant. Keep `loadingPaths` as the one loading state owner.
+### Low: the Tauri adapter has become a second application layer
+
+`src-tauri/src/lib.rs` is 1,516 lines and owns catalog scanning, filesystem policy, import orchestration, AI HTTP calls, platform integration, DTO conversion, and command registration. It is still readable, but ownership is getting muddy.
+
+Smallest fix: split only the filesystem/catalog and AI adapter code. Keep Fractal command wrappers direct.
 
 ## Correctness and data integrity
 
-### Medium: page moves can leave tabs pointing at a path that Fractal never created
+### High: Amanite ships a Fractal revision from before the folder transaction fix
 
-The backend and Fractal normalize destinations. A native move from `index.fractal.html` to `notes/today` creates `notes/today.fractal.html`; a raw move gets `.html`. The UI still uses the raw input in `Workspace.tsx:252-254`:
+`src-tauri/Cargo.lock` pins Fractal at `1974c93`. That revision renames a folder first, then rewrites pages and metadata one by one. Its rollback only renames the directory back, so a later write failure can leave earlier rewrites committed. Fractal `ba5cabf` replaces this with the recoverable transaction path.
 
-```text
-renameGroupTab(path, destination)
-renameDocument(path, destination)
-reloadDocument(destination)
-```
+Smallest fix: update Amanite to a tested Fractal commit before trusting folder rename. Tracking `main` is reasonable during active development, but every distributed Amanite build should identify and test its exact Fractal revision.
 
-The result can be a tab with no buffer and a buffer under a path absent from `project.pages`. The same problem applies to an input beginning with `pages/`, which Fractal strips as a project-relative convenience.
+### Medium: project open is a hidden mutation
 
-Smallest fix: return the canonical changed path from `fractal_move_page`, then use that value for groups, buffers, drafts, and reloads. Add tests for omitted suffixes and the `pages/` prefix.
+`Project::open` calls `repair_title_paths`, and folder loading appends newly discovered children to stored order files. Opening after an external rename can therefore rename files and rewrite links before Amanite shows the project.
 
-### Medium: an external link can be hijacked by a page with the same path
+Smallest fix: keep transaction recovery automatic, but make title and order repair an explicit inspected operation. If automatic repair remains, return and display an open report listing every file changed.
 
-`resolveEditorLinkTarget` first honors Fractal's internal metadata, but if the metadata says `external` it falls through to generic URL resolution. A link such as `https://example.com/notes` becomes workspace navigation when the project contains `notes` as a page. `RichDocumentEditor.tsx:48-59` contains the fallback.
+### Medium: page move can desynchronize tabs and buffers
 
-Smallest fix: when Fractal has classified the href, return `null` for external, fragment, broken, and non-HTML file targets. Use the generic fallback only when metadata is absent or stale in a way that still proves the link is relative.
+Fractal accepts convenient destinations and normalizes suffixes and prefixes. `Workspace.tsx` renames tabs, buffers, and reloads with the unnormalized destination supplied by the user.
 
-### Medium: Borealis searches saved and dirty pages with different rules
+Smallest fix: use the resulting active path or, preferably, the mutation receipt. Test omitted suffixes and a leading `pages/`.
 
-`src/lib/ai/workspaceTools.ts:115-130` merges Fractal search results with a local search for dirty buffers. Fractal matches all whitespace-separated terms in title and text. The dirty-buffer branch searches for the whole query as one substring and also searches the path, which Fractal does not. It can therefore remove a saved match after an edit, or return a dirty path that the saved search would not return.
+### Medium: the advertised missing-file recovery action cannot recreate the file
 
-This produces plausible but incomplete AI answers. The tests cover reading dirty content, not search.
+Polling labels a deleted open file as conflicted and offers `Replace disk`. Both native force-save and raw writes expect the page to exist, so the action fails in the case where it is needed most.
 
-Smallest fix: use one shared term matcher for both branches. Either make both sides search paths or remove path matching from the dirty branch, then add tests for two-term queries and edits that remove a saved match.
+Smallest fix: show `Recreate page` for a missing target and add a create-from-buffer operation guarded by the last known page identity.
 
-### Medium: "Replace disk" cannot repair a page deleted outside Amanite
+### Medium: recovery drafts are silent best effort
 
-Polling correctly marks a missing page as a conflict, but the conflict UI still offers `Replace disk`. Force-save calls the raw or native section write path, and Fractal's write requires the page to already exist. The advertised recovery action fails for the missing-file case.
+Drafts live in webview `localStorage`. Full, unavailable, cleared, or migrated storage makes writes disappear without telling the user. This is acceptable as a convenience cache, not as the final crash-recovery story for long unsaved sessions.
 
-Smallest fix: label this case `Recreate page` and provide a create-or-replace command, or make the backend distinguish a missing target before showing the action.
-
-### Medium: import is a two-step mutation with an orphan window
-
-`fractal_import_native_page` creates a valid empty page, then writes the imported source. A crash or failed cleanup between those operations leaves the generated page behind even though the import reports failure. The rollback at `src-tauri/src/lib.rs:785-787` is best effort and its error is discarded.
-
-Smallest fix: add a Fractal operation that validates and creates the page in one locked transaction. Until then, report a cleanup failure and the orphan path instead of hiding it.
-
-## Failure handling and operability
-
-The normal save failure path is good. Failed conditional writes leave the buffer dirty, conflicts are visible, and `saveAll` blocks close and project mutations. Polling errors also get a visible notice instead of disappearing into a console.
-
-### Low: raw preview accumulates document event handlers
-
-`RenderedHtmlPage` adds `click` and `keydown` handlers inside every iframe load at lines 54-80, but its cleanup only removes the iframe's `load` handler at line 92. When the same preview reloads, old handlers remain attached to the iframe document. They retain stale page metadata and navigation callbacks.
-
-Smallest fix: keep the two handler functions in named variables and remove them in the effect cleanup, or replace the document listeners with one delegated handler owned by the frame.
-
-### Low: Borealis has no conversation size limit
-
-Every request sends the complete `conversationRef`, and every tool round appends more messages. A long session eventually sends a request too large for the selected model or spends most of its time resending old text. There is no cancellation or trim path in `AiChat.tsx:59-92`.
-
-Smallest fix: cap retained turns or characters and show a deliberate "start a new chat" state when the cap is reached. Do not add a general memory system until this limit is measured.
-
-### Low: folder creation bypasses the Fractal mutation boundary
-
-`fractal_create_folder` opens a project, drops the project lock, then calls `fs::create_dir_all` directly at `src-tauri/src/lib.rs:793-807`. A concurrent folder delete or project mutation can race with it. The path is also checked lexically, not canonically, so a symlink below `pages/` can send the directory creation outside the project.
-
-Smallest fix: give folder creation the same lock and containment check as other mutations. If Fractal has no folder-create method, add the smallest adapter helper rather than making raw filesystem writes another persistence path.
-
-## Security and trust boundaries
-
-The good news is that the dangerous parts are mostly constrained. Raw previews and native iframe nodes use a sandbox without script permission. External link handling allows only `http`, `https`, and `mailto`. AI page reads are limited to paths present in the current project catalog. The desktop app does not pretend to provide a remote authorization boundary.
-
-### Medium: the AI API key is stored as plaintext webview storage
-
-`useAiSettings` serializes the endpoint, model, and API key together in `localStorage` at `src/app/useAiSettings.ts:35`. Anyone who gets access to the app's webview profile, or any future script injection in the app origin, can read the key. This matters for users connecting a paid cloud endpoint, even though local server use is also supported.
-
-Smallest fix: store the key in the platform keychain and keep only a reference in settings. If that is too much for this release, do not persist the key and say so in the settings UI.
-
-### Low: CSP is disabled
-
-`src-tauri/tauri.conf.json:26` sets `csp` to `null`. There is no demonstrated exploit in the current UI, but this removes a useful barrier around future frontend changes and injected markup.
-
-Smallest fix: add the narrowest CSP that matches the built app, fonts, Tauri IPC, and sandboxed previews. Test it in the desktop smoke path rather than adding a permissive policy just to silence the finding.
+Smallest fix: atomically store recovery files in native app data with the base page hash and timestamp. Surface recovery health in the UI. They can remain temporary and do not need to become a second project format.
 
 ## Tests and verification
 
-Checks run:
+Current results:
 
-- `pnpm test`: 46 tests passed in 13 files.
-- `pnpm run build`: passed. Vite warns that the workspace chunk is 566.94 kB raw and 178.88 kB gzip.
-- `cargo test --manifest-path src-tauri/Cargo.toml`: 7 tests passed.
-- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`: failed on a formatting difference in the assistant-message validation block.
-- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`: failed on `items_after_test_module` and `large_enum_variant`.
-- `pnpm run tauri:webdriver:doctor`: passed.
-- `pnpm run tauri:webdriver:smoke`: passed through the full desktop flow, including saves, Borealis panes, conflicts, and draft recovery. The process then printed `free(): corrupted unsorted chunks` during shutdown. The app log only contained GTK theme warnings, so the native shutdown problem is not yet pinned to Amanite.
-- `git diff --check`: passed.
+- 67 frontend tests pass across 19 files.
+- The production frontend build passes.
+- 9 Amanite Rust tests pass.
+- 59 tests pass in the current Fractal checkout.
+- The real Tauri WebDriver smoke flow passes editing, saving, conflicts, split panes, folder editing, and draft recovery.
+- Amanite Clippy fails on `large_enum_variant` and `items_after_test_module`.
+- The desktop process prints `free(): corrupted unsorted chunks` after the smoke flow.
+- Amanite has no checked-in CI workflow.
 
-The suite gives useful confidence around pure editor logic, save queues, path helpers, and the main desktop path. It does not cover the move normalization bug, external-link collision, AI search merge, import rollback, symlink handling, permissions, or the close path changed in the current worktree. There is no CI configuration, so these checks are not enforced anywhere.
+The smoke test is unusually useful, but it is one broad happy path. It does not prove power-loss durability, repeated crash recovery, large projects, upgrade compatibility, move normalization, missing-file recreation, or packaged builds on all supported platforms.
 
-Smallest verification fix: add focused tests for the five correctness cases above, make formatting and Clippy pass, then put the existing commands into one CI job. Measure the large workspace chunk before splitting it. It may be acceptable for a small app, but the warning should be a conscious choice.
+Smallest fix: add CI for the existing checks, resolve the allocator message, then build a small reliability matrix with fault injection at write and rename boundaries. Keep permanent v1 fixtures and representative v2 fixtures so contract changes are intentional and visible even before v2 stabilizes.
 
-## What Amanite does well
+## Failure handling and operability
 
-- Fractal files stay the durable source of truth.
-- Conditional writes and content hashes protect ordinary external edits.
-- One buffer per path prevents split panes from creating competing drafts.
-- Recovery drafts contain complete HTML and clear only after a confirmed write.
-- Rich editing protects incompatible native documents instead of silently rewriting them.
-- The desktop smoke script exercises more than a screenshot. It checks actual save, navigation, conflict, split-pane, and recovery behavior.
+Normal concurrent editing is handled well. Section hashes allow disjoint native edits to merge, stale writes become visible conflicts, and save queues keep revisions that arrive during an in-flight write.
 
-## What was not verified
+What is missing is an inspectable account of what happened. There is no project health view, durable recovery inventory, recent mutation journal, backup workflow, or one-click verification after a suspicious shutdown. A user sees small save markers and transient notices but cannot ask, "Are all of my files safe right now?"
 
-- Release AppImage installation and startup.
-- Windows and macOS behavior.
-- Large projects and very large documents.
-- Screen-reader output and complete keyboard focus behavior.
-- Repeatable cause of the native shutdown allocator error.
-- Whether the current custom close and destroy flow behaves correctly with dirty pages in a packaged release build.
+Smallest fix: add a project health panel backed by Fractal. It should report format version, validation state, pending recovery drafts, last successful save, unfinished transaction recovery, and changed paths from the last mutation. This is more valuable now than another editor tool.
+
+## Security and trust boundaries
+
+Raw previews and native iframes are sandboxed, file paths are mostly contained, and AI reads are limited to the current catalog. Those are good boundaries.
+
+### Medium: the AI key and app origin need hardening
+
+The API key is persisted in `localStorage`, and Tauri CSP is disabled. A future frontend injection would be able to read a paid credential.
+
+Smallest fix: move the key to the OS keychain or require it per session, and add a tested CSP before expanding Borealis to write tools.
+
+## Product direction
+
+Fractal is the main adoption product. It should become dependable conversion software for structured documents and projects. Importers should produce valid Fractal candidates plus a loss report. Exporters should derive target files without changing the source project. Each format needs an explicit promise such as lossless, structure-preserving, or best effort.
+
+Do not begin with a universal converter framework. Implement two meaningfully different importers and exporters as direct engine operations, learn which concepts actually repeat, then extract the shared conversion types. Project-level assets, links, metadata, ordering, and unsupported constructs matter more than converting isolated text.
+
+Amanite is Fractal's reference application and proving ground. Its job is to make validation, recovery, conversion previews, and conversion reports understandable while remaining a strong editor. The folder view is still an important Amanite idea because it demonstrates Fractal's ordered project model, but Amanite does not need to compete for Obsidian users.
+
+Internal migrations between Fractal contract versions belong after a contract is ready to stabilize. During v2 development, permanent fixtures and explicit breaking-change notes are enough. Borealis should remain read-only until the trust work lands, then begin with cited suggestions and reviewable patches rather than invisible direct edits.
