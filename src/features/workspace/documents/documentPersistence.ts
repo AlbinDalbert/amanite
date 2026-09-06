@@ -1,6 +1,7 @@
 import { clearPageDraft } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
+import { mapPagePath, receiptMappings } from "@/lib/fractal/reconcile";
 import {
   errorMessage,
   type BufferUpdater,
@@ -52,7 +53,7 @@ function applySection(
 }
 
 type NativeSaveResult =
-  | { kind: "saved"; project: FractalProject; sent: FractalNativeSectionEdits }
+  | { kind: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
   | { kind: "conflict"; message: string };
 
 async function saveNativeDocument(
@@ -69,16 +70,18 @@ async function saveNativeDocument(
   if (!parts) throw new Error(`Fractal did not provide native document sections for ${buffer.path}.`);
 
   const sent: FractalNativeSectionEdits = {};
+  let resultingPath = buffer.path;
   for (const section of nativeSectionOrder) {
     const value = buffer.nativeEdits[section];
     if (value == null) continue;
     const result = await applySection(workingProject, section, value, sectionHash(parts, section));
     if (result.status === "conflict") return { kind: "conflict", message: result.error.message };
     sent[section] = value;
+    resultingPath = mapPagePath(resultingPath, receiptMappings(result.result.receipt));
     workingProject = result.result.project;
     parts = workingProject.activePageNativeDocumentParts ?? parts;
   }
-  return { kind: "saved", project: workingProject, sent };
+  return { kind: "saved", project: workingProject, sent, resultingPath };
 }
 
 function mergeSavedProject(
@@ -148,7 +151,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
           const savedProject = result.project;
           const sent = result.sent;
 
-          const resultingPath = savedProject.activePagePath ?? path;
+          const resultingPath = result.resultingPath;
           commitBuffers((current) => {
             const currentBuffer = current[path];
             if (!currentBuffer) return current;

@@ -46,6 +46,7 @@ type Props = {
   onNavigatePage: (groupId: EditorGroupId, path: string) => void;
   onOpenSettings: () => void;
   onReload: (path: string) => void;
+  onRecreate: (path: string) => void;
   onReplace: (path: string) => void;
   onRepair: (path: string) => void;
   onRemoveMissing: (kind: "folder" | "native", path: string) => void;
@@ -189,7 +190,7 @@ function EditorGroupPane(props: Props) {
         {buffer?.error ? (
           <div className={`document-buffer-alert${buffer.conflict ? " conflict" : ""}`} role="alert">
             <div><strong>{buffer.conflict ? "Changed on disk" : "Save failed"}</strong><span>{buffer.error}</span></div>
-            {buffer.conflict ? <div className="document-buffer-actions"><button onClick={() => props.onReload(buffer.path)} type="button">Reload disk</button><button className="danger" onClick={() => props.onReplace(buffer.path)} type="button">Replace disk</button></div> : null}
+            {buffer.conflict ? <div className="document-buffer-actions">{buffer.missing ? <button onClick={() => props.onRecreate(buffer.path)} type="button">Recreate page</button> : <><button onClick={() => props.onReload(buffer.path)} type="button">Reload disk</button><button className="danger" onClick={() => props.onReplace(buffer.path)} type="button">Replace disk</button></>}</div> : null}
           </div>
         ) : null}
         {props.draggedTab ? <div className="editor-group-drop-cue"><span>Move to {group.id}</span></div> : null}

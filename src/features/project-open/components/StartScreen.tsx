@@ -14,6 +14,7 @@ type StartScreenProps = {
   onOpenProjectFolder: () => void;
   onOpenSettings: () => void;
   onRefreshProjects: () => void;
+  onRecoverProject: (projectRoot: string) => void;
 };
 
 function StartScreen({
@@ -26,6 +27,7 @@ function StartScreen({
   onOpenProjectFolder,
   onOpenSettings,
   onRefreshProjects
+  ,onRecoverProject
 }: StartScreenProps) {
   const [projectName, setProjectName] = useState("");
   const projects = projectCatalog?.projects ?? EMPTY_PROJECTS;
@@ -115,22 +117,23 @@ function StartScreen({
             {projects.length > 0 ? (
               <div className="project-picker project-list" role="group" aria-label="Projects">
                 {projects.map((project) => (
+                  <div className="project-list-entry" key={project.directoryName}>
                   <button
-                    className="project-option project-list-option"
-                    disabled={isBusy}
-                    key={project.directoryName}
+                    className="project-option project-list-option project-option-main"
+                    disabled={isBusy || !project.inspection.openable}
                     onClick={() => onOpenProject(project.directoryName)}
                     title={project.rootPath}
                     type="button"
                   >
-                    <span className="project-option-main">
+                    <span>
                       <strong>{project.name}</strong>
                       <small>{project.directoryName}</small>
                     </span>
-                    <span className="project-option-action" aria-hidden="true">
-                      Open
-                    </span>
+                    <span className="project-option-action" aria-hidden="true">{project.inspection.healthy ? "Open" : project.inspection.openable ? "Open with issues" : "Blocked"}</span>
                   </button>
+                  {!project.inspection.openable && project.inspection.recovery.some((item) => item.status !== "malformed") ? <button className="ghost-action" disabled={isBusy} onClick={() => onRecoverProject(project.rootPath)} type="button">Recover</button> : null}
+                  {project.inspection.issues.length ? <small className="catalog-warning">{project.inspection.issues.map((issue) => issue.message).join(" ")}</small> : null}
+                  </div>
                 ))}
               </div>
             ) : (

@@ -198,7 +198,12 @@ describe("document persistence", () => {
     const projectRef = { current: initialProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
     const onDocumentPathChange = vi.fn();
-    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue(saved(savedProject));
+    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue({
+      status: "saved",
+      result: { project: savedProject, receipt: { operation: "set_page_title", warnings: [], changes: [
+        { change: "moved", from: `pages/${path}`, to: `pages/${nextPath}`, entry: "file" }
+      ] } }
+    });
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange, projectRef, publishProject: vi.fn() });
 
     await expect(persistence.saveDocument(path)).resolves.toBe(true);

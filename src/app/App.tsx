@@ -9,6 +9,7 @@ import { fractalClient } from "@/lib/fractal/client";
 import { useFractalSession } from "./useFractalSession";
 import { useAppearanceSettings } from "./useAppearanceSettings";
 import { useAiSettings } from "./useAiSettings";
+import { migrateLegacyDrafts } from "./pageDrafts";
 
 const SettingsScreen = lazy(() => import("@/features/settings/components/SettingsScreen"));
 const Workspace = lazy(() => import("@/features/workspace/components/Workspace"));
@@ -105,6 +106,10 @@ function App() {
   const saveWorkspaceRef = useRef<(() => Promise<boolean>) | null>(null);
   hasWorkspaceUnsavedRef.current = hasWorkspaceUnsavedChanges;
 
+  useEffect(() => {
+    void migrateLegacyDrafts();
+  }, []);
+
   const registerWorkspace = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
     hasWorkspaceUnsavedRef.current = dirty;
     setHasWorkspaceUnsavedChanges(dirty);
@@ -145,7 +150,7 @@ function App() {
     try {
       const stored = JSON.parse(localStorage.getItem("amanite.last-session.v1") ?? "null") as { projectRoot?: string } | null;
       if (!stored?.projectRoot) return;
-      void session.loadProject(() => fractalClient.openProjectPath(stored.projectRoot!));
+      void session.loadProject(() => fractalClient.openProjectPath(stored.projectRoot!), stored.projectRoot);
     } catch {
       // A stale session record should leave the start screen usable.
     }
@@ -154,7 +159,7 @@ function App() {
   const openProjectFolder = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const selected = await open({ directory: true, multiple: false, title: "Open Fractal project" });
-    if (typeof selected === "string") await session.loadProject(() => fractalClient.openProjectPath(selected));
+    if (typeof selected === "string") await session.loadProject(() => fractalClient.openProjectPath(selected), selected);
   }, [session]);
 
   useEffect(() => {
@@ -196,12 +201,14 @@ function App() {
           onCreateProject={(projectName) =>
             session.loadProject(() => fractalClient.createProject(projectName))
           }
-          onOpenProject={(directoryName) =>
-            session.loadProject(() => fractalClient.openProject(directoryName))
-          }
+          onOpenProject={(directoryName) => {
+            const root = projectCatalog?.projects.find((project) => project.directoryName === directoryName)?.rootPath;
+            void session.loadProject(() => fractalClient.openProject(directoryName), root);
+          }}
           onOpenProjectFolder={() => void openProjectFolder()}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRefreshProjects={session.refreshProjectCatalog}
+          onRecoverProject={(root) => void session.recoverProject(root)}
         />
       ) : (
         <>
@@ -240,6 +247,14 @@ function App() {
       {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} /></Suspense> : null}
 
       {confirmDialog ? <ConfirmDialog {...confirmDialog} /> : null}
+      {activeProject ? <aside className="project-health-summary" aria-label="Project health">
+        <button type="button" onClick={() => void session.inspectProject()}>Refresh health</button>
+        <span>{session.inspection ? session.inspection.healthy ? "Project files healthy" : `${session.inspection.issues.length} project issue(s)` : "Health not inspected"}</span>
+        <small>{session.draftCount} recovery draft(s), {hasWorkspaceUnsavedChanges ? "unsaved edits" : "no unsaved edits"}</small>
+        {session.inspection?.issues.map((issue, index) => <small key={`${issue.code}-${index}`}>{issue.path ? `${issue.path}: ` : ""}{issue.message}</small>)}
+        {session.inspection?.proposedRepairs.length ? <button type="button" onClick={() => void session.repairProject()}>Review and repair</button> : null}
+        {session.lastReceipt ? <small>Last session mutation: {session.lastReceipt.operation}{session.lastReceipt.warnings.length ? `, ${session.lastReceipt.warnings[0].message}` : ""}</small> : null}
+      </aside> : null}
     </UniversalContextMenu>
   );
 }

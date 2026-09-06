@@ -87,7 +87,24 @@ export type FractalProjectSummary = {
   name: string;
   rootPath: string;
   directoryName: string;
+  inspection: FractalProjectInspection;
 };
+
+export type FractalValidationIssue = { path?: string | null; message: string };
+export type FractalValidationReport = { valid: boolean; issues: FractalValidationIssue[] };
+export type FractalRecoveryTransaction = { path: string; status: "pending" | "committed_cleanup_pending" | "malformed"; affected: string[]; message?: string | null };
+export type FractalProposedRepair =
+  | { repair: "move_path"; from: string; to: string; entry: FractalProjectEntryKind }
+  | { repair: "append_folder_order"; metadata: string; additions: string[] };
+export type FractalHealthIssueCode = "invalid_project" | "unsupported_version" | "recovery_required" | "recovery_state_malformed" | "cleanup_pending" | "repair_required" | "validation_failed";
+export type FractalHealthIssue = { code: FractalHealthIssueCode; path?: string | null; message: string };
+export type FractalProjectInspection = { openable: boolean; healthy: boolean; recovery: FractalRecoveryTransaction[]; proposedRepairs: FractalProposedRepair[]; validation?: FractalValidationReport | null; issues: FractalHealthIssue[] };
+export type FractalOperationFailure = { code: FractalErrorCode; message: string };
+export type FractalRecoveryReport = { recoveredTransactions: string[]; cleanedTransactions: string[]; changes: FractalProjectChange[]; warnings: FractalOperationWarning[]; failures: FractalOperationFailure[] };
+export type FractalRepairReport = { changes: FractalProjectChange[]; warnings: FractalOperationWarning[]; failures: FractalOperationFailure[] };
+export type FractalRecoveryResult = { project?: FractalProject | null; report: FractalRecoveryReport; inspection: FractalProjectInspection };
+export type FractalRepairResult = { project: FractalProject; report: FractalRepairReport; inspection: FractalProjectInspection };
+export type FractalPageDraft = { version: 1; projectRoot: string; pagePath: string; source: string; baseSourceHash: string; updatedAt: string };
 
 export type FractalProjectCatalog = {
   rootPath: string;
@@ -217,6 +234,10 @@ export type FractalClient = {
   createProject: (projectName: string) => Promise<FractalProject>;
   openProject: (directoryName: string) => Promise<FractalProject>;
   openProjectPath: (projectRoot: string) => Promise<FractalProject>;
+  inspectProject: (projectRoot: string) => Promise<FractalProjectInspection>;
+  recoverProject: (projectRoot: string) => Promise<FractalRecoveryResult>;
+  repairProject: (projectRoot: string) => Promise<FractalRepairResult>;
+  recreatePage: (project: FractalProject, pagePath: string, source: string) => Promise<FractalMutationResult>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   readPage: (project: FractalProject, pagePath: string) => Promise<FractalLoadedPage>;
   setPageTitle: (project: FractalProject, title: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;

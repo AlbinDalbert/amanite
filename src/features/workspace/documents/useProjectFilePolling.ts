@@ -53,6 +53,7 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
             next[state.path] = {
               ...latest,
               conflict: true,
+              missing: state.contentHash == null,
               error: state.contentHash == null
                 ? "This page was removed from disk. Reload the project or replace the missing file."
                 : "This page changed on disk. Reload it or replace the external version."

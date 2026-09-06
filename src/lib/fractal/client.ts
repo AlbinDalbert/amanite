@@ -1,8 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
+}
+
+function normalizeInspection(value: FractalProjectInspection & { proposed_repairs?: FractalProjectInspection["proposedRepairs"] }): FractalProjectInspection {
+  return { ...value, proposedRepairs: value.proposedRepairs ?? value.proposed_repairs ?? [] };
+}
+
+async function inspectProject(projectRoot: string) {
+  const value = await invokeFractal<FractalProjectInspection & { proposed_repairs?: FractalProjectInspection["proposedRepairs"] }>("fractal_inspect_project", { projectRoot });
+  return normalizeInspection(value);
 }
 
 async function invokeFractal<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -28,13 +37,27 @@ async function invokeConditional(command: string, args: Record<string, unknown>)
 }
 
 export const fractalClient: FractalClient = {
-  listProjects: () => invokeFractal<FractalProjectCatalog>("fractal_list_projects"),
+  listProjects: async () => {
+    const catalog = await invokeFractal<FractalProjectCatalog>("fractal_list_projects");
+    return { ...catalog, projects: catalog.projects.map((project) => ({ ...project, inspection: normalizeInspection(project.inspection) })) };
+  },
   createProject: (projectName) =>
     invokeFractal<FractalProject>("fractal_create_project", { projectName }),
   openProject: (directoryName) =>
     invokeFractal<FractalProject>("fractal_open_project", { directoryName }),
   openProjectPath: (projectRoot) =>
     invokeFractal<FractalProject>("fractal_open_project_path", { projectRoot }),
+  inspectProject,
+  recoverProject: async (projectRoot) => {
+    const value = await invokeFractal<FractalRecoveryResult & { inspection: FractalProjectInspection & { proposed_repairs?: FractalProjectInspection["proposedRepairs"] } }>("fractal_recover_project", { projectRoot });
+    const report = value.report as typeof value.report & { recovered_transactions?: string[]; cleaned_transactions?: string[] };
+    return { ...value, report: { ...report, recoveredTransactions: report.recoveredTransactions ?? report.recovered_transactions ?? [], cleanedTransactions: report.cleanedTransactions ?? report.cleaned_transactions ?? [] }, inspection: normalizeInspection(value.inspection) };
+  },
+  repairProject: async (projectRoot) => {
+    const value = await invokeFractal<FractalRepairResult & { inspection: FractalProjectInspection & { proposed_repairs?: FractalProjectInspection["proposedRepairs"] } }>("fractal_repair_project", { projectRoot });
+    return { ...value, inspection: normalizeInspection(value.inspection) };
+  },
+  recreatePage: (project, pagePath, source) => invokeFractal<FractalMutationResult>("fractal_recreate_page", { projectRoot: project.rootPath, pagePath, source }),
   openPage: (project, pagePath) =>
     invokeFractal<FractalProject>("fractal_open_page", {
       pagePath,

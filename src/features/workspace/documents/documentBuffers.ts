@@ -13,6 +13,7 @@ export type DocumentBuffer = {
   operation: "load" | "save" | null;
   error: string | null;
   conflict: boolean;
+  missing?: boolean;
 };
 
 export type DocumentBuffers = Record<string, DocumentBuffer>;
@@ -69,6 +70,7 @@ export function bufferFromProject(
     operation: null,
     error: null,
     conflict: false
+    ,missing: false
   };
 }
 
@@ -86,5 +88,6 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
     operation: null,
     error: null,
     conflict: false
+    ,missing: false
   };
 }

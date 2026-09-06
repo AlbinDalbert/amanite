@@ -7,15 +7,20 @@ type Options = {
   buffers: DocumentBuffers;
   projectRoot: string;
   saveDocument: (path: string) => Promise<boolean>;
+  onStorageError: (message: string | null) => void;
 };
 
-export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument }: Options) {
+export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument, onStorageError }: Options) {
   useEffect(() => {
     const dirty = Object.values(buffers).filter((buffer) => buffer.dirty);
     if (!dirty.length) return;
 
     const draftTimeout = window.setTimeout(() => {
-      for (const buffer of dirty) writePageDraftSource(projectRoot, buffer.path, buffer.source);
+      for (const buffer of dirty) {
+        void writePageDraftSource(projectRoot, buffer.path, buffer.source, buffer.contentHash ?? "")
+          .then(() => onStorageError(null))
+          .catch((error) => onStorageError(error instanceof Error ? error.message : String(error)));
+      }
     }, 180);
     const autoSavePaths = dirty
       .filter((buffer) => !buffer.conflict && !buffer.operation)
@@ -32,5 +37,5 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
       window.clearTimeout(draftTimeout);
       if (saveTimeout != null) window.clearTimeout(saveTimeout);
     };
-  }, [autoSave, buffers, projectRoot, saveDocument]);
+  }, [autoSave, buffers, onStorageError, projectRoot, saveDocument]);
 }

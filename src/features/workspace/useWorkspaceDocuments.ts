@@ -31,6 +31,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const [pollingNotice, setPollingNotice] = useState<{ id: number; message: string } | null>(null);
+  const [draftStorageError, setDraftStorageError] = useState<string | null>(null);
   const projectRef = useRef(project);
   const buffersRef = useRef(buffers);
   const previousRootRef = useRef(initialProject.rootPath);
@@ -81,7 +82,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     if (!path || loaded.activePageSource == null) return false;
     let source = loaded.activePageSource;
     let dirty = false;
-    const draft = checkDraft ? readPageDraft(loaded.rootPath, path) : null;
+    const draft = checkDraft ? await readPageDraft(loaded.rootPath, path) : null;
     if (draft && draft.source !== source) {
       const recover = await onRequestConfirmation(`Recover the unsaved draft for ${path}?`, "Recover draft");
       if (recover) {
@@ -110,7 +111,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     const rootPath = projectRef.current.rootPath;
     let source = loaded.source;
     let dirty = false;
-    const draft = checkDraft ? readPageDraft(rootPath, path) : null;
+    const draft = checkDraft ? await readPageDraft(rootPath, path) : null;
     if (draft && draft.source !== source) {
       const recover = await onRequestConfirmation(`Recover the unsaved draft for ${path}?`, "Recover draft");
       if (recover) {
@@ -245,6 +246,22 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     });
   }, [commitBuffers]);
 
+  const recreateDocument = useCallback(async (path: string) => {
+    const buffer = buffersRef.current[path];
+    if (!buffer?.missing) return false;
+    try {
+      const result = await fractalClient.recreatePage(projectRef.current, path, buffer.source);
+      const resultingPath = result.project.activePagePath ?? path;
+      if (resultingPath !== path) renameDocument(path, resultingPath);
+      publishProject(result.project);
+      await clearPageDraft(result.project.rootPath, path);
+      return reloadDocument(resultingPath);
+    } catch (error) {
+      commitBuffers((current) => current[path] ? { ...current, [path]: { ...current[path], error: errorMessage(error), conflict: true } } : current);
+      return false;
+    }
+  }, [commitBuffers, publishProject, reloadDocument, renameDocument]);
+
   const refreshChangedDocuments = useCallback(async (snapshot: FractalProject, ignoredPaths: string[] = []) => {
     const ignored = new Set(ignoredPaths);
     const pageHashes = new Map(snapshot.pages.map((page) => [page.path, page.contentHash]));
@@ -296,6 +313,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     buffers,
     projectRoot: project.rootPath,
     saveDocument: persistence.saveDocument
+    ,onStorageError: setDraftStorageError
   });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 
@@ -303,6 +321,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   return {
     buffers,
     dirtyCount,
+    draftStorageError,
     forgetDocument,
     loadErrors,
     loadingPaths,
@@ -313,6 +332,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     refreshChangedDocuments,
     renameDocument,
     reloadDocument,
+    recreateDocument,
     saveAll: persistence.saveAll,
     saveDocument: persistence.saveDocument,
     dismissPollingNotice: () => setPollingNotice(null),

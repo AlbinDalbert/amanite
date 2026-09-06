@@ -55,8 +55,12 @@ pub(crate) fn selected_project_root(root: &Path, directory_name: &str) -> Result
 }
 
 fn project_summary(root: PathBuf) -> Result<FractalProjectSummary, String> {
-    let project = fractal::Project::open(&root)
-        .map_err(|error| format!("Could not open Fractal project {}: {error}", root.display()))?;
+    let inspection = fractal::Project::inspect(&root).map_err(|error| {
+        format!(
+            "Could not inspect Fractal project {}: {error}",
+            root.display()
+        )
+    })?;
     let directory_name = root
         .file_name()
         .and_then(|name| name.to_str())
@@ -67,9 +71,16 @@ fn project_summary(root: PathBuf) -> Result<FractalProjectSummary, String> {
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
 
     Ok(FractalProjectSummary {
-        name: project.manifest().name.clone(),
+        name: if inspection.openable {
+            fractal::Project::open(&root)
+                .map(|project| project.manifest().name.clone())
+                .unwrap_or_else(|_| directory_name.clone())
+        } else {
+            directory_name.clone()
+        },
         root_path: root.to_string_lossy().into(),
         directory_name,
+        inspection,
     })
 }
 
@@ -104,7 +115,9 @@ pub(crate) fn list_project_summaries(
                 continue;
             }
         };
-        if is_directory && path.join("fractal.json").is_file() {
+        if is_directory
+            && (path.join("fractal.json").is_file() || path.join(".fractal-lock").is_file())
+        {
             match project_summary(path) {
                 Ok(project) => projects.push(project),
                 Err(error) => issues.push(error),
@@ -131,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_project_does_not_hide_the_healthy_catalog() {
+    fn a_corrupt_project_remains_visible_beside_the_healthy_catalog() {
         let temporary = tempdir().unwrap();
         fractal::Project::init(temporary.path().join("healthy"), "Healthy").unwrap();
         let corrupt = temporary.path().join("corrupt");
@@ -140,8 +153,13 @@ mod tests {
 
         let (projects, issues) = list_project_summaries(temporary.path()).unwrap();
 
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0].name, "Healthy");
-        assert_eq!(issues.len(), 1);
+        assert_eq!(projects.len(), 2);
+        assert!(projects
+            .iter()
+            .any(|project| project.name == "Healthy" && project.inspection.healthy));
+        assert!(projects
+            .iter()
+            .any(|project| project.directory_name == "corrupt" && !project.inspection.openable));
+        assert!(issues.is_empty());
     }
 }

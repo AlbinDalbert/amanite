@@ -753,11 +753,13 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     const tab = document.querySelector('.editor-group-tab [title="index.fractal.html"]')?.closest('.editor-group-tab');
     tab?.querySelector('.editor-group-tab-close')?.click();
   `);
-  await driver.executeScript(`
+  const draftWrite = await driver.executeAsyncScript(`
     const [projectRoot, pagePath, source] = arguments;
-    const key = "amanite.page-draft.v1:" + encodeURIComponent(projectRoot + "\\u0000" + pagePath);
-    localStorage.setItem(key, JSON.stringify({ pagePath, projectRoot, source, updatedAt: new Date().toISOString(), version: 1 }));
+    const done = arguments[arguments.length - 1];
+    const draft = { pagePath, projectRoot, source, baseSourceHash: "", updatedAt: new Date().toISOString(), version: 1 };
+    window.__TAURI_INTERNALS__.invoke("fractal_write_draft", { draft }).then(() => done({ ok: true }), (error) => done({ ok: false, error }));
   `, [activeProjectRoot, "index.fractal.html", recoverySource]);
+  if (!draftWrite?.ok) throw new Error(`Native draft write failed: ${JSON.stringify(draftWrite?.error)}`);
   await driver.click('[title="index.fractal.html"]');
   await driver.find(".confirm-dialog");
   await driver.click(".confirm-dialog .primary-action");

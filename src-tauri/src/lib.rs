@@ -1,5 +1,6 @@
 mod ai_adapter;
 mod catalog;
+mod drafts;
 mod fractal_adapter;
 mod platform;
 
@@ -15,6 +16,15 @@ pub fn run() {
             ai_adapter::ai_list_models,
             ai_adapter::ai_chat,
             fractal_adapter::fractal_list_projects,
+            fractal_adapter::fractal_inspect_project,
+            fractal_adapter::fractal_recover_project,
+            fractal_adapter::fractal_repair_project,
+            fractal_adapter::fractal_recreate_page,
+            drafts::fractal_list_drafts,
+            drafts::fractal_read_draft,
+            drafts::fractal_write_draft,
+            drafts::fractal_move_draft,
+            drafts::fractal_delete_draft,
             fractal_adapter::fractal_create_project,
             fractal_adapter::fractal_open_project,
             fractal_adapter::fractal_open_project_path,
@@ -54,6 +64,15 @@ mod tests {
             "ai_list_models",
             "ai_chat",
             "fractal_list_projects",
+            "fractal_inspect_project",
+            "fractal_recover_project",
+            "fractal_repair_project",
+            "fractal_recreate_page",
+            "fractal_list_drafts",
+            "fractal_read_draft",
+            "fractal_write_draft",
+            "fractal_move_draft",
+            "fractal_delete_draft",
             "fractal_create_project",
             "fractal_open_project",
             "fractal_open_project_path",

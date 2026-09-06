@@ -91,6 +91,7 @@ pub(crate) struct FractalProjectSummary {
     pub(crate) name: String,
     pub(crate) root_path: String,
     pub(crate) directory_name: String,
+    pub(crate) inspection: fractal::ProjectInspection,
 }
 
 #[derive(Serialize)]
@@ -170,6 +171,27 @@ impl From<fractal::FractalError> for FractalCommandError {
     }
 }
 
+impl FractalCommandError {
+    pub(crate) fn io(message: impl Into<String>) -> Self {
+        Self {
+            code: fractal::FractalErrorCode::Io,
+            message: message.into(),
+        }
+    }
+    pub(crate) fn json(message: impl Into<String>) -> Self {
+        Self {
+            code: fractal::FractalErrorCode::Json,
+            message: message.into(),
+        }
+    }
+    pub(crate) fn invalid_input(message: impl Into<String>) -> Self {
+        Self {
+            code: fractal::FractalErrorCode::InvalidInput,
+            message: message.into(),
+        }
+    }
+}
+
 impl From<String> for FractalCommandError {
     fn from(message: String) -> Self {
         Self {
@@ -199,6 +221,81 @@ pub(crate) struct FractalMutationBatchResult {
     receipts: Vec<fractal::MutationReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     failure: Option<FractalCommandError>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct FractalRecoveryResult {
+    project: Option<FractalProject>,
+    report: fractal::RecoveryReport,
+    inspection: fractal::ProjectInspection,
+}
+
+#[derive(Serialize)]
+pub(crate) struct FractalRepairResult {
+    project: FractalProject,
+    report: fractal::RepairReport,
+    inspection: fractal::ProjectInspection,
+}
+
+#[tauri::command]
+pub(crate) fn fractal_inspect_project(
+    project_root: String,
+) -> FractalResult<fractal::ProjectInspection> {
+    Ok(fractal::Project::inspect(project_root)?)
+}
+
+#[tauri::command]
+pub(crate) fn fractal_recover_project(
+    project_root: String,
+) -> FractalResult<FractalRecoveryResult> {
+    let report = fractal::Project::recover(&project_root)?;
+    let inspection = fractal::Project::inspect(&project_root)?;
+    let project = if inspection.openable {
+        Some(read_project(PathBuf::from(&project_root), None)?)
+    } else {
+        None
+    };
+    Ok(FractalRecoveryResult {
+        project,
+        report,
+        inspection,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn fractal_repair_project(project_root: String) -> FractalResult<FractalRepairResult> {
+    let mut project = fractal::Project::open(&project_root)?;
+    let report = project.repair()?;
+    let snapshot = project_snapshot(&project, None)?;
+    let inspection = fractal::Project::inspect(&project_root)?;
+    Ok(FractalRepairResult {
+        project: snapshot,
+        report,
+        inspection,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn fractal_recreate_page(
+    project_root: String,
+    page_path: String,
+    source: String,
+) -> FractalResult<FractalMutationResult> {
+    let mut project = open_mutable_project(&project_root)?;
+    let draft = fractal::NativePageDraft::from_source(&source)?;
+    let parent = relative_page_path(&page_path)
+        .map_err(FractalCommandError::from)?
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .to_path_buf();
+    let destination = parent.join(format!(
+        "{}.fractal.html",
+        catalog::project_directory_name(&draft.title).map_err(FractalCommandError::from)?
+    ));
+    let receipt = project.recreate_page_from_source(&destination, &source)?;
+    let created =
+        created_page_path(&receipt).ok_or("Fractal did not report the recreated page.")?;
+    mutation_result(project, Some(&created), receipt)
 }
 
 fn project_snapshot(
