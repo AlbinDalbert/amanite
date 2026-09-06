@@ -15,4 +15,4 @@
 
 ## Fractal boundary
 - Production project/page persistence goes through the `fractal::Project` API in the Tauri backend.
-- Amanite keeps complete HTML as the editor view, but native writes go through Fractal's section APIs with their section hashes. Raw HTML uses `Project::write_raw_page` and `Project::write_raw_page_if_unchanged`. Do not add a second durable page format.
+- Amanite edits native `*.fractal.html` documents only. It may keep exact native source in editor buffers and recovery drafts, but durable project writes go through Fractal's section APIs with their section hashes. Do not add another durable page format.

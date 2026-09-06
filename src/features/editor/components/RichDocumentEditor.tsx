@@ -55,8 +55,7 @@ function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
 export function resolveEditorLinkTarget(href: string, links: FractalLink[], pagePath: string, pages: FractalPage[]) {
   const link = links.find((candidate) => candidate.href === href
     || (!/^[a-z][a-z0-9+.-]*:/i.test(candidate.href) && `https://${candidate.href}` === href));
-  if (link?.target.kind === "internal") return link.target.value;
-  if (link?.target.kind === "internal_file" && link.target.value.toLowerCase().endsWith(".html")) return link.target.value;
+  if (link?.target.kind === "resolved") return link.target.value;
   try {
     const base = new URL(pagePath, "https://amanite.local/");
     const resolved = decodeURIComponent(new URL(href, base).pathname.replace(/^\//, ""));

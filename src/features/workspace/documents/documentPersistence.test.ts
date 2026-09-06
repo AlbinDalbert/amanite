@@ -13,7 +13,10 @@ function deferred<T>() {
 function saved(projectSnapshot: FractalProject): FractalConditionalWriteResult {
   return {
     status: "saved",
-    project: projectSnapshot
+    result: {
+      project: projectSnapshot,
+      receipt: { operation: "set_page_content", changes: [], warnings: [] }
+    }
   };
 }
 
@@ -146,7 +149,7 @@ describe("document persistence", () => {
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
     vi.spyOn(fractalClient, "setPageContent").mockResolvedValue({
       status: "conflict",
-      message: "page changed"
+      error: { code: "conflict", message: "page changed" }
     });
 
     const persistence = createDocumentPersistence({

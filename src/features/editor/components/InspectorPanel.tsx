@@ -13,7 +13,7 @@ type InspectorPanelProps = {
 };
 
 function InspectorPanel({ backlinks, links, outline, onNavigateHeading, onNavigatePage, onResizeReset, onResizeStart }: InspectorPanelProps) {
-  const internalLinks = links.filter((link) => link.target.kind === "internal");
+  const internalLinks = links.filter((link) => link.target.kind === "resolved");
   const brokenLinks = links.filter((link) => link.target.kind === "broken");
 
   return (

@@ -356,6 +356,11 @@ class DesktopWebDriverClient {
     return json.value;
   }
 
+  async executeAsyncScript(script, args = []) {
+    const json = await this.request("POST", this.sessionPath("/execute/async"), { script, args });
+    return json.value;
+  }
+
   async refresh() {
     await this.request("POST", this.sessionPath("/refresh"), {});
   }
@@ -764,6 +769,43 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.ctrlS();
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "08-recovered-draft");
+
+  await openRootExplorerMenu();
+  await driver.click(".file-context-menu button:first-of-type");
+  await driver.setValue(".create-page-dialog input", "Move Me");
+  await driver.click(".create-page-dialog .primary-action");
+  await driver.find('[title="move-me.fractal.html"]', 30_000);
+  await driver.executeScript(`
+    const page = document.querySelector('[title="move-me.fractal.html"]');
+    page?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
+  `);
+  await driver.click(".file-context-menu button:nth-of-type(2)");
+  await driver.executeScript(`
+    const select = document.querySelector('.create-page-dialog select');
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+    setter.call(select, "field-notes");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  `);
+  await driver.click(".create-page-dialog .primary-action");
+  await driver.find('[title="field-notes/move-me.fractal.html"]', 30_000);
+  const oldMovePathExists = await driver.executeScript(`return Boolean(document.querySelector('[title="move-me.fractal.html"]'));`);
+  if (oldMovePathExists) throw new Error("Page movement left the old path in the explorer.");
+
+  const exportPath = join(screenshotsDir, "move-me-export.html");
+  const exportResult = await driver.executeAsyncScript(`
+    const [projectRoot, pagePath, output] = arguments;
+    const done = arguments[arguments.length - 1];
+    window.__TAURI_INTERNALS__.invoke("fractal_export_html", {
+      includeDerivedLinks: false,
+      output,
+      pagePath,
+      projectRoot
+    }).then((report) => done({ ok: true, report }), (error) => done({ ok: false, error }));
+  `, [activeProjectRoot, "field-notes/move-me.fractal.html", exportPath]);
+  if (!exportResult?.ok) throw new Error(`Live export failed: ${JSON.stringify(exportResult?.error)}`);
+  const exportedSource = await readFile(exportPath, "utf8");
+  if (!exportedSource.includes("Move Me")) throw new Error("Live export did not contain the moved page.");
+  await takeScreenshot(driver, screenshotsDir, "08a-moved-page");
 
   await driver.click('.brand > button[title="Close project"]');
   await driver.find(".start-screen", 30_000);

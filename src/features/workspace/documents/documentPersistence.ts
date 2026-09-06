@@ -73,9 +73,9 @@ async function saveNativeDocument(
     const value = buffer.nativeEdits[section];
     if (value == null) continue;
     const result = await applySection(workingProject, section, value, sectionHash(parts, section));
-    if (result.status === "conflict") return { kind: "conflict", message: result.message };
+    if (result.status === "conflict") return { kind: "conflict", message: result.error.message };
     sent[section] = value;
-    workingProject = result.project;
+    workingProject = result.result.project;
     parts = workingProject.activePageNativeDocumentParts ?? parts;
   }
   return { kind: "saved", project: workingProject, sent };

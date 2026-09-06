@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -10,6 +10,21 @@ async function invokeFractal<T>(command: string, args?: Record<string, unknown>)
     throw new Error("Amanite must run through Tauri to access Fractal projects.");
   }
   return invoke<T>(command, args);
+}
+
+export function isFractalCommandError(error: unknown): error is FractalCommandError {
+  return Boolean(error && typeof error === "object"
+    && "code" in error && typeof error.code === "string"
+    && "message" in error && typeof error.message === "string");
+}
+
+async function invokeConditional(command: string, args: Record<string, unknown>): Promise<FractalConditionalWriteResult> {
+  try {
+    return { status: "saved", result: await invokeFractal<FractalMutationResult>(command, args) };
+  } catch (error) {
+    if (isFractalCommandError(error) && error.code === "conflict") return { status: "conflict", error };
+    throw error;
+  }
 }
 
 export const fractalClient: FractalClient = {
@@ -31,86 +46,87 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath
     }),
   setPageTitle: (project, title, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_title", {
+    invokeConditional("fractal_set_page_title", {
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       title
     }),
   setPageContent: (project, contentHtml, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_content", {
+    invokeConditional("fractal_set_page_content", {
       contentHtml,
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath
     }),
   setPageStyle: (project, styleCss, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_style", {
+    invokeConditional("fractal_set_page_style", {
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       styleCss
     }),
   setPageMetadata: (project, metadataHtml, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_metadata", {
+    invokeConditional("fractal_set_page_metadata", {
       expectedHash,
       metadataHtml,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath
     }),
   repairPageStructure: (project, pagePath) =>
-    invokeFractal<FractalProject>("fractal_repair_page_structure", {
+    invokeFractal<FractalMutationResult>("fractal_repair_page_structure", {
       pagePath,
       projectRoot: project.rootPath
     }),
   createPage: (project, title, folderPath) =>
-    invokeFractal<FractalProject>("fractal_create_page", {
+    invokeFractal<FractalMutationResult>("fractal_create_page", {
       folderPath,
       projectRoot: project.rootPath,
       title
     }),
   duplicatePage: (project, pagePath, title, folderPath) =>
-    invokeFractal<FractalProject>("fractal_duplicate_page", {
+    invokeFractal<FractalMutationBatchResult>("fractal_duplicate_page", {
       folderPath,
       pagePath,
       projectRoot: project.rootPath,
       title
     }),
-  createFolder: (project, folderPath) =>
-    invokeFractal<FractalProject>("fractal_create_folder", {
+  createFolder: (project, parent, title) =>
+    invokeFractal<FractalMutationResult>("fractal_create_folder", {
       activePagePath: project.activePagePath,
-      folderPath,
-      projectRoot: project.rootPath
+      parent,
+      projectRoot: project.rootPath,
+      title
     }),
   setFolderTitle: (project, folderPath, title) =>
-    invokeFractal<FractalProject>("fractal_set_folder_title", {
+    invokeFractal<FractalMutationResult>("fractal_set_folder_title", {
       activePagePath: project.activePagePath,
       folderPath,
       projectRoot: project.rootPath,
       title
     }),
   reorderFolder: (project, folderPath, order) =>
-    invokeFractal<FractalProject>("fractal_reorder_folder", {
+    invokeFractal<FractalMutationResult>("fractal_reorder_folder", {
       activePagePath: project.activePagePath,
       folderPath,
       order,
       projectRoot: project.rootPath
     }),
   deleteFolder: (project, folderPath) =>
-    invokeFractal<FractalProject>("fractal_delete_folder", {
+    invokeFractal<FractalMutationResult>("fractal_delete_folder", {
       activePagePath: project.activePagePath,
       folderPath,
       projectRoot: project.rootPath
     }),
-  movePage: (project, pagePath, destination) =>
-    invokeFractal<FractalProject>("fractal_move_page", {
+  movePage: (project, pagePath, destinationFolder) =>
+    invokeFractal<FractalMutationResult>("fractal_move_page", {
       activePagePath: project.activePagePath,
-      destination,
+      destinationFolder,
       pagePath,
       projectRoot: project.rootPath
     }),
   deletePage: (project, pagePath) =>
-    invokeFractal<FractalProject>("fractal_delete_page", {
+    invokeFractal<FractalMutationResult>("fractal_delete_page", {
       activePagePath: project.activePagePath,
       pagePath,
       projectRoot: project.rootPath
@@ -150,5 +166,6 @@ export const fractalClient: FractalClient = {
     invokeFractal<void>("fractal_reveal_page", {
       pagePath,
       projectRoot: project.rootPath
-    })
+    }),
+  openExternal: (href) => invokeFractal<void>("fractal_open_external", { href })
 };

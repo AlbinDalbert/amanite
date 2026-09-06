@@ -18,7 +18,7 @@ type SidebarProps = {
   onDeletePage: (pagePath: string) => void;
   onDeleteFolder: (folderPath: string) => void;
   onDuplicatePage: (pagePath: string) => void;
-  onMovePage: (pagePath: string, destination: string) => void;
+  onMovePage: (pagePath: string, destinationFolder: string) => void;
   onOpenSettings: () => void;
   onSelectPage: (pagePath: string) => void;
   onSelectFolder: (folderPath: string) => void;
@@ -36,13 +36,17 @@ function Sidebar(props: SidebarProps) {
   const [movePath, setMovePath] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const moveSelectRef = useRef<HTMLSelectElement>(null);
   const isCreateDialogOpen = createTitle !== null;
 
   useEffect(() => {
     if (!isCreateDialogOpen && createFolderName === null && movePath === null) return;
     const frame = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
+      if (movePath) moveSelectRef.current?.focus();
+      else {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [createFolderName !== null, isCreateDialogOpen, movePath]);
@@ -56,7 +60,7 @@ function Sidebar(props: SidebarProps) {
 
   function submitMove(event: FormEvent) {
     event.preventDefault();
-    if (movePath && destination.trim()) props.onMovePage(movePath, destination.trim());
+    if (movePath) props.onMovePage(movePath, destination);
     setMovePath(null);
   }
 
@@ -91,11 +95,13 @@ function Sidebar(props: SidebarProps) {
           onDeletePage={props.onDeletePage}
           onDeleteFolder={props.onDeleteFolder}
           onDuplicatePage={props.onDuplicatePage}
-          onMovePage={(path) => { setMovePath(path); setDestination(path); }}
+          onMovePage={(path) => {
+            setMovePath(path);
+            setDestination(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+          }}
           onDropPage={(path, folder) => {
-            const fileName = path.split("/").at(-1)!;
-            const nextPath = folder ? `${folder}/${fileName}` : fileName;
-            if (nextPath !== path) props.onMovePage(path, nextPath);
+            const currentFolder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+            if ((folder ?? "") !== currentFolder) props.onMovePage(path, folder ?? "");
           }}
           onSelectPage={props.onSelectPage}
           onSelectFolder={props.onSelectFolder}
@@ -131,7 +137,7 @@ function Sidebar(props: SidebarProps) {
         <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setMovePath(null)}>
           <form className="create-page-dialog" onSubmit={submitMove} role="dialog" aria-modal="true">
             <div className="dialog-header"><p className="dialog-kicker">Move document</p><h2>Move page</h2></div>
-            <label className="dialog-field"><span>Destination path</span><input ref={inputRef} value={destination} onChange={(event) => setDestination(event.currentTarget.value)} /></label>
+            <label className="dialog-field"><span>Destination folder</span><select ref={moveSelectRef} value={destination} onChange={(event) => setDestination(event.currentTarget.value)}><option value="">Pages</option>{props.folders.filter((folder) => folder.path).map((folder) => <option key={folder.path} value={folder.path}>{folder.title} ({folder.path})</option>)}</select></label>
             <p className="dialog-note">Fractal updates internal links that target this page.</p>
             <div className="dialog-actions"><button className="ghost-action" onClick={() => setMovePath(null)} type="button">Cancel</button><button className="primary-action" type="submit">Move</button></div>
           </form>

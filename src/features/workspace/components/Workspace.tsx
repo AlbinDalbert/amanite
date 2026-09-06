@@ -53,7 +53,7 @@ type WorkspaceProps = {
   onDismissStatus: () => void;
   onDuplicatePage: (pagePath: string) => ProjectMutation;
   onRepairPage: (pagePath: string) => ProjectMutation;
-  onMovePage: (pagePath: string, destination: string) => ProjectMutation;
+  onMovePage: (pagePath: string, destinationFolder: string) => ProjectMutation;
   onOpenSettings: () => void;
   onProjectSnapshot: (project: FractalProject) => void;
   onRegisterWorkspace: (dirty: boolean, save: (() => Promise<boolean>) | null) => void;
@@ -302,15 +302,16 @@ function Workspace(props: WorkspaceProps) {
     setGroups((current) => reconcileWorkspaceGroups(current, valid));
   }, [documents.buffers, documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeleteFolder]);
 
-  const movePage = useCallback(async (path: string, destination: string) => {
+  const movePage = useCallback(async (path: string, destinationFolder: string) => {
     if (!(await documents.saveAll())) return;
-    const next = await props.onMovePage(path, destination);
-    if (!next) return;
+    const next = await props.onMovePage(path, destinationFolder);
+    const resultingPath = next?.activePagePath;
+    if (!next || !resultingPath) return;
     documents.publishProject(next);
-    setGroups((current) => renameGroupTab(current, path, destination));
-    documents.renameDocument(path, destination);
-    await documents.reloadDocument(destination);
-    await documents.refreshChangedDocuments(next, [destination]);
+    setGroups((current) => renameGroupTab(current, path, resultingPath));
+    documents.renameDocument(path, resultingPath);
+    await documents.reloadDocument(resultingPath);
+    await documents.refreshChangedDocuments(next, [resultingPath]);
   }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage]);
 
   const exportPage = useCallback(async (path: string, includeDerivedLinks: boolean) => {

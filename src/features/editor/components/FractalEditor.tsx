@@ -10,6 +10,7 @@ import InspectorPanel from "./InspectorPanel";
 import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
+import { fractalClient } from "@/lib/fractal/client";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 
@@ -156,9 +157,8 @@ function FractalEditor(props: FractalEditorProps) {
       onNavigatePage(pageTarget);
       return;
     }
-    const link = links.find((candidate) => candidate.href === href);
-    const externalHref = link?.target.kind === "external" ? safeExternalHref(link.target.value) : null;
-    if (externalHref) window.open(externalHref, "_blank", "noopener,noreferrer");
+    const externalHref = safeExternalHref(href);
+    if (externalHref) void fractalClient.openExternal(externalHref);
   }
 
   const protection = !isFractalValid

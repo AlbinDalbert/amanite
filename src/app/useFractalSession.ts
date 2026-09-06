@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fractalClient } from "@/lib/fractal/client";
-import type { FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "@/lib/fractal/types";
+import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
+import type { FractalCommandError, FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "@/lib/fractal/types";
 import { clearPageDraft } from "./pageDrafts";
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+export type FractalFailureStatus = "conflict" | "recovery_required" | "inspection_required" | "committed" | "unsupported_version" | "operation_error";
+
+export function describeFractalFailure(error: FractalCommandError): { message: string; refresh: boolean; status: FractalFailureStatus } {
+  switch (error.code) {
+    case "conflict": return { message: `This page changed on disk. ${error.message}`, refresh: false, status: "conflict" };
+    case "recovery_required": return { message: `Project recovery is required before more changes can be made. ${error.message}`, refresh: false, status: "recovery_required" };
+    case "indeterminate": return { message: `The project state is uncertain and needs inspection. ${error.message}`, refresh: true, status: "inspection_required" };
+    case "mutation_committed": return { message: `The files changed, but Fractal could not reload the project. ${error.message}`, refresh: true, status: "committed" };
+    case "unsupported_version": return { message: `This project uses an unsupported Fractal version. Amanite cannot migrate it. ${error.message}`, refresh: false, status: "unsupported_version" };
+    default: return { message: error.message, refresh: false, status: "operation_error" };
+  }
 }
 
 type BusyOperation = "catalog" | "load" | "command" | "page" | "save" | null;
@@ -15,6 +28,7 @@ export function useFractalSession() {
   const [projectCatalog, setProjectCatalog] = useState<FractalProjectCatalog | null>(null);
   const [commandResult, setCommandResult] = useState<FractalCommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failureStatus, setFailureStatus] = useState<FractalFailureStatus | null>(null);
   const [busyOperation, setBusyOperation] = useState<BusyOperation>("catalog");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const activeProjectRef = useRef(activeProject);
@@ -35,10 +49,27 @@ export function useFractalSession() {
   const withBusy = useCallback(async <T,>(operation: BusyOperation, action: () => Promise<T>) => {
     setBusyOperation(operation);
     setError(null);
+    setFailureStatus(null);
     try {
       return await action();
     } catch (caughtError) {
-      setError(getErrorMessage(caughtError));
+      if (isFractalCommandError(caughtError)) {
+        const failure = describeFractalFailure(caughtError);
+        setFailureStatus(failure.status);
+        setError(failure.message);
+        if (failure.refresh && activeProjectRef.current) {
+          try {
+            const refreshed = await fractalClient.openProjectPath(activeProjectRef.current.rootPath);
+            activeProjectRef.current = refreshed;
+            setActiveProject(refreshed);
+          } catch {
+            // The operation error remains the useful status when refresh also fails.
+          }
+        }
+      } else {
+        setFailureStatus("operation_error");
+        setError(getErrorMessage(caughtError));
+      }
       return null;
     } finally {
       setBusyOperation(null);
@@ -76,7 +107,8 @@ export function useFractalSession() {
   const createProjectPage = useCallback(async (title: string, folderPath?: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !title.trim()) return null;
-    const project = await withBusy("page", () => fractalClient.createPage(current, title.trim(), folderPath));
+    const result = await withBusy("page", () => fractalClient.createPage(current, title.trim(), folderPath));
+    const project = result?.project;
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Page created.", details: project.activePagePath });
@@ -104,10 +136,17 @@ export function useFractalSession() {
     let copyNumber = 2;
     while (existingTitles.has(title.toLowerCase())) title = `${base} ${copyNumber++}`;
     const folderPath = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : undefined;
-    const written = await withBusy("page", () => fractalClient.duplicatePage(current, pagePath, title, folderPath));
+    const result = await withBusy("page", () => fractalClient.duplicatePage(current, pagePath, title, folderPath));
+    const written = result?.project;
     if (written) {
       acceptProject(written);
-      setCommandResult({ ok: true, message: "Page duplicated.", details: written.activePagePath });
+      if (result.failure) {
+        const failure = describeFractalFailure(result.failure);
+        setFailureStatus(failure.status);
+        setError(`The duplicate was created but is incomplete. ${failure.message}`);
+      } else {
+        setCommandResult({ ok: true, message: "Page duplicated.", details: written.activePagePath });
+      }
     }
     return written;
   }, [acceptProject, withBusy]);
@@ -115,7 +154,8 @@ export function useFractalSession() {
   const repairProjectPage = useCallback(async (pagePath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current) return null;
-    const project = await withBusy("page", () => fractalClient.repairPageStructure(current, pagePath));
+    const result = await withBusy("page", () => fractalClient.repairPageStructure(current, pagePath));
+    const project = result?.project;
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Native document repaired.", details: pagePath });
@@ -126,7 +166,12 @@ export function useFractalSession() {
   const createProjectFolder = useCallback(async (folderPath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !folderPath.trim()) return null;
-    const project = await withBusy("page", () => fractalClient.createFolder(current, folderPath.trim()));
+    const segments = folderPath.trim().split("/").filter(Boolean);
+    const title = segments.pop();
+    if (!title) return null;
+    const parent = segments.join("/");
+    const result = await withBusy("page", () => fractalClient.createFolder(current, parent, title));
+    const project = result?.project;
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Folder created.", details: folderPath.trim() });
@@ -137,7 +182,8 @@ export function useFractalSession() {
   const setProjectFolderTitle = useCallback(async (folderPath: string, title: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !title.trim()) return null;
-    const project = await withBusy("page", () => fractalClient.setFolderTitle(current, folderPath, title.trim()));
+    const result = await withBusy("page", () => fractalClient.setFolderTitle(current, folderPath, title.trim()));
+    const project = result?.project;
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Folder title changed.", details: title.trim() });
@@ -148,7 +194,8 @@ export function useFractalSession() {
   const reorderProjectFolder = useCallback(async (folderPath: string, order: string[]) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current) return null;
-    const project = await withBusy("page", () => fractalClient.reorderFolder(current, folderPath, order));
+    const result = await withBusy("page", () => fractalClient.reorderFolder(current, folderPath, order));
+    const project = result?.project;
     if (project) {
       acceptProject(project);
       setCommandResult({ ok: true, message: "Folder reordered.", details: project.folders.find((folder) => folder.path === folderPath)?.title });
@@ -161,7 +208,8 @@ export function useFractalSession() {
     if (!current || busyRef.current) return null;
     const pageCount = current.pages.filter((page) => page.path.startsWith(`${folderPath}/`)).length;
     if (!(await confirm(`Delete ${folderPath}? Fractal will remove ${pageCount} page${pageCount === 1 ? "" : "s"} inside it.`, "Delete folder"))) return null;
-    const project = await withBusy("page", () => fractalClient.deleteFolder(current, folderPath));
+    const result = await withBusy("page", () => fractalClient.deleteFolder(current, folderPath));
+    const project = result?.project;
     if (project) {
       for (const page of current.pages.filter((item) => item.path.startsWith(`${folderPath}/`))) clearPageDraft(current.rootPath, page.path);
       acceptProject(project);
@@ -170,15 +218,17 @@ export function useFractalSession() {
     return project;
   }, [acceptProject, confirm, withBusy]);
 
-  const moveProjectPage = useCallback(async (pagePath: string, destination: string) => {
+  const moveProjectPage = useCallback(async (pagePath: string, destinationFolder: string) => {
     const current = activeProjectRef.current;
-    const nextDestination = destination.trim();
-    if (!current || busyRef.current || !nextDestination || nextDestination === pagePath) return null;
-    const project = await withBusy("page", () => fractalClient.movePage(current, pagePath, nextDestination));
+    const folder = destinationFolder.trim().replace(/^\/+|\/+$/g, "");
+    const currentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
+    if (!current || busyRef.current || folder === currentFolder) return null;
+    const result = await withBusy("page", () => fractalClient.movePage(current, pagePath, folder));
+    const project = result?.project;
     if (project) {
       clearPageDraft(current.rootPath, pagePath);
       acceptProject(project);
-      setCommandResult({ ok: true, message: "Page moved.", details: `${pagePath} to ${nextDestination}` });
+      setCommandResult({ ok: true, message: "Page moved.", details: project.activePagePath });
     }
     return project;
   }, [acceptProject, withBusy]);
@@ -186,7 +236,8 @@ export function useFractalSession() {
   const deleteProjectPage = useCallback(async (pagePath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current || !(await confirm(`Delete ${pagePath}?`, "Delete page"))) return null;
-    const project = await withBusy("page", () => fractalClient.deletePage(current, pagePath));
+    const result = await withBusy("page", () => fractalClient.deletePage(current, pagePath));
+    const project = result?.project;
     if (project) {
       clearPageDraft(current.rootPath, pagePath);
       acceptProject(project);
@@ -221,6 +272,7 @@ export function useFractalSession() {
     setActiveProject(null);
     setCommandResult(null);
     setError(null);
+    setFailureStatus(null);
     await refreshProjectCatalog();
   }, [refreshProjectCatalog]);
 
@@ -234,6 +286,7 @@ export function useFractalSession() {
   const dismissStatus = useCallback(() => {
     setCommandResult(null);
     setError(null);
+    setFailureStatus(null);
   }, []);
 
   useEffect(() => {
@@ -246,6 +299,7 @@ export function useFractalSession() {
     commandResult,
     confirmDialog: confirmState ? { confirmLabel: confirmState.confirmLabel, message: confirmState.message, onAnswer: answerConfirm } : null,
     error,
+    failureStatus,
     isBusy,
     projectCatalog,
     createProjectPage,
