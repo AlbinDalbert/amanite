@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { FractalHtmlExportReport, FractalPageKind } from "@/lib/fractal/types";
+import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 
 type Props = {
-  kind: FractalPageKind;
   pagePath: string;
   onClose: () => void;
   onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
 };
 
-function ExportDialog({ kind, pagePath, onClose, onExport }: Props) {
+function ExportDialog({ pagePath, onClose, onExport }: Props) {
   const [includeDerivedLinks, setIncludeDerivedLinks] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const canExport = kind === "native";
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -30,7 +28,7 @@ function ExportDialog({ kind, pagePath, onClose, onExport }: Props) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!canExport || isExporting) return;
+    if (isExporting) return;
     setError(null);
     setIsExporting(true);
     try {
@@ -68,7 +66,7 @@ function ExportDialog({ kind, pagePath, onClose, onExport }: Props) {
           <p className="export-future-note">More export formats will appear here as Fractal adds them.</p>
         </fieldset>
 
-        <fieldset className="export-options" disabled={!canExport || isExporting}>
+        <fieldset className="export-options" disabled={isExporting}>
           <legend>HTML options</legend>
           <label className="export-check-row">
             <input checked={includeDerivedLinks} onChange={(event) => setIncludeDerivedLinks(event.currentTarget.checked)} type="checkbox" />
@@ -77,12 +75,11 @@ function ExportDialog({ kind, pagePath, onClose, onExport }: Props) {
           <p>Explicit page links are always included as references.</p>
         </fieldset>
 
-        {!canExport ? <p className="export-error" role="alert">Standalone export is only available for native Fractal documents.</p> : null}
         {error ? <p className="export-error" role="alert">{error}</p> : null}
 
         <footer className="dialog-actions">
           <button className="ghost-action" disabled={isExporting} onClick={onClose} type="button">Cancel</button>
-          <button className="primary-action" disabled={!canExport || isExporting} type="submit">{isExporting ? "Exporting..." : "Choose destination"}</button>
+          <button className="primary-action" disabled={isExporting} type="submit">{isExporting ? "Exporting..." : "Choose destination"}</button>
         </footer>
       </form>
     </div>

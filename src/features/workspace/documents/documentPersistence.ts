@@ -1,6 +1,6 @@
 import { clearPageDraft } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalConditionalWriteResult, FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
+import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 import {
   errorMessage,
   type BufferUpdater,
@@ -18,7 +18,7 @@ type PersistenceOptions = {
   publishProject: (project: FractalProject) => void;
 };
 
-const nativeSectionOrder: FractalNativeSection[] = ["title", "content", "style", "metadata", "headLinks"];
+const nativeSectionOrder: FractalNativeSection[] = ["title", "content", "style", "metadata"];
 
 function projectForBuffer(project: FractalProject, buffer: DocumentBuffer): FractalProject {
   return { ...project, activePagePath: buffer.path };
@@ -34,7 +34,6 @@ function sectionHash(parts: FractalNativeDocumentParts, section: FractalNativeSe
     case "content": return parts.contentHash;
     case "style": return parts.styleHash;
     case "metadata": return parts.metadataHash;
-    case "headLinks": return parts.headLinksHash;
   }
 }
 
@@ -49,7 +48,6 @@ function applySection(
     case "content": return fractalClient.setPageContent(project, value, expectedHash);
     case "style": return fractalClient.setPageStyle(project, value, expectedHash);
     case "metadata": return fractalClient.setPageMetadata(project, value, expectedHash);
-    case "headLinks": return fractalClient.setPageHeadLinks(project, value, expectedHash);
   }
 }
 
@@ -101,8 +99,6 @@ function mergeSavedProject(
       activePageSource: useSavedSource ? savedProject.activePageSource : source,
       activePageLinks: savedProject.activePageLinks,
       activePageBacklinks: savedProject.activePageBacklinks,
-      activePageIframes: savedProject.activePageIframes,
-      activePageIframeBacklinks: savedProject.activePageIframeBacklinks,
       activePageContentHash: savedProject.activePageContentHash,
       activePageNativeDocumentParts: savedProject.activePageNativeDocumentParts ?? null
     } : {})
@@ -132,56 +128,25 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
         });
 
         try {
-          let savedProject: FractalProject;
-          let sent: FractalNativeSectionEdits = {};
-          if (start.kind === "native") {
-            const result = await saveNativeDocument(projectRef.current, start, forceAttempt);
-            if (result.kind === "conflict") {
-              commitBuffers((current) => {
-                const buffer = current[path];
-                return buffer ? {
-                  ...current,
-                  [path]: {
-                    ...buffer,
-                    operation: null,
-                    conflict: true,
-                    error: "This page changed on disk. Reload it or replace the external version."
-                  }
-                } : current;
-              });
-              if (forceRequests.has(path)) continue;
-              return false;
-            }
-            savedProject = result.project;
-            sent = result.sent;
-          } else {
-            const snapshot = projectForBuffer(projectRef.current, start);
-            if (!forceAttempt && !start.contentHash) {
-              throw new Error(`Fractal did not provide a content hash for ${path}.`);
-            }
-            if (forceAttempt) {
-              savedProject = await fractalClient.writeRawPage(snapshot, start.source);
-            } else {
-              const result: FractalConditionalWriteResult = await fractalClient.writeRawPageIfUnchanged(snapshot, start.source, start.contentHash!);
-              if (result.status === "conflict") {
-                commitBuffers((current) => {
-                  const buffer = current[path];
-                  return buffer ? {
-                    ...current,
-                    [path]: {
-                      ...buffer,
-                      operation: null,
-                      conflict: true,
-                      error: "This page changed on disk. Reload it or replace the external version."
-                    }
-                  } : current;
-                });
-                if (forceRequests.has(path)) continue;
-                return false;
-              }
-              savedProject = result.project;
-            }
+          const result = await saveNativeDocument(projectRef.current, start, forceAttempt);
+          if (result.kind === "conflict") {
+            commitBuffers((current) => {
+              const buffer = current[path];
+              return buffer ? {
+                ...current,
+                [path]: {
+                  ...buffer,
+                  operation: null,
+                  conflict: true,
+                  error: "This page changed on disk. Reload it or replace the external version."
+                }
+              } : current;
+            });
+            if (forceRequests.has(path)) continue;
+            return false;
           }
+          const savedProject = result.project;
+          const sent = result.sent;
 
           const resultingPath = savedProject.activePagePath ?? path;
           commitBuffers((current) => {
@@ -202,13 +167,11 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
                 : savedProject.activePageSource ?? currentBuffer.source,
               links: savedPage?.links ?? savedProject.activePageLinks,
               backlinks: savedProject.activePageBacklinks,
-              iframes: savedPage?.iframes ?? savedProject.activePageIframes,
-              iframeBacklinks: savedProject.activePageIframeBacklinks,
               contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
               nativeDocumentParts: savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
-              nativeEdits: currentBuffer.kind === "native" ? remainingEdits : {},
+              nativeEdits: remainingEdits,
               conflict: false,
-              dirty: currentBuffer.kind === "native" ? hasPendingNativeEdits : hasNewerEdits,
+              dirty: hasPendingNativeEdits || hasNewerEdits,
               error: null,
               operation: null
             };

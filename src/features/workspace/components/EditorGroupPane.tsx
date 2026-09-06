@@ -147,15 +147,12 @@ function EditorGroupPane(props: Props) {
           return (
             <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} key={path} role="tabpanel">
               <FractalEditor
-                aiSettings={props.aiSettings}
                 borealisOpen={props.borealisOpen}
                 borealisWorkspace={props.borealisWorkspace}
                 backlinks={tabBuffer.backlinks}
                 focusMode={props.focusMode}
                 isBusy={props.workspaceBusy || (active && props.isLoading)}
-                iframeBacklinks={tabBuffer.iframeBacklinks}
-                iframes={tabBuffer.iframes}
-                kind={tabPage.kind}
+                isFractalValid={Boolean(tabBuffer.nativeDocumentParts)}
                 links={tabBuffer.links}
                 pages={props.project.pages}
                 pagePath={path}

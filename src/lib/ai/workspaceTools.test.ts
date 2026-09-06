@@ -19,19 +19,15 @@ function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
       {
         path: "drafts/day-one.fractal.html",
         contentHash: "saved-hash",
-        kind: "native",
         title: "Day one",
         text: "Saved private page text",
-        links: [],
-        iframes: []
+        links: []
       }
     ],
     activePagePath: "drafts/day-one.fractal.html",
     activePageSource: null,
     activePageLinks: [],
-    activePageBacklinks: [],
-    activePageIframes: [],
-    activePageIframeBacklinks: []
+    activePageBacklinks: []
   } as FractalProject;
   const groups: WorkspaceGroups = {
     activeGroupId: "left",
@@ -114,12 +110,9 @@ describe("executeWorkspaceTool", () => {
     const buffers: DocumentBuffers = {
       "drafts/day-one.fractal.html": {
         path: "drafts/day-one.fractal.html",
-        kind: "native",
         source: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',
         links: [],
         backlinks: [],
-        iframes: [],
-        iframeBacklinks: [],
         contentHash: "saved-hash",
         nativeDocumentParts: null,
         nativeEdits: {},

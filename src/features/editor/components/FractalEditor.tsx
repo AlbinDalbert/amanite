@@ -1,34 +1,25 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type {
   FractalBacklink,
-  FractalIframe,
-  FractalIframeBacklink,
   FractalLink,
   FractalNativeSection,
-  FractalPage,
-  FractalPageKind
+  FractalPage
 } from "@/lib/fractal/types";
-import { countDocument, countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
+import { countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
 import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
-import RawHtmlEditor from "./RawHtmlEditor";
-import RenderedHtmlPage from "./RenderedHtmlPage";
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
-import type { AiSettings } from "@/app/useAiSettings";
 
 type FractalEditorProps = {
-  aiSettings: AiSettings;
   borealisOpen: boolean;
   borealisWorkspace: boolean;
   backlinks: FractalBacklink[];
   focusMode: boolean;
   isBusy: boolean;
-  iframeBacklinks: FractalIframeBacklink[];
-  iframes: FractalIframe[];
-  kind: FractalPageKind;
+  isFractalValid: boolean;
   links: FractalLink[];
   pages: FractalPage[];
   pagePath: string;
@@ -73,9 +64,8 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { aiSettings, backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, iframeBacklinks, iframes, kind, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onSave, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onSave, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
-  const [isSourceMode, setIsSourceMode] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
@@ -83,21 +73,14 @@ function FractalEditor(props: FractalEditorProps) {
   const [currentMatch, setCurrentMatch] = useState(0);
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
-  const nativeAnalysis = useMemo(() => kind === "native" ? analyzeEditablePage(source) : null, [kind, source]);
-  const page = useMemo(() => nativeAnalysis?.page ?? readEditablePage(source), [nativeAnalysis, source]);
-  const pageInspection = nativeAnalysis?.inspection ?? null;
-  const counts = useMemo(() => nativeAnalysis?.counts ?? countDocument(source, false), [nativeAnalysis, source]);
-  const matchCount = useMemo(
-    () => kind === "raw" && isSourceMode
-      ? (findQuery ? source.toLocaleLowerCase().split(findQuery.toLocaleLowerCase()).length - 1 : 0)
-      : countTextMatches(source, findQuery, kind === "native"),
-    [findQuery, isSourceMode, kind, source]
-  );
-  const outline = nativeAnalysis?.outline ?? [];
+  const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [source]);
+  const page = nativeAnalysis.page;
+  const counts = nativeAnalysis.counts;
+  const matchCount = useMemo(() => countTextMatches(source, findQuery, true), [findQuery, source]);
+  const outline = nativeAnalysis.outline;
 
   useEffect(() => {
     setIsInspectorOpen(false);
-    setIsSourceMode(false);
     setIsFindOpen(false);
     setFindQuery("");
     setCurrentMatch(0);
@@ -108,35 +91,13 @@ function FractalEditor(props: FractalEditorProps) {
     if (!matchCount || !findQuery) return;
     const next = (index + matchCount) % matchCount;
     setCurrentMatch(next);
-    if (kind === "raw" && isSourceMode) {
-      const textarea = editorRootRef.current?.querySelector<HTMLTextAreaElement>(".raw-source-field textarea");
-      const positions: number[] = [];
-      const lowerSource = source.toLocaleLowerCase();
-      const needle = findQuery.toLocaleLowerCase();
-      let offset = 0;
-      while ((offset = lowerSource.indexOf(needle, offset)) >= 0) { positions.push(offset); offset += Math.max(needle.length, 1); }
-      const start = positions[next];
-      if (textarea && start != null) { textarea.focus(); textarea.setSelectionRange(start, start + findQuery.length); }
-      return;
-    }
-    if (kind === "raw") {
-      const frame = editorRootRef.current?.querySelector<HTMLIFrameElement>(".rendered-page-frame");
-      findInElement(frame?.contentDocument?.body ?? null, findQuery, next);
-    } else {
-      findInElement(editorRootRef.current?.querySelector(".rich-content-editable") ?? null, findQuery, next);
-    }
+    findInElement(editorRootRef.current?.querySelector(".rich-content-editable") ?? null, findQuery, next);
   }
 
   function replaceAll() {
     if (!findQuery) return;
-    if (kind === "raw") {
-      const pattern = new RegExp(findQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
-      onChangeSource(source.replace(pattern, replacement));
-      setIsSourceMode(true);
-    } else {
-      const next = replaceDocumentText(source, findQuery, replacement, true);
-      onChangeSource(next, { section: "content", value: readEditablePage(next).bodyHtml });
-    }
+    const next = replaceDocumentText(source, findQuery, replacement, true);
+    onChangeSource(next, { section: "content", value: readEditablePage(next).bodyHtml });
     setCurrentMatch(0);
   }
 
@@ -152,7 +113,6 @@ function FractalEditor(props: FractalEditorProps) {
     const key = event.key.toLowerCase();
     if (key === "s") { event.preventDefault(); onSave(); }
     else if (key === "f" || key === "h") { event.preventDefault(); setIsFindOpen(true); }
-    else if (key === "`" && kind === "raw") { event.preventDefault(); setIsSourceMode((mode) => !mode); }
     else if (key === "l" && event.shiftKey) { event.preventDefault(); setIsInspectorOpen((open) => !open); }
     else if (key === "\\") { event.preventDefault(); onToggleFocus(); }
   }
@@ -177,7 +137,6 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function handleEditorLinkClick(event: MouseEvent<HTMLDivElement>) {
-    if (kind !== "native") return;
     const target = event.target;
     const derivedLink = target instanceof Element ? target.closest<HTMLElement>("[data-amanite-derived-target]") : null;
     const derivedTarget = derivedLink?.dataset.amaniteDerivedTarget;
@@ -202,27 +161,28 @@ function FractalEditor(props: FractalEditorProps) {
     if (externalHref) window.open(externalHref, "_blank", "noopener,noreferrer");
   }
 
-  const protection = pageInspection?.structuralIssues.length
-    ? { title: "This Fractal document is invalid", copy: "Amanite opened the page without changing it, but rich editing is disabled until its structure is repaired.", issues: pageInspection.structuralIssues }
-    : pageInspection?.compatibilityIssues.length
-      ? { title: "This HTML needs protection", copy: "The page contains attributes the rich editor cannot preserve yet. Amanite has left the file untouched and disabled rich editing.", issues: pageInspection.compatibilityIssues.map((issue) => `Rich editing cannot preserve ${issue}.`) }
+  const protection = !isFractalValid
+    ? { title: "This Fractal document is invalid", copy: "Amanite opened the page without changing it. Rich editing stays disabled until Fractal can read its native sections.", issues: [] }
+    : nativeAnalysis.inspection.compatibilityIssues.length
+      ? { title: "This document needs protection", copy: "The page uses markup the rich editor cannot preserve. Amanite has left the file untouched and disabled rich editing.", issues: nativeAnalysis.inspection.compatibilityIssues.map((issue) => `Rich editing cannot preserve ${issue}.`) }
       : null;
 
   return (
     <div className={isInspectorOpen ? "fractal-editor inspector-open" : "fractal-editor"} onClickCapture={handleEditorLinkClick} onKeyDown={handleKeyDown} ref={editorRootRef} style={{ "--inspector-width": `${inspectorWidth}px` } as CSSProperties}>
       <div className="fractal-editor-main">
-        {kind === "native" && protection ? (
+        {protection ? (
           <section className="native-document-guard" aria-labelledby="native-document-guard-title">
             <div>
               <span>Document protected</span>
               <h2 id="native-document-guard-title">{protection.title}</h2>
               <p>{protection.copy}</p>
-              <ul>{protection.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              {protection.issues.length ? <ul>{protection.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}
               <small>{pagePath}</small>
-              {pageInspection?.structuralIssues.length ? <button className="primary-action" disabled={isBusy} onClick={onRepair} type="button">Repair document structure</button> : null}
+              {!isFractalValid ? <button className="primary-action" disabled={isBusy} onClick={onRepair} type="button">Repair document structure</button> : null}
+              <details><summary>View exact source</summary><pre>{source}</pre></details>
             </div>
           </section>
-        ) : kind === "native" ? (
+        ) : (
           <RichDocumentEditor
             bodyHtml={page.bodyHtml}
             isBusy={isBusy}
@@ -236,18 +196,6 @@ function FractalEditor(props: FractalEditorProps) {
             onOpenFolder={onOpenFolder}
             onToggleInspector={() => setIsInspectorOpen((open) => !open)}
           />
-        ) : isSourceMode ? (
-          <RawHtmlEditor
-            isBusy={isBusy}
-            modeLabel="Raw HTML"
-            pagePath={pagePath}
-            source={source}
-            onChangeSource={onChangeSource}
-            onPreview={() => setIsSourceMode(false)}
-            onToggleInspector={() => setIsInspectorOpen((open) => !open)}
-          />
-        ) : (
-          <RenderedHtmlPage links={links} pages={pages} pagePath={pagePath} source={source} onEditSource={() => setIsSourceMode(true)} onNavigatePage={onNavigatePage} onToggleInspector={() => setIsInspectorOpen((open) => !open)} />
         )}
         <FindBar
           currentMatch={currentMatch}
@@ -265,8 +213,6 @@ function FractalEditor(props: FractalEditorProps) {
       </div>
       <InspectorPanel
         backlinks={backlinks}
-        iframeBacklinks={iframeBacklinks}
-        iframes={iframes}
         links={links}
         outline={outline}
         onNavigateHeading={jumpToHeading}
@@ -274,7 +220,7 @@ function FractalEditor(props: FractalEditorProps) {
         onResizeReset={() => setInspectorWidth(292)}
         onResizeStart={startInspectorResize}
       />
-      {isExportOpen ? <ExportDialog kind={kind} pagePath={pagePath} onClose={() => setIsExportOpen(false)} onExport={onExport} /> : null}
+      {isExportOpen ? <ExportDialog pagePath={pagePath} onClose={() => setIsExportOpen(false)} onExport={onExport} /> : null}
     </div>
   );
 }

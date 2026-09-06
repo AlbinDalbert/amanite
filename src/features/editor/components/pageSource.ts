@@ -1,6 +1,5 @@
 import type { DocumentCounts } from "./DocumentTools";
-import { richEditorCompatibilityIssues, richEditorCompatibilityIssuesForRoot } from "./editorHtml";
-import type { FractalNativeDocumentImport } from "@/lib/fractal/types";
+import { richEditorCompatibilityIssuesForRoot } from "./editorHtml";
 
 export type EditablePage = {
   bodyHtml: string;
@@ -10,7 +9,6 @@ export type EditablePage = {
 
 export type EditablePageInspection = {
   compatibilityIssues: string[];
-  structuralIssues: string[];
 };
 
 export type EditablePageAnalysis = {
@@ -21,36 +19,6 @@ export type EditablePageAnalysis = {
 };
 
 const NATIVE_ROOT_SELECTOR = "main[data-fractal-document]";
-
-export function extractNativeDocumentImport(source: string): FractalNativeDocumentImport | null {
-  const document = new DOMParser().parseFromString(source, "text/html");
-  const root = document.body.querySelector<HTMLElement>(NATIVE_ROOT_SELECTOR);
-  if (!root) return null;
-  const title = document.title.trim();
-  const contentRoot = root.cloneNode(true) as HTMLElement;
-  const titleHeading = contentRoot.querySelector(":scope > h1[data-fractal-title]")
-    ?? (contentRoot.querySelector(":scope > h1")?.textContent?.trim() === title ? contentRoot.querySelector(":scope > h1") : null);
-  titleHeading?.remove();
-  const style = document.head.querySelector("style[data-fractal-style]") ?? document.head.querySelector("style");
-  const metadata = Array.from(document.head.children)
-    .filter((element) => element.tagName.toLowerCase() === "meta")
-    .filter((element) => {
-      const name = element.getAttribute("name")?.toLowerCase();
-      return !element.hasAttribute("charset") && name !== "fractal-format" && name !== "viewport";
-    })
-    .map((element) => element.outerHTML)
-    .join("");
-  const headLinks = Array.from(document.head.children)
-    .filter((element) => element.tagName.toLowerCase() === "link")
-    .map((element) => element.outerHTML)
-    .join("");
-  return {
-    contentHtml: contentRoot.innerHTML,
-    styleCss: style?.textContent ?? "",
-    metadataHtml: metadata,
-    headLinksHtml: headLinks
-  };
-}
 
 export function readEditablePage(source: string): EditablePage {
   const document = new DOMParser().parseFromString(source, "text/html");
@@ -68,41 +36,6 @@ export function readEditablePage(source: string): EditablePage {
   };
 }
 
-export function inspectEditablePage(source: string): EditablePageInspection {
-  const document = new DOMParser().parseFromString(source, "text/html");
-  const roots = Array.from(document.body.querySelectorAll(NATIVE_ROOT_SELECTOR));
-  const structuralIssues: string[] = [];
-
-  if (document.doctype?.name.toLowerCase() !== "html") structuralIssues.push("The HTML doctype is missing.");
-  if (!document.head.querySelector('meta[name="fractal-format" i][content="1"]')) structuralIssues.push("The Fractal format marker is missing.");
-  if (roots.length !== 1) structuralIssues.push("The document needs exactly one Fractal document root.");
-
-  const outsideElements = Array.from(document.body.children)
-    .filter((element) => !element.matches(NATIVE_ROOT_SELECTOR))
-    .map((element) => `<${element.tagName.toLowerCase()}>`);
-  if (outsideElements.length) structuralIssues.push(`Elements outside the document root: ${outsideElements.join(", ")}.`);
-
-  const root = roots[0];
-  const managedTitleHeadings = root ? Array.from(root.children).filter((element) => element.matches("h1[data-fractal-title]")) : [];
-  if (managedTitleHeadings.length !== 1) structuralIssues.push("The document needs exactly one managed title heading.");
-  const managedStyles = Array.from(document.head.children).filter((element) => element.matches("style[data-fractal-style]"));
-  if (managedStyles.length !== 1) structuralIssues.push("The document needs exactly one managed style.");
-  const compatibilityIssues = root ? richEditorCompatibilityIssues(root.innerHTML) : [];
-  const unsupportedElements = compatibilityIssues.filter((issue) => !issue.includes(" "));
-  if (unsupportedElements.length) structuralIssues.push(`Unsupported Fractal elements: ${unsupportedElements.join(", ")}.`);
-
-  const allowedHeadElements = new Set(["link", "meta", "style", "title"]);
-  const unsupportedHead = Array.from(document.head.querySelectorAll("*"))
-    .map((element) => element.tagName.toLowerCase())
-    .filter((tag) => !allowedHeadElements.has(tag));
-  if (unsupportedHead.length) structuralIssues.push(`Unsupported head elements: ${[...new Set(unsupportedHead)].map((tag) => `<${tag}>`).join(", ")}.`);
-
-  return {
-    compatibilityIssues: compatibilityIssues.filter((issue) => !unsupportedElements.includes(issue)),
-    structuralIssues
-  };
-}
-
 export function analyzeEditablePage(source: string): EditablePageAnalysis {
   const document = new DOMParser().parseFromString(source, "text/html");
   const roots = Array.from(document.body.querySelectorAll(NATIVE_ROOT_SELECTOR));
@@ -111,30 +44,7 @@ export function analyzeEditablePage(source: string): EditablePageAnalysis {
   const titleElement = document.head.querySelector("title");
   const title = titleElement?.textContent?.trim() || titleHeading?.textContent?.trim() || "";
   const hasTitleHeading = Boolean(titleHeading && (!titleElement || titleHeading.textContent?.trim() === titleElement.textContent?.trim()));
-  const structuralIssues: string[] = [];
-
-  if (document.doctype?.name.toLowerCase() !== "html") structuralIssues.push("The HTML doctype is missing.");
-  if (!document.head.querySelector('meta[name="fractal-format" i][content="1"]')) structuralIssues.push("The Fractal format marker is missing.");
-  if (roots.length !== 1) structuralIssues.push("The document needs exactly one Fractal document root.");
-
-  const outsideElements = Array.from(document.body.children)
-    .filter((element) => !element.matches(NATIVE_ROOT_SELECTOR))
-    .map((element) => `<${element.tagName.toLowerCase()}>`);
-  if (outsideElements.length) structuralIssues.push(`Elements outside the document root: ${outsideElements.join(", ")}.`);
-
-  const managedTitleHeadings = documentRoot ? Array.from(documentRoot.children).filter((element) => element.matches("h1[data-fractal-title]")) : [];
-  if (managedTitleHeadings.length !== 1) structuralIssues.push("The document needs exactly one managed title heading.");
-  const managedStyles = Array.from(document.head.children).filter((element) => element.matches("style[data-fractal-style]"));
-  if (managedStyles.length !== 1) structuralIssues.push("The document needs exactly one managed style.");
   const compatibilityIssues = documentRoot ? richEditorCompatibilityIssuesForRoot(documentRoot) : [];
-  const unsupportedElements = compatibilityIssues.filter((issue) => !issue.includes(" "));
-  if (unsupportedElements.length) structuralIssues.push(`Unsupported Fractal elements: ${unsupportedElements.join(", ")}.`);
-
-  const allowedHeadElements = new Set(["link", "meta", "style", "title"]);
-  const unsupportedHead = Array.from(document.head.querySelectorAll("*"))
-    .map((element) => element.tagName.toLowerCase())
-    .filter((tag) => !allowedHeadElements.has(tag));
-  if (unsupportedHead.length) structuralIssues.push(`Unsupported head elements: ${[...new Set(unsupportedHead)].map((tag) => `<${tag}>`).join(", ")}.`);
 
   const outline = documentRoot ? Array.from(documentRoot.querySelectorAll("h1, h2, h3, h4, h5, h6"))
     .filter((heading) => !hasTitleHeading || heading !== titleHeading)
@@ -166,8 +76,7 @@ export function analyzeEditablePage(source: string): EditablePageAnalysis {
       words
     },
     inspection: {
-      compatibilityIssues: compatibilityIssues.filter((issue) => !unsupportedElements.includes(issue)),
-      structuralIssues
+      compatibilityIssues
     },
     outline,
     page: {

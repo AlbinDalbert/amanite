@@ -5,10 +5,9 @@ import { $deleteTableColumnAtSelection, $deleteTableRowAtSelection, $insertTable
 import { INSERT_HORIZONTAL_RULE_COMMAND } from "@lexical/react/LexicalHorizontalRuleNode";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $setBlocksType } from "@lexical/selection";
-import { $createParagraphNode, $getSelection, $insertNodes, $isRangeSelection, $isTextNode, FORMAT_ELEMENT_COMMAND, FORMAT_TEXT_COMMAND, INDENT_CONTENT_COMMAND, OUTDENT_CONTENT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type TextFormatType } from "lexical";
+import { $createParagraphNode, $getSelection, $isRangeSelection, $isTextNode, FORMAT_ELEMENT_COMMAND, FORMAT_TEXT_COMMAND, INDENT_CONTENT_COMMAND, OUTDENT_CONTENT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type TextFormatType } from "lexical";
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode, $isQuoteNode, type HeadingTagType } from "@lexical/rich-text";
 import { useCallback, useEffect, useState } from "react";
-import { $createIframeNode, $createImageNode } from "./MediaNodes";
 import type { FractalPage } from "@/lib/fractal/types";
 import { relativePageHref } from "./pageLinks";
 
@@ -24,9 +23,6 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
   const [blockType, setBlockType] = useState("paragraph");
   const [isLinkOpen, setIsLinkOpen] = useState(false);
   const [linkQuery, setLinkQuery] = useState("");
-  const [isIframeOpen, setIsIframeOpen] = useState(false);
-  const [iframeSource, setIframeSource] = useState("");
-  const [iframeTitle, setIframeTitle] = useState("");
 
   const readSelection = useCallback(() => {
     const selection = $getSelection();
@@ -83,35 +79,12 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
     setIsLinkOpen(false);
     setLinkQuery("");
   };
-  const image = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => editor.update(() => $insertNodes([$createImageNode(String(reader.result), file.name.replace(/\.[^.]+$/, ""))]));
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  };
   const clearFormatting = () => editor.update(() => {
     const selection = $getSelection();
     if (!$isRangeSelection(selection)) return;
     for (const node of selection.getNodes()) if ($isTextNode(node)) { node.setFormat(0); node.setStyle(""); }
   });
   const filteredPages = pages.filter((page) => page.path !== pagePath && `${page.title ?? ""} ${page.path}`.toLocaleLowerCase().includes(linkQuery.toLocaleLowerCase())).slice(0, 7);
-  const iframe = () => {
-    setIsIframeOpen(true);
-  };
-  const applyIframe = () => {
-    if (!iframeSource.trim()) return;
-    editor.update(() => $insertNodes([$createIframeNode(iframeSource.trim(), iframeTitle.trim())]));
-    setIsIframeOpen(false);
-    setIframeSource("");
-    setIframeTitle("");
-  };
 
   return (
     <div className={isMoreOpen ? "rich-toolbar-stack more-open" : "rich-toolbar-stack"} aria-label="Text formatting">
@@ -156,8 +129,6 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
         <div className="rich-toolbar-group">
           <ToolButton active={isLinkOpen} disabled={disabled} label="Link" title="Add link (Ctrl+K)" onClick={() => setIsLinkOpen((open) => !open)} />
           <ToolButton disabled={disabled} label="Unlink" title="Remove link" onClick={() => editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)} />
-          <ToolButton disabled={disabled} label="Image" title="Add image" onClick={image} />
-          <ToolButton disabled={disabled} label="Iframe" title="Add iframe" onClick={iframe} />
           <ToolButton disabled={disabled} label="Table" title="Add 3 by 3 table" onClick={() => editor.dispatchCommand(INSERT_TABLE_COMMAND, { columns: "3", rows: "3", includeHeaders: true })} />
           <ToolButton disabled={disabled} label="Rule" title="Horizontal rule" onClick={() => editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)} />
         </div>
@@ -183,13 +154,6 @@ function EditorToolbar({ disabled, pagePath, pages }: { disabled: boolean; pageP
             {linkQuery.trim() ? <button className="link-address-result" onClick={() => applyLink(linkQuery)} type="button"><strong>Use address</strong><small>{linkQuery}</small></button> : null}
           </div>
         </div>
-      ) : null}
-      {isIframeOpen ? (
-        <form className="link-picker iframe-picker" onSubmit={(event) => { event.preventDefault(); applyIframe(); }} role="dialog" aria-label="Add iframe">
-          <label><span>Iframe source</span><input autoFocus onChange={(event) => setIframeSource(event.currentTarget.value)} placeholder="https://example.com/embed" value={iframeSource} /></label>
-          <label><span>Accessible title</span><input onChange={(event) => setIframeTitle(event.currentTarget.value)} placeholder="Map of Stockholm" value={iframeTitle} /></label>
-          <div className="iframe-picker-actions"><button onClick={() => setIsIframeOpen(false)} type="button">Cancel</button><button disabled={!iframeSource.trim()} type="submit">Insert iframe</button></div>
-        </form>
       ) : null}
     </div>
   );

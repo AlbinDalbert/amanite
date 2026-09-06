@@ -14,14 +14,14 @@ type Options = {
 };
 
 function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentState) {
-  if (buffer.kind !== "native" || !buffer.nativeDocumentParts || !state.nativeDocumentHashes) {
+  if (!buffer.nativeDocumentParts || !state.nativeDocumentHashes) {
     return state.contentHash !== buffer.contentHash;
   }
   const hashes = state.nativeDocumentHashes;
   const pendingSections = Object.keys(buffer.nativeEdits) as Array<keyof typeof buffer.nativeEdits>;
   if (pendingSections.length) {
     return pendingSections.some((section) => {
-      const hashKey = section === "headLinks" ? "headLinksHash" : `${section}Hash` as keyof typeof hashes;
+      const hashKey = `${section}Hash` as keyof typeof hashes;
       return hashes[hashKey] !== buffer.nativeDocumentParts?.[hashKey];
     });
   }

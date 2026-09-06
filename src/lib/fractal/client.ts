@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalNativeDocumentImport, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalSearchResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -30,19 +30,6 @@ export const fractalClient: FractalClient = {
       pagePath,
       projectRoot: project.rootPath
     }),
-  writeRawPage: (project, source) =>
-    invokeFractal<FractalProject>("fractal_write_raw_page", {
-      pagePath: project.activePagePath,
-      projectRoot: project.rootPath,
-      source
-    }),
-  writeRawPageIfUnchanged: (project, source, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_write_raw_page_if_unchanged", {
-      expectedHash,
-      pagePath: project.activePagePath,
-      projectRoot: project.rootPath,
-      source
-    }),
   setPageTitle: (project, title, expectedHash) =>
     invokeFractal<FractalConditionalWriteResult>("fractal_set_page_title", {
       expectedHash,
@@ -71,13 +58,6 @@ export const fractalClient: FractalClient = {
       pagePath: project.activePagePath,
       projectRoot: project.rootPath
     }),
-  setPageHeadLinks: (project, headLinksHtml, expectedHash) =>
-    invokeFractal<FractalConditionalWriteResult>("fractal_set_page_head_links", {
-      expectedHash,
-      headLinksHtml,
-      pagePath: project.activePagePath,
-      projectRoot: project.rootPath
-    }),
   repairPageStructure: (project, pagePath) =>
     invokeFractal<FractalProject>("fractal_repair_page_structure", {
       pagePath,
@@ -89,14 +69,11 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath,
       title
     }),
-  importNativePage: (project, title, sections: FractalNativeDocumentImport, folderPath) =>
-    invokeFractal<FractalProject>("fractal_import_native_page", {
-      contentHtml: sections.contentHtml,
+  duplicatePage: (project, pagePath, title, folderPath) =>
+    invokeFractal<FractalProject>("fractal_duplicate_page", {
       folderPath,
-      headLinksHtml: sections.headLinksHtml,
-      metadataHtml: sections.metadataHtml,
+      pagePath,
       projectRoot: project.rootPath,
-      styleCss: sections.styleCss,
       title
     }),
   createFolder: (project, folderPath) =>

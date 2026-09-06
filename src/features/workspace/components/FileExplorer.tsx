@@ -27,7 +27,7 @@ export type ExplorerEntry =
   | { kind: "page"; path: string; page: FractalPage };
 
 export function compareExplorerEntries(a: ExplorerEntry, b: ExplorerEntry) {
-  const rank = (entry: ExplorerEntry) => entry.kind === "folder" ? 0 : entry.page.kind === "native" ? 1 : 2;
+  const rank = (entry: ExplorerEntry) => entry.kind === "folder" ? 0 : 1;
   return rank(a) - rank(b) || a.path.localeCompare(b.path, undefined, { sensitivity: "base", numeric: true });
 }
 
@@ -127,7 +127,7 @@ function FileExplorer(props: Props) {
           title={entry.path}
           type="button"
         >
-          <span className="explorer-twist" /><span className={`explorer-icon page ${entry.page.kind}`} /><span className="explorer-name">{entry.page.title || entry.path.split("/").at(-1)}</span><span className={`explorer-kind ${entry.page.kind}`}>{entry.page.kind === "native" ? "F" : "HTML"}</span>
+          <span className="explorer-twist" /><span className="explorer-icon page" /><span className="explorer-name">{entry.page.title || entry.path.split("/").at(-1)}</span><span className="explorer-kind">F</span>
         </button>
       </li>
     ));

@@ -225,7 +225,6 @@ function App() {
               onDismissStatus={session.dismissStatus}
               onMovePage={session.moveProjectPage}
               onOpenSettings={() => setIsSettingsOpen(true)}
-              onImportNativePage={session.importNativePage}
               onRepairPage={session.repairProjectPage}
               onProjectSnapshot={session.adoptProjectSnapshot}
               onRegisterWorkspace={registerWorkspace}

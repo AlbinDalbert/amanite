@@ -6,8 +6,8 @@ function folder(path: string, title: string, children: FractalFolder["children"]
   return { children, issues: [], order: null, path, title };
 }
 
-function page(path: string, title: string, kind: FractalPage["kind"] = "native"): FractalPage {
-  return { contentHash: path, iframes: [], kind, links: [], path, text: "", title };
+function page(path: string, title: string): FractalPage {
+  return { contentHash: path, links: [], path, text: "", title };
 }
 
 describe("folder export tree", () => {
@@ -27,8 +27,7 @@ describe("folder export tree", () => {
       [
         page("book/opening.fractal.html", "Opening"),
         page("book/part-one/second.fractal.html", "Second"),
-        page("book/part-one/first.fractal.html", "First"),
-        page("book/notes.html", "Raw notes", "raw")
+        page("book/part-one/first.fractal.html", "First")
       ]
     );
 

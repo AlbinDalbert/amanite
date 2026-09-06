@@ -52,7 +52,6 @@ type WorkspaceProps = {
   onDeleteFolder: (folderPath: string) => ProjectMutation;
   onDismissStatus: () => void;
   onDuplicatePage: (pagePath: string) => ProjectMutation;
-  onImportNativePage: (source: string, folderPath?: string) => ProjectMutation;
   onRepairPage: (pagePath: string) => ProjectMutation;
   onMovePage: (pagePath: string, destination: string) => ProjectMutation;
   onOpenSettings: () => void;

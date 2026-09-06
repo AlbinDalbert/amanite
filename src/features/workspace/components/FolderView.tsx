@@ -145,7 +145,7 @@ function InlineFolderEditor({ buffer, isBusy, pages, spellCheck, onChangeSource 
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
   const analysis = useMemo(() => analyzeEditablePage(buffer.source), [buffer.source]);
-  const protectedDocument = analysis.inspection.structuralIssues.length || analysis.inspection.compatibilityIssues.length;
+  const protectedDocument = !buffer.nativeDocumentParts || analysis.inspection.compatibilityIssues.length;
   if (protectedDocument) {
     return <p className="folder-inline-protected">This page contains HTML the rich editor cannot preserve. Open it in its own tab to inspect it.</p>;
   }
@@ -210,7 +210,6 @@ function FolderView(props: Props) {
   }, [createKind]);
 
   const orderedNames = props.folder.children.map((child) => child.name);
-  const rawPages = props.pages.filter((page) => page.kind === "raw" && directParent(page.path) === props.folder.path);
   const nativeCount = props.folder.children.filter((child) => child.kind === "native" && child.status === "present").length;
   const folderCount = props.folder.children.filter((child) => child.kind === "folder" && child.status === "present").length;
   const exportTree = useMemo(() => buildFolderExportTree(props.folder, props.folders, props.pages), [props.folder, props.folders, props.pages]);
@@ -376,13 +375,6 @@ function FolderView(props: Props) {
           {dropIndex === props.folder.children.length ? <li className="folder-sequence-end-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); reorderAt(props.folder.children.length); }} /> : null}
           {props.folder.children.length ? <FolderAddControl isBusy={props.isBusy} open={addMenu === "bottom"} placement="bottom" onCreate={beginCreating} onOpen={() => setAddMenu((current) => current === "bottom" ? null : "bottom")} /> : null}
         </ol>
-
-        {rawPages.length ? (
-          <section className="folder-other-pages">
-            <header><span>Other HTML</span><small>Raw HTML stays outside folder order.</small></header>
-            {rawPages.map((page) => <button key={page.path} onClick={() => props.onOpenPage(page.path)} type="button"><strong>{page.title || page.path.split("/").at(-1)}</strong><code>{page.path}</code></button>)}
-          </section>
-        ) : null}
 
         {props.folder.issues.length ? (
           <section className="folder-issues"><span>Folder issues</span>{props.folder.issues.map((issue) => <p key={`${issue.name}:${issue.message}`}><strong>{issue.name}</strong>{issue.message}</p>)}</section>

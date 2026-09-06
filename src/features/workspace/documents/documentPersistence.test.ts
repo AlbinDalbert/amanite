@@ -4,23 +4,6 @@ import type { FractalConditionalWriteResult, FractalNativeDocumentParts, Fractal
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence } from "./documentPersistence";
 
-function project(path: string, source: string, hash: string): FractalProject {
-  return {
-    name: "Test",
-    version: 2,
-    rootPath: "/tmp/amanite-test",
-    pages: [{ path, contentHash: hash, kind: "raw", title: "Test", text: "", links: [], iframes: [] }],
-    folders: [],
-    activePagePath: path,
-    activePageSource: source,
-    activePageLinks: [],
-    activePageBacklinks: [],
-    activePageIframes: [],
-    activePageIframeBacklinks: [],
-    activePageContentHash: hash
-  };
-}
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
@@ -46,8 +29,6 @@ function nativeParts(overrides: Partial<FractalNativeDocumentParts> = {}): Fract
     styleHash: "style-hash",
     metadataHtml: "",
     metadataHash: "metadata-hash",
-    headLinksHtml: "",
-    headLinksHash: "head-links-hash",
     sourceHash: "source-hash",
     ...overrides
   };
@@ -58,14 +39,12 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
     name: "Test",
     version: 2,
     rootPath: "/tmp/amanite-test",
-    pages: [{ path, contentHash: parts.sourceHash, kind: "native", title: parts.title, text: "Before", links: [], iframes: [] }],
+    pages: [{ path, contentHash: parts.sourceHash, title: parts.title, text: "Before", links: [] }],
     folders: [],
     activePagePath: path,
     activePageSource: source,
     activePageLinks: [],
     activePageBacklinks: [],
-    activePageIframes: [],
-    activePageIframeBacklinks: [],
     activePageContentHash: parts.sourceHash,
     activePageNativeDocumentParts: parts
   };
@@ -74,41 +53,42 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
 describe("document persistence", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("leaves edits made during a save dirty without writing or replacing them", async () => {
+  it("leaves newer native edits dirty without replacing them", async () => {
     const path = "index.fractal.html";
-    const firstProject = project(path, "revision one", "hash-10");
-    const firstBuffer = bufferFromProject(firstProject, "revision one", true)!;
+    const firstProject = nativeProject(path);
+    const firstBuffer = bufferFromProject(firstProject)!;
+    firstBuffer.source = NATIVE_SOURCE.replace("Before", "Revision one");
+    firstBuffer.nativeEdits = { content: "<p>Revision one</p>" };
+    firstBuffer.dirty = true;
+    firstBuffer.revision = 1;
     const buffersRef = { current: { [path]: firstBuffer } as DocumentBuffers };
     const projectRef = { current: firstProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
     const publishProject = vi.fn((next: FractalProject) => { projectRef.current = next; });
     const firstWrite = deferred<FractalConditionalWriteResult>();
 
-    vi.spyOn(fractalClient, "writeRawPageIfUnchanged")
+    vi.spyOn(fractalClient, "setPageContent")
       .mockImplementationOnce(() => firstWrite.promise);
 
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange: vi.fn(), projectRef, publishProject });
     const saving = persistence.saveDocument(path);
     expect(persistence.saveDocument(path)).toBe(saving);
-    await vi.waitFor(() => expect(fractalClient.writeRawPageIfUnchanged).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(fractalClient.setPageContent).toHaveBeenCalledTimes(1));
 
     commitBuffers((current) => ({
       ...current,
-      [path]: { ...current[path], source: "revision two", dirty: true, revision: 2 }
+      [path]: { ...current[path], source: NATIVE_SOURCE.replace("Before", "Revision two"), nativeEdits: { content: "<p>Revision two</p>" }, dirty: true, revision: 2 }
     }));
-    firstWrite.resolve(saved(project(path, "revision one", "hash-11")));
+    firstWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "Revision one"), nativeParts({ contentHtml: "<p>Revision one</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }))));
 
     await expect(saving).resolves.toBe(true);
-    expect(fractalClient.writeRawPageIfUnchanged).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(fractalClient.writeRawPageIfUnchanged).mock.calls.map((call) => call[1])).toEqual([
-      "revision one"
-    ]);
+    expect(fractalClient.setPageContent).toHaveBeenCalledTimes(1);
     expect(buffersRef.current[path]).toMatchObject({
-      contentHash: "hash-11",
+      contentHash: "source-hash-2",
       dirty: true,
       operation: null,
       revision: 2,
-      source: "revision two"
+      nativeEdits: { content: "<p>Revision two</p>" }
     });
     expect(publishProject).not.toHaveBeenCalled();
   });
@@ -116,11 +96,16 @@ describe("document persistence", () => {
   it("rescans dirty buffers before save-all returns", async () => {
     const firstPath = "first.fractal.html";
     const secondPath = "second.fractal.html";
-    const firstProject = project(firstPath, "first", "hash-10");
+    const firstProject = nativeProject(firstPath);
+    const firstBuffer = bufferFromProject(firstProject)!;
+    firstBuffer.nativeEdits = { content: "<p>First changed</p>" };
+    firstBuffer.dirty = true;
+    firstBuffer.revision = 1;
+    const secondProject = nativeProject(secondPath);
     const buffersRef = {
       current: {
-        [firstPath]: bufferFromProject(firstProject, "first", true)!,
-        [secondPath]: bufferFromProject(project(secondPath, "second", "hash-20"))!
+        [firstPath]: firstBuffer,
+        [secondPath]: bufferFromProject(secondProject)!
       } as DocumentBuffers
     };
     const projectRef = { current: firstProject };
@@ -128,34 +113,38 @@ describe("document persistence", () => {
     const publishProject = (next: FractalProject) => { projectRef.current = next; };
     const firstWrite = deferred<FractalConditionalWriteResult>();
 
-    vi.spyOn(fractalClient, "writeRawPageIfUnchanged")
+    vi.spyOn(fractalClient, "setPageContent")
       .mockImplementationOnce(() => firstWrite.promise)
-      .mockResolvedValueOnce(saved(project(secondPath, "second changed", "hash-21")));
+      .mockResolvedValueOnce(saved(nativeProject(secondPath, NATIVE_SOURCE.replace("Before", "Second changed"), nativeParts({ contentHtml: "<p>Second changed</p>", sourceHash: "source-hash-3" }))));
 
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange: vi.fn(), projectRef, publishProject });
     const saving = persistence.saveAll();
-    await vi.waitFor(() => expect(fractalClient.writeRawPageIfUnchanged).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(fractalClient.setPageContent).toHaveBeenCalledTimes(1));
     commitBuffers((current) => ({
       ...current,
-      [secondPath]: { ...current[secondPath], source: "second changed", dirty: true, revision: 1 }
+      [secondPath]: { ...current[secondPath], source: NATIVE_SOURCE.replace("Before", "Second changed"), nativeEdits: { content: "<p>Second changed</p>" }, dirty: true, revision: 1 }
     }));
-    firstWrite.resolve(saved(project(firstPath, "first", "hash-11")));
+    firstWrite.resolve(saved(nativeProject(firstPath, NATIVE_SOURCE.replace("Before", "First changed"), nativeParts({ contentHtml: "<p>First changed</p>", sourceHash: "source-hash-2" }))));
 
     await expect(saving).resolves.toBe(true);
-    expect(fractalClient.writeRawPageIfUnchanged).toHaveBeenCalledTimes(2);
-    expect(buffersRef.current[secondPath]).toMatchObject({ dirty: false, source: "second changed" });
+    expect(fractalClient.setPageContent).toHaveBeenCalledTimes(2);
+    expect(buffersRef.current[secondPath]).toMatchObject({ dirty: false });
   });
 
   it("reports a conditional-write conflict without overwriting the page", async () => {
     const path = "index.fractal.html";
-    const initialProject = project(path, "local edit", "original-hash");
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.source = NATIVE_SOURCE.replace("Before", "Local edit");
+    buffer.nativeEdits = { content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    buffer.revision = 1;
     const buffersRef = {
-      current: { [path]: bufferFromProject(initialProject, "local edit", true)! } as DocumentBuffers
+      current: { [path]: buffer } as DocumentBuffers
     };
     const projectRef = { current: initialProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
-    const writeRawPage = vi.spyOn(fractalClient, "writeRawPage");
-    vi.spyOn(fractalClient, "writeRawPageIfUnchanged").mockResolvedValue({
+    vi.spyOn(fractalClient, "setPageContent").mockResolvedValue({
       status: "conflict",
       message: "page changed"
     });
@@ -169,7 +158,6 @@ describe("document persistence", () => {
     });
 
     await expect(persistence.saveDocument(path)).resolves.toBe(false);
-    expect(writeRawPage).not.toHaveBeenCalled();
     expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
   });
 

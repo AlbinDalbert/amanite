@@ -22,28 +22,6 @@ export type FractalSearchResult = {
   snippet: string;
 };
 
-export type FractalIframeTarget =
-  | { kind: "internal"; value: string }
-  | { kind: "internal_file"; value: string }
-  | { kind: "external"; value: string }
-  | { kind: "inline" }
-  | { kind: "missing" }
-  | { kind: "broken"; value: string };
-
-export type FractalIframe = {
-  src?: string | null;
-  title?: string | null;
-  sandbox?: string | null;
-  target: FractalIframeTarget;
-};
-
-export type FractalIframeBacklink = {
-  page: string;
-  title?: string | null;
-};
-
-export type FractalPageKind = "native" | "raw";
-
 export type FractalNativeDocumentParts = {
   title: string;
   titleHash: string;
@@ -53,32 +31,23 @@ export type FractalNativeDocumentParts = {
   styleHash: string;
   metadataHtml: string;
   metadataHash: string;
-  headLinksHtml: string;
-  headLinksHash: string;
   sourceHash: string;
 };
 
 export type FractalNativeDocumentHashes = Pick<
   FractalNativeDocumentParts,
-  "titleHash" | "contentHash" | "styleHash" | "metadataHash" | "headLinksHash" | "sourceHash"
+  "titleHash" | "contentHash" | "styleHash" | "metadataHash" | "sourceHash"
 >;
 
-export type FractalNativeSection = "title" | "content" | "style" | "metadata" | "headLinks";
+export type FractalNativeSection = "title" | "content" | "style" | "metadata";
 export type FractalNativeSectionEdits = Partial<Record<FractalNativeSection, string>>;
-
-export type FractalNativeDocumentImport = Pick<
-  FractalNativeDocumentParts,
-  "contentHtml" | "styleCss" | "metadataHtml" | "headLinksHtml"
->;
 
 export type FractalPage = {
   path: string;
   contentHash: string;
-  kind: FractalPageKind;
   title?: string | null;
   text: string;
   links: FractalLink[];
-  iframes: FractalIframe[];
 };
 
 export type FractalFolderChildKind = "folder" | "native";
@@ -113,8 +82,6 @@ export type FractalProject = {
   activePageSource?: string | null;
   activePageLinks: FractalLink[];
   activePageBacklinks: FractalBacklink[];
-  activePageIframes: FractalIframe[];
-  activePageIframeBacklinks: FractalIframeBacklink[];
   activePageContentHash?: string | null;
   activePageNativeDocumentParts?: FractalNativeDocumentParts | null;
 };
@@ -169,12 +136,9 @@ export type FractalFolderHtmlExportReport = {
 
 export type FractalLoadedPage = {
   path: string;
-  kind: FractalPageKind;
   source: string;
   links: FractalLink[];
   backlinks: FractalBacklink[];
-  iframes: FractalIframe[];
-  iframeBacklinks: FractalIframeBacklink[];
   contentHash: string;
   nativeDocumentParts?: FractalNativeDocumentParts | null;
 };
@@ -190,16 +154,13 @@ export type FractalClient = {
   openProjectPath: (projectRoot: string) => Promise<FractalProject>;
   openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   readPage: (project: FractalProject, pagePath: string) => Promise<FractalLoadedPage>;
-  writeRawPage: (project: FractalProject, source: string) => Promise<FractalProject>;
-  writeRawPageIfUnchanged: (project: FractalProject, source: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   setPageTitle: (project: FractalProject, title: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   setPageContent: (project: FractalProject, contentHtml: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   setPageStyle: (project: FractalProject, styleCss: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   setPageMetadata: (project: FractalProject, metadataHtml: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
-  setPageHeadLinks: (project: FractalProject, headLinksHtml: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   repairPageStructure: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   createPage: (project: FractalProject, title: string, folderPath?: string) => Promise<FractalProject>;
-  importNativePage: (project: FractalProject, title: string, sections: FractalNativeDocumentImport, folderPath?: string) => Promise<FractalProject>;
+  duplicatePage: (project: FractalProject, pagePath: string, title: string, folderPath?: string) => Promise<FractalProject>;
   createFolder: (project: FractalProject, folderPath: string) => Promise<FractalProject>;
   setFolderTitle: (project: FractalProject, folderPath: string, title: string) => Promise<FractalProject>;
   reorderFolder: (project: FractalProject, folderPath: string, order: string[]) => Promise<FractalProject>;

@@ -5,14 +5,13 @@ export const AMANITE_HTML_LOAD_TAG = "amanite-html-load";
 
 const ALLOWED_ELEMENTS = new Set([
   "a", "abbr", "b", "blockquote", "br", "caption", "cite", "code", "col", "colgroup", "del", "em",
-  "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "iframe", "img", "ins",
+  "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "ins",
   "kbd", "li", "mark", "ol", "p", "pre", "q", "s", "samp", "small", "span", "strong", "sub", "sup",
   "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var"
 ]);
 
 function allowedAttributes(tag: string) {
   return tag === "a" ? ["href", "title"]
-    : tag === "img" || tag === "iframe" ? null
     : tag === "h1" ? ["data-fractal-title"]
     : tag === "time" ? ["datetime"]
     : tag === "td" || tag === "th" ? ["colspan", "rowspan"]

@@ -256,8 +256,6 @@ struct FractalNativeDocumentParts {
     style_hash: String,
     metadata_html: String,
     metadata_hash: String,
-    head_links_html: String,
-    head_links_hash: String,
     source_hash: String,
 }
 
@@ -272,8 +270,6 @@ impl From<fractal::NativeDocumentParts> for FractalNativeDocumentParts {
             style_hash: parts.style_hash,
             metadata_html: parts.metadata_html,
             metadata_hash: parts.metadata_hash,
-            head_links_html: parts.head_links_html,
-            head_links_hash: parts.head_links_hash,
             source_hash: parts.source_hash,
         }
     }
@@ -285,14 +281,12 @@ struct FractalProject {
     name: String,
     version: u32,
     root_path: String,
-    pages: Vec<fractal::Page>,
+    pages: Vec<FractalPage>,
     folders: Vec<fractal::Folder>,
     active_page_path: Option<String>,
     active_page_source: Option<String>,
     active_page_links: Vec<fractal::Link>,
     active_page_backlinks: Vec<fractal::Backlink>,
-    active_page_iframes: Vec<fractal::Iframe>,
-    active_page_iframe_backlinks: Vec<fractal::IframeBacklink>,
     active_page_content_hash: Option<String>,
     active_page_native_document_parts: Option<FractalNativeDocumentParts>,
 }
@@ -301,14 +295,33 @@ struct FractalProject {
 #[serde(rename_all = "camelCase")]
 struct FractalLoadedPage {
     path: String,
-    kind: fractal::PageKind,
     source: String,
     links: Vec<fractal::Link>,
     backlinks: Vec<fractal::Backlink>,
-    iframes: Vec<fractal::Iframe>,
-    iframe_backlinks: Vec<fractal::IframeBacklink>,
     content_hash: String,
     native_document_parts: Option<FractalNativeDocumentParts>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FractalPage {
+    path: String,
+    content_hash: String,
+    title: Option<String>,
+    text: String,
+    links: Vec<fractal::Link>,
+}
+
+impl From<fractal::Page> for FractalPage {
+    fn from(page: fractal::Page) -> Self {
+        Self {
+            path: page.path,
+            content_hash: page.content_hash,
+            title: page.title,
+            text: page.text,
+            links: page.links,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -350,7 +363,6 @@ struct FractalNativeDocumentHashes {
     content_hash: String,
     style_hash: String,
     metadata_hash: String,
-    head_links_hash: String,
     source_hash: String,
 }
 
@@ -361,7 +373,6 @@ impl From<&FractalNativeDocumentParts> for FractalNativeDocumentHashes {
             content_hash: parts.content_hash.clone(),
             style_hash: parts.style_hash.clone(),
             metadata_hash: parts.metadata_hash.clone(),
-            head_links_hash: parts.head_links_hash.clone(),
             source_hash: parts.source_hash.clone(),
         }
     }
@@ -506,58 +517,43 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         .map_err(|error| format!("Could not open project {}: {error}", root.display()))?;
     let project = fractal::Project::open(&root)
         .map_err(|error| format!("Could not open Fractal project: {error}"))?;
-    let pages = project.pages();
+    let pages = project
+        .pages()
+        .into_iter()
+        .filter(|page| page.path.to_ascii_lowercase().ends_with(".fractal.html"))
+        .map(FractalPage::from)
+        .collect::<Vec<_>>();
     let active_path = match active_path {
-        Some(path) => Some(
-            project
-                .page(path)
-                .map_err(|error| format!("Could not open {path}: {error}"))?
-                .path,
-        ),
+        Some(path) if pages.iter().any(|page| page.path == path) => Some(path.to_string()),
+        Some(path) => return Err(format!("Could not open {path}: not a native Fractal page")),
         None => pages.first().map(|page| page.path.clone()),
     };
-    let active_page_native_document_parts = active_path.as_deref().and_then(|path| {
-        project
-            .page(path)
-            .ok()
-            .filter(|page| page.kind == fractal::PageKind::Native)
-            .and_then(|_| project.native_document_parts(path).ok())
-            .map(Into::into)
-    });
-    let (
-        active_page_source,
-        active_page_links,
-        active_page_backlinks,
-        active_page_iframes,
-        active_page_iframe_backlinks,
-        active_page_content_hash,
-    ) = match active_path.as_deref() {
-        Some(path) => (
-            Some(
+    let active_page_native_document_parts = active_path
+        .as_deref()
+        .and_then(|path| project.native_document_parts(path).ok())
+        .map(Into::into);
+    let (active_page_source, active_page_links, active_page_backlinks, active_page_content_hash) =
+        match active_path.as_deref() {
+            Some(path) => (
+                Some(
+                    project
+                        .source(path)
+                        .map_err(|error| format!("Could not read {path}: {error}"))?,
+                ),
                 project
-                    .source(path)
-                    .map_err(|error| format!("Could not read {path}: {error}"))?,
-            ),
-            project
-                .links(path)
-                .map_err(|error| format!("Could not read links for {path}: {error}"))?,
-            project
-                .backlinks(path)
-                .map_err(|error| format!("Could not read backlinks for {path}: {error}"))?,
-            project
-                .iframes(path)
-                .map_err(|error| format!("Could not read iframes for {path}: {error}"))?,
-            project
-                .iframe_backlinks(path)
-                .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
-            Some(
+                    .links(path)
+                    .map_err(|error| format!("Could not read links for {path}: {error}"))?,
                 project
-                    .content_hash(path)
-                    .map_err(|error| format!("Could not hash {path}: {error}"))?,
+                    .backlinks(path)
+                    .map_err(|error| format!("Could not read backlinks for {path}: {error}"))?,
+                Some(
+                    project
+                        .content_hash(path)
+                        .map_err(|error| format!("Could not hash {path}: {error}"))?,
+                ),
             ),
-        ),
-        None => (None, vec![], vec![], vec![], vec![], None),
-    };
+            None => (None, vec![], vec![], None),
+        };
 
     Ok(FractalProject {
         name: project.manifest().name.clone(),
@@ -569,8 +565,6 @@ fn read_project(root: PathBuf, active_path: Option<&str>) -> Result<FractalProje
         active_page_source,
         active_page_links,
         active_page_backlinks,
-        active_page_iframes,
-        active_page_iframe_backlinks,
         active_page_content_hash,
         active_page_native_document_parts,
     })
@@ -706,13 +700,14 @@ async fn fractal_read_page(
             .page(&page_path)
             .map_err(|error| format!("Could not open {page_path}: {error}"))?;
         let path = page.path.clone();
-        let native_document_parts = (page.kind == fractal::PageKind::Native)
-            .then(|| project.native_document_parts(&path).ok())
-            .flatten()
-            .map(Into::into);
+        if !path.to_ascii_lowercase().ends_with(".fractal.html") {
+            return Err(format!(
+                "Could not open {page_path}: not a native Fractal page"
+            ));
+        }
+        let native_document_parts = project.native_document_parts(&path).ok().map(Into::into);
         Ok(FractalLoadedPage {
             path: path.clone(),
-            kind: page.kind,
             source: project
                 .source(&path)
                 .map_err(|error| format!("Could not read {path}: {error}"))?,
@@ -720,10 +715,6 @@ async fn fractal_read_page(
             backlinks: project
                 .backlinks(&path)
                 .map_err(|error| format!("Could not read backlinks for {path}: {error}"))?,
-            iframes: page.iframes,
-            iframe_backlinks: project
-                .iframe_backlinks(&path)
-                .map_err(|error| format!("Could not read iframe backlinks for {path}: {error}"))?,
             content_hash: project
                 .content_hash(&path)
                 .map_err(|error| format!("Could not hash {path}: {error}"))?,
@@ -732,48 +723,6 @@ async fn fractal_read_page(
     })
     .await
     .map_err(|error| format!("Could not complete page read: {error}"))?
-}
-
-#[tauri::command]
-async fn fractal_write_raw_page(
-    project_root: String,
-    page_path: String,
-    source: String,
-) -> Result<FractalProject, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        project
-            .write_raw_page(&page_path, &source)
-            .map_err(|error| format!("Could not write {page_path}: {error}"))?;
-        read_project(PathBuf::from(project_root), Some(&page_path))
-    })
-    .await
-    .map_err(|error| format!("Could not complete page write: {error}"))?
-}
-
-#[tauri::command]
-async fn fractal_write_raw_page_if_unchanged(
-    project_root: String,
-    page_path: String,
-    source: String,
-    expected_hash: String,
-) -> Result<FractalConditionalProjectResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        match project.write_raw_page_if_unchanged(&page_path, &source, &expected_hash) {
-            Ok(_) => Ok(FractalConditionalProjectResult::Saved {
-                project: read_project(PathBuf::from(&project_root), Some(&page_path))?,
-            }),
-            Err(error) if error.code == fractal::FractalErrorCode::Conflict => {
-                Ok(FractalConditionalProjectResult::Conflict {
-                    message: error.message,
-                })
-            }
-            Err(error) => Err(format!("Could not write {page_path}: {error}")),
-        }
-    })
-    .await
-    .map_err(|error| format!("Could not complete conditional page write: {error}"))?
 }
 
 #[tauri::command]
@@ -884,31 +833,6 @@ async fn fractal_set_page_metadata(
 }
 
 #[tauri::command]
-async fn fractal_set_page_head_links(
-    project_root: String,
-    page_path: String,
-    head_links_html: String,
-    expected_hash: String,
-) -> Result<FractalConditionalProjectResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        match project.set_page_head_links(&page_path, &head_links_html, &expected_hash) {
-            Ok(_) => Ok(FractalConditionalProjectResult::Saved {
-                project: read_project(PathBuf::from(&project_root), Some(&page_path))?,
-            }),
-            Err(error) if error.code == fractal::FractalErrorCode::Conflict => {
-                Ok(FractalConditionalProjectResult::Conflict {
-                    message: error.message,
-                })
-            }
-            Err(error) => Err(format!("Could not write page head links: {error}")),
-        }
-    })
-    .await
-    .map_err(|error| format!("Could not complete page head links write: {error}"))?
-}
-
-#[tauri::command]
 fn fractal_repair_page_structure(
     project_root: String,
     page_path: String,
@@ -953,7 +877,6 @@ async fn fractal_page_content_states(
                 relative_page_path(&path)?;
                 let page = pages.get(&path);
                 let native_document_hashes = page
-                    .filter(|page| page.kind == fractal::PageKind::Native)
                     .and_then(|_| project.native_document_parts(&path).ok())
                     .map(|parts| {
                         FractalNativeDocumentHashes::from(&FractalNativeDocumentParts::from(parts))
@@ -1092,16 +1015,16 @@ fn fractal_create_page(
 }
 
 #[tauri::command]
-fn fractal_import_native_page(
+fn fractal_duplicate_page(
     project_root: String,
+    page_path: String,
     title: String,
-    content_html: String,
-    style_css: String,
-    metadata_html: String,
-    head_links_html: String,
     folder_path: Option<String>,
 ) -> Result<FractalProject, String> {
     let mut project = open_mutable_project(&project_root)?;
+    let source = project
+        .native_document_parts(&page_path)
+        .map_err(|error| format!("Could not read page for duplication: {error}"))?;
     let file_name = format!("{}.fractal.html", project_directory_name(&title)?);
     let destination = match folder_path.filter(|path| !path.trim().is_empty()) {
         Some(folder) => relative_folder_path(&folder)?.join(file_name),
@@ -1109,36 +1032,36 @@ fn fractal_import_native_page(
     };
     let mutation = project
         .create_page_at(&destination, &title)
-        .map_err(|error| format!("Could not create imported page: {error}"))?;
-    let page_path = mutation
+        .map_err(|error| format!("Could not create duplicate page: {error}"))?;
+    let duplicate_path = mutation
         .changed
         .first()
         .map(|path| path.to_string_lossy().replace('\\', "/"))
         .ok_or("Fractal did not return the imported page path.")?;
     let result = (|| -> fractal::Result<()> {
-        let parts = project.native_document_parts(&page_path)?;
-        if parts.content_html != content_html {
-            project.set_page_content(&page_path, &content_html, &parts.content_hash)?;
+        let parts = project.native_document_parts(&duplicate_path)?;
+        if parts.content_html != source.content_html {
+            project.set_page_content(&duplicate_path, &source.content_html, &parts.content_hash)?;
         }
-        let parts = project.native_document_parts(&page_path)?;
-        if parts.style_css != style_css {
-            project.set_page_style(&page_path, &style_css, &parts.style_hash)?;
+        let parts = project.native_document_parts(&duplicate_path)?;
+        if parts.style_css != source.style_css {
+            project.set_page_style(&duplicate_path, &source.style_css, &parts.style_hash)?;
         }
-        let parts = project.native_document_parts(&page_path)?;
-        if parts.metadata_html != metadata_html {
-            project.set_page_metadata(&page_path, &metadata_html, &parts.metadata_hash)?;
-        }
-        let parts = project.native_document_parts(&page_path)?;
-        if parts.head_links_html != head_links_html {
-            project.set_page_head_links(&page_path, &head_links_html, &parts.head_links_hash)?;
+        let parts = project.native_document_parts(&duplicate_path)?;
+        if parts.metadata_html != source.metadata_html {
+            project.set_page_metadata(
+                &duplicate_path,
+                &source.metadata_html,
+                &parts.metadata_hash,
+            )?;
         }
         Ok(())
     })();
     if let Err(error) = result {
-        let _ = project.delete_page(&page_path);
-        return Err(format!("Could not import native HTML: {error}"));
+        let _ = project.delete_page(&duplicate_path);
+        return Err(format!("Could not duplicate page: {error}"));
     }
-    read_project(PathBuf::from(project_root), Some(&page_path))
+    read_project(PathBuf::from(project_root), Some(&duplicate_path))
 }
 
 #[tauri::command]
@@ -1488,13 +1411,10 @@ pub fn run() {
             fractal_open_project_path,
             fractal_open_page,
             fractal_read_page,
-            fractal_write_raw_page,
-            fractal_write_raw_page_if_unchanged,
             fractal_set_page_title,
             fractal_set_page_content,
             fractal_set_page_style,
             fractal_set_page_metadata,
-            fractal_set_page_head_links,
             fractal_repair_page_structure,
             fractal_search_project,
             fractal_page_content_states,
@@ -1502,7 +1422,7 @@ pub fn run() {
             fractal_export_folder_html,
             fractal_reveal_page,
             fractal_create_page,
-            fractal_import_native_page,
+            fractal_duplicate_page,
             fractal_create_folder,
             fractal_set_folder_title,
             fractal_reorder_folder,

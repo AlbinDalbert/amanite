@@ -46,11 +46,9 @@ export const FRACTAL_AI_TOOLS: AiTool[] = [
   }
 ];
 
-function sourceText(source: string, kind: "native" | "raw") {
+function sourceText(source: string) {
   const document = new DOMParser().parseFromString(source, "text/html");
-  const root = kind === "native"
-    ? document.body.querySelector("main[data-fractal-document]")
-    : document.body;
+  const root = document.body.querySelector("main[data-fractal-document]");
   if (!root) return "";
   const copy = root.cloneNode(true) as HTMLElement;
   copy.querySelectorAll("script, style").forEach((element) => element.remove());
@@ -86,7 +84,6 @@ export function workspaceSystemPrompt(workspace: AiWorkspace) {
       pages: workspace.project.pages.map((page) => ({
         path: page.path,
         title: page.title ?? null,
-        kind: page.kind
       }))
     }
   };
@@ -127,7 +124,7 @@ async function search(workspace: AiWorkspace, query: string) {
     if (!buffer.dirty) continue;
     const page = workspace.project.pages.find((candidate) => candidate.path === buffer.path);
     if (!page) continue;
-    const text = sourceText(buffer.source, page.kind);
+    const text = sourceText(buffer.source);
     const haystack = `${page.title ?? ""} ${page.path} ${text}`;
     if (haystack.toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
       byPath.set(page.path, { path: page.path, title: page.title, snippet: snippet(text, query) });
@@ -153,7 +150,7 @@ export async function executeWorkspaceTool(call: AiToolCall, workspace: AiWorksp
       const page = workspace.project.pages.find((candidate) => candidate.path === args.path);
       if (!page) throw new Error(`No page exists at ${args.path}.`);
       const buffer = workspace.buffers[page.path];
-      const text = buffer ? sourceText(buffer.source, page.kind) : page.text;
+      const text = buffer ? sourceText(buffer.source) : page.text;
       const offset = typeof args.offset === "number" && Number.isInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
       const requestedLimit = typeof args.limit === "number" && Number.isInteger(args.limit) ? args.limit : 30000;
       const limit = Math.max(1, Math.min(50000, requestedLimit));

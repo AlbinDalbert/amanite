@@ -1,13 +1,10 @@
-import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSectionEdits, FractalPageKind, FractalProject } from "@/lib/fractal/types";
+import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 
 export type DocumentBuffer = {
   path: string;
-  kind: FractalPageKind;
   source: string;
   links: FractalProject["activePageLinks"];
   backlinks: FractalProject["activePageBacklinks"];
-  iframes: FractalProject["activePageIframes"];
-  iframeBacklinks: FractalProject["activePageIframeBacklinks"];
   contentHash: string | null;
   nativeDocumentParts: FractalNativeDocumentParts | null;
   nativeEdits: FractalNativeSectionEdits;
@@ -61,12 +58,9 @@ export function bufferFromProject(
   if (!project.activePagePath || project.activePageSource == null) return null;
   return {
     path: project.activePagePath,
-    kind: project.pages.find((page) => page.path === project.activePagePath)?.kind ?? "raw",
     source,
     links: project.activePageLinks,
     backlinks: project.activePageBacklinks,
-    iframes: project.activePageIframes,
-    iframeBacklinks: project.activePageIframeBacklinks,
     contentHash: project.activePageContentHash ?? null,
     nativeDocumentParts: nativePartsForProject(project),
     nativeEdits: nativeEditsForSource(source, nativePartsForProject(project), dirty),
@@ -81,12 +75,9 @@ export function bufferFromProject(
 export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false): DocumentBuffer {
   return {
     path: loaded.path,
-    kind: loaded.kind,
     source,
     links: loaded.links,
     backlinks: loaded.backlinks,
-    iframes: loaded.iframes,
-    iframeBacklinks: loaded.iframeBacklinks,
     contentHash: loaded.contentHash,
     nativeDocumentParts: loaded.nativeDocumentParts ?? null,
     nativeEdits: nativeEditsForSource(source, loaded.nativeDocumentParts ?? null, dirty),

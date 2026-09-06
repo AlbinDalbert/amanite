@@ -15,8 +15,8 @@ import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin";
-import { $getRoot, $insertNodes } from "lexical";
-import { type ClipboardEvent, type DragEvent, type PointerEvent, useEffect, useMemo, useState } from "react";
+import { $getRoot } from "lexical";
+import { type PointerEvent, useEffect, useMemo, useState } from "react";
 import TreeLocation, { displayPagePath } from "@/components/ui/TreeLocation";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import { DerivedLinkNode } from "./DerivedLinkNode";
@@ -24,7 +24,6 @@ import { editorLexicalTheme } from "./editorLexicalTheme";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
 import InlinePageLinksPlugin from "./InlinePageLinksPlugin";
-import { $createImageNode, IframeNode, ImageNode } from "./MediaNodes";
 import DocumentLoadingPreview from "./DocumentLoadingPreview";
 
 type Props = {
@@ -86,26 +85,6 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellChec
     });
   }
 
-  function insertImageFile(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => editor.update(() => $insertNodes([$createImageNode(String(reader.result), file.name.replace(/\.[^.]+$/, ""))]));
-    reader.readAsDataURL(file);
-  }
-
-  function handlePaste(event: ClipboardEvent) {
-    const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
-    if (!image) return;
-    event.preventDefault();
-    insertImageFile(image);
-  }
-
-  function handleDrop(event: DragEvent) {
-    const image = Array.from(event.dataTransfer.files).find((file) => file.type.startsWith("image/"));
-    if (!image) return;
-    event.preventDefault();
-    insertImageFile(image);
-  }
-
   return (
     <article className="rich-page-canvas">
       <div className="rich-page-column" onPointerDown={handlePointerDown}>
@@ -127,7 +106,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellChec
         </div>
         <div className="rich-body-frame">
           <RichTextPlugin
-            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" onDrop={handleDrop} onPaste={handlePaste} spellCheck={spellCheck} />}
+            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" spellCheck={spellCheck} />}
             placeholder={<div className="rich-placeholder">Start writing…</div>}
             ErrorBoundary={LexicalErrorBoundary}
           />
@@ -151,7 +130,7 @@ function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, page
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => ({
     namespace: `amanite-${pagePath}`,
-    nodes: [CodeNode, DerivedLinkNode, HeadingNode, HorizontalRuleNode, IframeNode, ImageNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
+    nodes: [CodeNode, DerivedLinkNode, HeadingNode, HorizontalRuleNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
     onError(error: Error) { throw error; },
     theme: editorLexicalTheme
   }), [pagePath]);

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalCommandResult, FractalProject, FractalProjectCatalog, FractalSearchResult } from "@/lib/fractal/types";
-import { extractNativeDocumentImport } from "@/features/editor/components/pageSource";
 import { clearPageDraft } from "./pageDrafts";
 
 function getErrorMessage(error: unknown) {
@@ -93,10 +92,7 @@ export function useFractalSession() {
       : await withBusy("page", () => fractalClient.openPage(current, pagePath));
     if (!sourceProject?.activePageSource) return null;
     const page = sourceProject.pages.find((candidate) => candidate.path === pagePath);
-    if (!page || page.kind !== "native") {
-      setError("Fractal can only create native pages, so raw HTML cannot be duplicated safely yet.");
-      return null;
-    }
+    if (!page) return null;
     const sections = sourceProject.activePageNativeDocumentParts;
     if (!sections) {
       setError("This native page is missing the sections required for duplication.");
@@ -108,35 +104,12 @@ export function useFractalSession() {
     let copyNumber = 2;
     while (existingTitles.has(title.toLowerCase())) title = `${base} ${copyNumber++}`;
     const folderPath = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : undefined;
-    const written = await withBusy("page", () => fractalClient.importNativePage(current, title, {
-      contentHtml: sections.contentHtml,
-      styleCss: sections.styleCss,
-      metadataHtml: sections.metadataHtml,
-      headLinksHtml: sections.headLinksHtml
-    }, folderPath));
+    const written = await withBusy("page", () => fractalClient.duplicatePage(current, pagePath, title, folderPath));
     if (written) {
       acceptProject(written);
       setCommandResult({ ok: true, message: "Page duplicated.", details: written.activePagePath });
     }
     return written;
-  }, [acceptProject, withBusy]);
-
-  const importNativePage = useCallback(async (source: string, folderPath?: string) => {
-    const current = activeProjectRef.current;
-    if (!current || busyRef.current) return null;
-    const document = new DOMParser().parseFromString(source, "text/html");
-    const title = document.title.trim() || document.body.querySelector("main[data-fractal-document] > h1")?.textContent?.trim() || "";
-    const sections = extractNativeDocumentImport(source);
-    if (!title || !sections) {
-      setError("The imported Fractal document needs a title and a document root.");
-      return null;
-    }
-    const project = await withBusy("page", () => fractalClient.importNativePage(current, title, sections, folderPath));
-    if (project) {
-      acceptProject(project);
-      setCommandResult({ ok: true, message: "Fractal document imported.", details: project.activePagePath });
-    }
-    return project;
   }, [acceptProject, withBusy]);
 
   const repairProjectPage = useCallback(async (pagePath: string) => {
@@ -284,7 +257,6 @@ export function useFractalSession() {
     closeProject,
     dismissStatus,
     duplicateProjectPage,
-    importNativePage,
     repairProjectPage,
     loadProject,
     moveProjectPage,

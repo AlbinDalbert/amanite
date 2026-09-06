@@ -135,7 +135,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       pages: currentProject.pages.map((page) => page.path === path ? {
         ...page,
         contentHash: loaded.contentHash,
-        iframes: loaded.iframes,
         links: loaded.links
       } : page),
       ...(currentProject.activePagePath === path ? {
@@ -194,7 +193,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       const buffer = current[path];
       if (!buffer) return current;
       let nativeEdits = buffer.nativeEdits;
-      if (buffer.kind === "native" && buffer.nativeDocumentParts) {
+      if (buffer.nativeDocumentParts) {
         nativeEdits = nativeSection
           ? { ...buffer.nativeEdits, [nativeSection.section]: nativeSection.value }
           : nativeEditsFromSource(source, buffer.nativeDocumentParts);

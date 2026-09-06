@@ -14,9 +14,12 @@ describe("rich editor HTML contract", () => {
     expect(cleanEditorHtml('<section><p class="lead">Text <strong>here</strong>.</p></section>')).toBe("<p>Text <strong>here</strong>.</p>");
   });
 
-  it("keeps every media attribute for the media nodes to round trip", () => {
-    expect(cleanEditorHtml('<img src="field.png" data-origin="scan"><iframe src="map.html" referrerpolicy="no-referrer"></iframe>')).toBe(
-      '<img src="field.png" data-origin="scan"><iframe src="map.html" referrerpolicy="no-referrer"></iframe>'
-    );
+  it("rejects media before Lexical can drop or transform it", () => {
+    expect(richEditorCompatibilityIssues('<img src="field.png"><iframe src="map.html"></iframe>')).toEqual([
+      "<img>",
+      "<img> src",
+      "<iframe>",
+      "<iframe> src"
+    ]);
   });
 });

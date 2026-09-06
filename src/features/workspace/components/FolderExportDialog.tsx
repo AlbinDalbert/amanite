@@ -32,7 +32,7 @@ function relativeToFolder(folderPath: string, path: string) {
 
 export function buildFolderExportTree(folder: FractalFolder, folders: FractalFolder[], pages: FractalPage[]): FolderExportNode[] {
   const folderByPath = new Map(folders.map((candidate) => [candidate.path, candidate]));
-  const pageByPath = new Map(pages.filter((page) => page.kind === "native").map((page) => [page.path, page]));
+  const pageByPath = new Map(pages.map((page) => [page.path, page]));
 
   function childrenOf(current: FractalFolder): FolderExportNode[] {
     return current.children.flatMap<FolderExportNode>((child) => {
