@@ -57,6 +57,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     #[test]
     fn application_registers_every_expected_command_once() {
         let source = include_str!("lib.rs");
@@ -107,5 +109,27 @@ mod tests {
                 "{command} must be registered exactly once"
             );
         }
+    }
+
+    #[test]
+    fn production_csp_allows_packaged_resources_and_ipc_only() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = config["app"]["security"]["csp"].as_str().unwrap();
+
+        assert!(csp.contains("script-src 'self'"));
+        assert!(csp.contains("connect-src ipc: http://ipc.localhost"));
+        assert!(csp.contains("img-src 'self' data:"));
+        assert!(!csp.contains("unsafe-eval"));
+        assert!(!csp.contains("https:"));
+        assert!(!csp.contains("connect-src *"));
+    }
+
+    #[test]
+    fn diagnostics_identify_the_locked_fractal_revision() {
+        let cargo = include_str!("../Cargo.toml");
+        let frontend = include_str!("../../src/app/appVersion.ts");
+
+        assert!(cargo.contains("rev = \"9f947c7\""));
+        assert!(frontend.contains("FRACTAL_REVISION = \"9f947c7\""));
     }
 }

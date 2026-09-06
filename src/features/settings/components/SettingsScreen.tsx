@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { APP_VERSION } from "@/app/appVersion";
+import { APP_VERSION, FRACTAL_REVISION } from "@/app/appVersion";
 import type { AiSettings } from "@/app/useAiSettings";
 import { aiClient } from "@/lib/ai/client";
 import {
@@ -134,7 +134,7 @@ function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose }:
               />
             </label>
             <label>
-              <span><strong>API key</strong><small>Optional for local servers</small></span>
+              <span><strong>API key</strong><small>Kept in memory until Amanite closes</small></span>
               <input
                 aria-label="API key"
                 autoComplete="off"
@@ -320,7 +320,7 @@ function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose }:
           </fieldset>
 
           <footer className="settings-footer">
-            <p>Amanite {APP_VERSION} · Stored locally</p>
+            <p>Amanite {APP_VERSION} · Fractal {FRACTAL_REVISION} · API key session-only</p>
             <button className="ghost-action" onClick={() => onChange(DEFAULT_APPEARANCE_SETTINGS)} type="button">Reset appearance</button>
           </footer>
         </section>

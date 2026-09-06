@@ -2,20 +2,24 @@
 
 Amanite is a small Tauri desktop editor for [Fractal](https://github.com/AlbinDalbert/fractal) projects.
 
-It follows Fractal's current contract directly:
+It follows Fractal's native v2 contract directly:
 
 - projects contain `fractal.json` and `pages/`;
-- native documents use `.fractal.html`, while other `.html` files are raw source;
+- Amanite lists and edits native `.fractal.html` documents only;
 - files are the source of truth;
-- links, backlinks, iframes, and iframe backlinks are derived when a project is opened;
-- folder `fractal.json` files may provide v2 titles and explicit child order;
+- links and backlinks are derived when a project is opened;
+- folder `fractal.json` files provide titles and explicit child order;
 - there is no generated index, graph store, note primitive, theme contract, or sync step.
 
-Amanite can create and open projects, including projects outside its default library. It manages page folders and can create, import, duplicate, read, write, move, reveal, and delete pages. Clicking a folder opens its ordered Fractal folder view. The view edits the folder title, reorders direct native pages and subfolders, reports missing ordered children, and can expand a native child into the rich editor without creating another stored document. A folder can be exported as one ordered HTML document with a nested selection tree, optional section numbers and title-mention links, and strict or skip-invalid validation. Amanite searches page titles and visible text through Fractal, renders exact page-title mentions as derived links, inspects explicit links and iframe references, and runs Fractal validation.
+Amanite can create and open projects, including projects outside its default library. It can create, duplicate, read, edit, move, reveal, and delete native pages. Clicking a folder opens its ordered Fractal folder view. The view edits the folder title, reorders direct pages and subfolders, reports missing ordered children, and can expand a child into the rich editor. A folder can be exported as one ordered HTML document with a nested selection tree, optional section numbers and title-mention links, and strict or skip-invalid validation. Amanite searches page titles and visible text through Fractal, renders exact page-title mentions as derived links, inspects explicit links, and runs Fractal validation.
 
-Native `.fractal.html` documents stay in the rich editor and never expose an HTML source or preview mode in the workspace. The editor has document find and replace, undo and redo, semantic formatting, table controls, local image paste and drop, an internal-page link picker, an outline, counts, reading time, word goals, standalone HTML export, and a focus mode. Typing `@` opens a page picker at the caret and inserts an explicit file link. Exact page-title mentions become clickable derived links as the user types, without changing the saved HTML. A normal click follows explicit and derived internal links. Ordinary `.html` files open as rendered documents and can be toggled to their complete HTML source. Derived links are also applied to rendered raw pages without changing their files. Native saves use Fractal's title and content section APIs. Raw saves use its raw-page API.
+Native documents stay in the rich editor and never expose an HTML source or preview mode in the workspace. The editor has document find and replace, undo and redo, semantic formatting, table controls, an internal-page link picker, an outline, counts, reading time, word goals, standalone HTML export, and a focus mode. Typing `@` opens a page picker at the caret and inserts an explicit file link. Exact page-title mentions become clickable derived links as the user types without changing the saved HTML. All durable writes use Fractal's section APIs and section hashes.
 
-Amanite saves before changing pages and can autosave after 900 ms without typing. It keeps temporary recovery drafts for unsaved pages and watches open files for changes made by another program. Saves flush editor revisions that arrive while a write is running before a close or project mutation can continue. Recovery drafts contain the same complete HTML source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth. The app can restore the last project and page at launch.
+Amanite saves before changing pages and can autosave after 900 ms without typing. It keeps temporary recovery drafts in the native app-data directory and watches open files for changes made by another program. Saves flush editor revisions that arrive while a write is running before a close or project mutation can continue. Recovery drafts contain the complete native source used by the editor. They are removed after a confirmed Fractal write and never replace project files as the source of truth. Missing open pages can be recreated through Fractal without overwriting a file that has reappeared.
+
+The project health panel reports Fractal inspection results, pending recovery or repair work, draft-storage failures, dirty and conflicted buffers, and the most recent mutation receipt. Recovery and repair always require an explicit user action.
+
+Borealis is read-only. Its endpoint and model are stored locally, while its API key stays in memory for the current application session. AI requests run in the Rust backend. The production webview CSP does not permit remote scripts, styles, images, or direct network requests.
 
 The workspace has two independent editor groups. Each group owns an ordered tab list, active page, and navigation history. Drag tabs within a group to reorder them, drag tabs between groups to move them, or drag a tab to the right edge to create the second group. Quick open, the page explorer, links, and Ctrl/Cmd+W act on the focused group. Dirty and conflicted files report their state on their own tabs. The center divider, project sidebar, and each reference inspector can be resized within practical limits.
 
@@ -29,8 +33,8 @@ pnpm run build
 pnpm run tauri:dev
 ```
 
-The Fractal Rust crate is fetched from its `main` branch on GitHub during the
-Rust build. A sibling Fractal checkout is not required.
+The Fractal Rust crate is locked to revision `9f947c7`. A sibling Fractal
+checkout is not required. Amanite displays this revision in Settings.
 
 ## Install on Linux
 
@@ -80,7 +84,7 @@ chmod +x "$HOME/.local/bin/amanite.AppImage"
 ```text
 src/app/                  session orchestration
 src/lib/fractal/          typed Tauri client and DTOs
-src/features/editor/      native rich editor, rendered HTML, source editor, and reference inspector
+src/features/editor/      native rich editor and reference inspector
 src/features/workspace/   page list and workspace shell
-src-tauri/src/lib.rs      thin adapter over fractal::Project
+src-tauri/src/            Fractal, draft, AI, catalog, and platform adapters
 ```

@@ -1,5 +1,8 @@
 # Amanite and Fractal review
 
+> Historical review from before the native v2 trust work. The active roadmap is
+> [`docs/amanite-native-v2-plan.md`](docs/amanite-native-v2-plan.md).
+
 Reviewed 2026-09-03 against Amanite `0afae9a`, its locked Fractal dependency `1974c93`, and Fractal `ba5cabf`.
 
 ## Verdict

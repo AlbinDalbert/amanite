@@ -14,12 +14,12 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
 
 const SETTINGS_KEY = "amanite.ai.v1";
 
-function readSettings(): AiSettings {
+export function readAiSettings(storage: Pick<Storage, "getItem"> = localStorage): AiSettings {
   try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<AiSettings> | null;
+    const stored = JSON.parse(storage.getItem(SETTINGS_KEY) ?? "null") as Partial<AiSettings> | null;
     return {
       endpoint: typeof stored?.endpoint === "string" ? stored.endpoint : "",
-      apiKey: typeof stored?.apiKey === "string" ? stored.apiKey : "",
+      apiKey: "",
       model: typeof stored?.model === "string" ? stored.model : ""
     };
   } catch {
@@ -27,12 +27,22 @@ function readSettings(): AiSettings {
   }
 }
 
+export function persistAiSettings(
+  settings: AiSettings,
+  storage: Pick<Storage, "setItem"> = localStorage
+) {
+  storage.setItem(SETTINGS_KEY, JSON.stringify({
+    endpoint: settings.endpoint,
+    model: settings.model
+  }));
+}
+
 export function useAiSettings() {
-  const [settings, setSettings] = useState<AiSettings>(readSettings);
+  const [settings, setSettings] = useState<AiSettings>(readAiSettings);
 
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      persistAiSettings(settings);
     } catch {
       // The active connection still works when persistence is unavailable.
     }

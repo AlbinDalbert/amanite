@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -394,7 +394,10 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   }
 
   await driver.find("body");
-  await driver.executeScript(`localStorage.removeItem("amanite.last-session.v1");`);
+  await driver.executeScript(`
+    localStorage.removeItem("amanite.last-session.v1");
+    localStorage.setItem("amanite.ai.v1", JSON.stringify({ endpoint: "", apiKey: "desktop-secret", model: "" }));
+  `);
   await driver.refresh();
   try {
     await driver.find(".start-screen", 1_000);
@@ -402,6 +405,21 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     await driver.click('.brand > button[title="Close project"]');
   }
   await driver.find(".start-screen");
+  const securityState = await driver.executeScript(`
+    const inline = document.createElement("script");
+    inline.textContent = "window.__amaniteInlineScriptRan = true";
+    document.head.append(inline);
+    return {
+      inlineScriptRan: window.__amaniteInlineScriptRan === true,
+      persistedAi: localStorage.getItem("amanite.ai.v1")
+    };
+  `);
+  if (securityState.inlineScriptRan) {
+    throw new Error(`Production CSP allowed an inline script: ${JSON.stringify(securityState)}`);
+  }
+  if (securityState.persistedAi?.includes("desktop-secret") || securityState.persistedAi?.includes("apiKey")) {
+    throw new Error(`The legacy API key remained in storage: ${securityState.persistedAi}`);
+  }
   await takeScreenshot(driver, screenshotsDir, "01-start-screen");
 
   const runSlug = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
@@ -701,6 +719,8 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".sidebar-settings");
   await driver.find(".settings-screen");
   await driver.find('.ai-settings input[aria-label="OpenAI-compatible endpoint"]');
+  const restoredApiKey = await driver.executeScript(`return document.querySelector('.ai-settings input[aria-label="API key"]')?.value;`);
+  if (restoredApiKey) throw new Error("The settings screen restored a persisted API key.");
   await driver.find('.ai-settings select[aria-label="AI model"]');
   await takeScreenshot(driver, screenshotsDir, "06-ai-settings");
   await driver.click(".theme-option.moss");
@@ -809,6 +829,34 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   if (!exportedSource.includes("Move Me")) throw new Error("Live export did not contain the moved page.");
   await takeScreenshot(driver, screenshotsDir, "08a-moved-page");
 
+  const movedPagePath = join(activeProjectRoot, "pages", "field-notes", "move-me.fractal.html");
+  await driver.click('[title="field-notes/move-me.fractal.html"]');
+  await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
+  const openPageSource = await readFile(movedPagePath, "utf8");
+  await unlink(movedPagePath);
+  const recreation = await driver.executeAsyncScript(`
+    const [projectRoot, pagePath, source] = arguments;
+    const done = arguments[arguments.length - 1];
+    window.__TAURI_INTERNALS__.invoke("fractal_recreate_page", { projectRoot, pagePath, source })
+      .then((result) => done({ ok: true, result }), (error) => done({ ok: false, error }));
+  `, [activeProjectRoot, "field-notes/move-me.fractal.html", openPageSource]);
+  if (!recreation?.ok) throw new Error(`Missing open page recreation failed: ${JSON.stringify(recreation?.error)}`);
+  const recreatedSource = await readFile(movedPagePath, "utf8");
+  if (!recreatedSource.includes("Move Me")) throw new Error("Recreated page did not contain the open buffer.");
+
+  await unlink(movedPagePath);
+  await writeFile(movedPagePath, recreatedSource.replace("Move Me", "A different file reappeared."));
+  const guardedRecreation = await driver.executeAsyncScript(`
+    const [projectRoot, pagePath, source] = arguments;
+    const done = arguments[arguments.length - 1];
+    window.__TAURI_INTERNALS__.invoke("fractal_recreate_page", { projectRoot, pagePath, source })
+      .then((result) => done({ ok: true, result }), (error) => done({ ok: false, error }));
+  `, [activeProjectRoot, "field-notes/move-me.fractal.html", recreatedSource]);
+  if (guardedRecreation?.ok || guardedRecreation?.error?.code !== "conflict") {
+    throw new Error(`Recreation overwrote or misreported a reappeared file: ${JSON.stringify(guardedRecreation)}`);
+  }
+  await takeScreenshot(driver, screenshotsDir, "08b-recreated-page");
+
   await driver.click('.brand > button[title="Close project"]');
   await driver.find(".start-screen", 30_000);
   await driver.click(`.project-list-option[title="${activeProjectRoot}"]`);
@@ -841,10 +889,29 @@ function startApp({ appBinary, artifactsDir, port, projectRoot }) {
 
   child.stdout.pipe(log);
   child.stderr.pipe(log);
+  let nativeOutput = "";
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  child.stderr.on("data", (chunk) => {
+    nativeOutput = `${nativeOutput}${chunk}`.slice(-32_768);
+  });
   child.stdout.on("data", (chunk) => process.stdout.write(chunk));
 
-  return { child, log };
+  return { child, getNativeOutput: () => nativeOutput, log };
+}
+
+function waitForProcessExit(child, timeoutMs = 10_000) {
+  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
+  return new Promise((resolvePromise, reject) => {
+    const timeout = setTimeout(() => {
+      child.off("exit", onExit);
+      reject(new Error(`Amanite did not exit within ${timeoutMs} ms.`));
+    }, timeoutMs);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      resolvePromise(code);
+    };
+    child.once("exit", onExit);
+  });
 }
 
 async function waitForEnter() {
@@ -894,7 +961,7 @@ async function main() {
   }
 
   const appBinary = process.env.AMANITE_TAURI_APP_BINARY || defaultBinary;
-  const { child: appProcess, log } = startApp({
+  const { child: appProcess, getNativeOutput, log } = startApp({
     appBinary,
     artifactsDir,
     port: options.port,
@@ -941,6 +1008,14 @@ async function main() {
 
     if (options.keepOpen) {
       await waitForEnter();
+    } else {
+      await driver.find('.window-control.close');
+      await driver.click('.window-control.close').catch(() => undefined);
+      const exitCode = await waitForProcessExit(appProcess);
+      if (exitCode !== 0) throw new Error(`Amanite exited with code ${exitCode}.`);
+      if (/corrupted (?:unsorted chunks|double-linked list)|free\(\):/i.test(getNativeOutput())) {
+        throw new Error("Amanite printed allocator corruption during shutdown.");
+      }
     }
   } finally {
     await cleanup();
