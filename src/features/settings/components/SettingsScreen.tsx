@@ -9,13 +9,28 @@ import {
   type DocumentFont,
   type LogoMark
 } from "@/app/useAppearanceSettings";
+import type { FractalMutationReceipt, FractalProjectInspection } from "@/lib/fractal/types";
 
 type Props = {
   aiSettings: AiSettings;
   settings: AppearanceSettings;
+  projectHealth?: ProjectHealth;
   onAiChange: (settings: AiSettings) => void;
   onChange: (settings: AppearanceSettings) => void;
   onClose: () => void;
+};
+
+type ProjectHealth = {
+  projectName: string;
+  projectRoot: string;
+  pageCount: number;
+  inspection: FractalProjectInspection | null;
+  draftCount: number;
+  hasUnsavedChanges: boolean;
+  lastReceipt: FractalMutationReceipt | null;
+  isBusy: boolean;
+  onInspect: () => void;
+  onRepair: () => void;
 };
 
 const THEMES: Array<{ id: ColorTheme; label: string; note: string }> = [
@@ -42,7 +57,98 @@ function percent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose }: Props) {
+function formatOperation(operation: string) {
+  return operation.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
+}
+
+function healthSummary(health: ProjectHealth) {
+  if (!health.inspection) return { tone: "checking", title: "Health check pending", note: "Inspect the project files to see their current state." } as const;
+  if (!health.inspection.openable) return { tone: "blocked", title: "Project needs recovery", note: "Amanite cannot safely continue until the project is recovered." } as const;
+  if (!health.inspection.healthy) return { tone: "attention", title: "Project needs attention", note: `${health.inspection.issues.length} issue${health.inspection.issues.length === 1 ? "" : "s"} found in the project files.` } as const;
+  return { tone: "healthy", title: "Project files look healthy", note: "Fractal found no structural issues in this project." } as const;
+}
+
+function ProjectHealthSection({ health }: { health: ProjectHealth }) {
+  const summary = healthSummary(health);
+  const inspection = health.inspection;
+  const draftLabel = `${health.draftCount} recovery draft${health.draftCount === 1 ? "" : "s"}`;
+
+  return (
+    <fieldset className="settings-group project-health-settings">
+      <legend>Project health</legend>
+      <div aria-live="polite" className={`health-status-card ${summary.tone}`}>
+        <span className="health-status-mark" aria-hidden="true">{summary.tone === "healthy" ? "✓" : summary.tone === "checking" ? "…" : "!"}</span>
+        <span className="health-status-copy">
+          <strong>{summary.title}</strong>
+          <small>{summary.note}</small>
+        </span>
+        <button
+          className="health-refresh"
+          disabled={health.isBusy}
+          onClick={health.onInspect}
+          type="button"
+        >
+          {health.isBusy ? "Checking…" : "Recheck"}
+        </button>
+      </div>
+
+      <div className="health-facts" aria-label="Project health details">
+        <div className="health-fact">
+          <span>Project</span>
+          <strong title={health.projectRoot}>{health.projectName}</strong>
+          <small>{health.pageCount} page{health.pageCount === 1 ? "" : "s"}</small>
+        </div>
+        <div className="health-fact">
+          <span>Editor state</span>
+          <strong>{health.hasUnsavedChanges ? "Unsaved edits" : "All changes saved"}</strong>
+          <small>{health.hasUnsavedChanges ? "Save before closing" : "Ready to close"}</small>
+        </div>
+        <div className="health-fact">
+          <span>Recovery</span>
+          <strong>{health.draftCount ? "Drafts waiting" : "No drafts"}</strong>
+          <small>{draftLabel}</small>
+        </div>
+      </div>
+
+      {inspection?.issues.length ? (
+        <div className="health-issues" aria-label="Project health issues">
+          <p className="health-section-label">Issues found</p>
+          <ul>
+            {inspection.issues.map((issue, index) => (
+              <li key={`${issue.code}-${index}`}>
+                <span className="health-issue-mark" aria-hidden="true">!</span>
+                <span>
+                  {issue.path ? <code>{issue.path}</code> : null}
+                  <small>{issue.message}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {inspection?.proposedRepairs.length ? (
+        <div className="health-repair-row">
+          <span>
+            <strong>{inspection.proposedRepairs.length} repair{inspection.proposedRepairs.length === 1 ? "" : "s"} available</strong>
+            <small>Review the proposed Fractal changes before applying them.</small>
+          </span>
+          <button className="health-repair-action" disabled={health.isBusy} onClick={health.onRepair} type="button">Review repairs</button>
+        </div>
+      ) : null}
+
+      {health.lastReceipt ? (
+        <div className="health-receipt">
+          <span>Last session mutation</span>
+          <strong>{formatOperation(health.lastReceipt.operation)}</strong>
+          {health.lastReceipt.warnings.length ? <small>{health.lastReceipt.warnings[0].message}</small> : null}
+        </div>
+      ) : null}
+    </fieldset>
+  );
+}
+
+function SettingsScreen({ aiSettings, settings, projectHealth, onAiChange, onChange, onClose }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -118,6 +224,8 @@ function SettingsScreen({ aiSettings, settings, onAiChange, onChange, onClose }:
             <p>Preferences</p>
             <span>Changes apply immediately</span>
           </header>
+
+          {projectHealth ? <ProjectHealthSection health={projectHealth} /> : null}
 
           <fieldset className="settings-group ai-settings">
             <legend>Borealis connection</legend>

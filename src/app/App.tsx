@@ -244,17 +244,27 @@ function App() {
         </>
       )}
 
-      {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen aiSettings={ai.settings} settings={appearance.settings} onAiChange={ai.setSettings} onChange={appearance.setSettings} onClose={() => setIsSettingsOpen(false)} /></Suspense> : null}
+      {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen
+        aiSettings={ai.settings}
+        projectHealth={activeProject ? {
+          projectName: activeProject.name,
+          projectRoot: activeProject.rootPath,
+          pageCount: activeProject.pages.length,
+          inspection: session.inspection,
+          draftCount: session.draftCount,
+          hasUnsavedChanges: hasWorkspaceUnsavedChanges,
+          lastReceipt: session.lastReceipt,
+          isBusy: session.isBusy,
+          onInspect: () => void session.inspectProject(),
+          onRepair: () => void session.repairProject()
+        } : undefined}
+        settings={appearance.settings}
+        onAiChange={ai.setSettings}
+        onChange={appearance.setSettings}
+        onClose={() => setIsSettingsOpen(false)}
+      /></Suspense> : null}
 
       {confirmDialog ? <ConfirmDialog {...confirmDialog} /> : null}
-      {activeProject ? <aside className="project-health-summary" aria-label="Project health">
-        <button type="button" onClick={() => void session.inspectProject()}>Refresh health</button>
-        <span>{session.inspection ? session.inspection.healthy ? "Project files healthy" : `${session.inspection.issues.length} project issue(s)` : "Health not inspected"}</span>
-        <small>{session.draftCount} recovery draft(s), {hasWorkspaceUnsavedChanges ? "unsaved edits" : "no unsaved edits"}</small>
-        {session.inspection?.issues.map((issue, index) => <small key={`${issue.code}-${index}`}>{issue.path ? `${issue.path}: ` : ""}{issue.message}</small>)}
-        {session.inspection?.proposedRepairs.length ? <button type="button" onClick={() => void session.repairProject()}>Review and repair</button> : null}
-        {session.lastReceipt ? <small>Last session mutation: {session.lastReceipt.operation}{session.lastReceipt.warnings.length ? `, ${session.lastReceipt.warnings[0].message}` : ""}</small> : null}
-      </aside> : null}
     </UniversalContextMenu>
   );
 }

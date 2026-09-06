@@ -48,11 +48,19 @@ fn read_record(path: &Path) -> FractalResult<PageDraft> {
         .map_err(|error| FractalCommandError::json(format!("Could not parse draft: {error}")))
 }
 
-#[tauri::command]
-pub(crate) fn fractal_list_drafts(
-    app: AppHandle,
-    project_root: Option<String>,
-) -> FractalResult<Vec<PageDraft>> {
+async fn run_filesystem_task<T, F>(description: &'static str, task: F) -> FractalResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> FractalResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| {
+            FractalCommandError::io(format!("Could not complete draft {description}: {error}"))
+        })?
+}
+
+fn list_drafts(app: AppHandle, project_root: Option<String>) -> FractalResult<Vec<PageDraft>> {
     let directory = draft_dir(&app)?;
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -83,7 +91,14 @@ pub(crate) fn fractal_list_drafts(
 }
 
 #[tauri::command]
-pub(crate) fn fractal_read_draft(
+pub(crate) async fn fractal_list_drafts(
+    app: AppHandle,
+    project_root: Option<String>,
+) -> FractalResult<Vec<PageDraft>> {
+    run_filesystem_task("listing", move || list_drafts(app, project_root)).await
+}
+
+fn read_draft(
     app: AppHandle,
     project_root: String,
     page_path: String,
@@ -102,7 +117,15 @@ pub(crate) fn fractal_read_draft(
 }
 
 #[tauri::command]
-pub(crate) fn fractal_write_draft(app: AppHandle, draft: PageDraft) -> FractalResult<()> {
+pub(crate) async fn fractal_read_draft(
+    app: AppHandle,
+    project_root: String,
+    page_path: String,
+) -> FractalResult<Option<PageDraft>> {
+    run_filesystem_task("read", move || read_draft(app, project_root, page_path)).await
+}
+
+fn write_draft(app: &AppHandle, draft: PageDraft) -> FractalResult<()> {
     if draft.version != 1
         || draft.project_root.trim().is_empty()
         || draft.page_path.trim().is_empty()
@@ -111,7 +134,7 @@ pub(crate) fn fractal_write_draft(app: AppHandle, draft: PageDraft) -> FractalRe
             "Draft record is invalid.",
         ));
     }
-    let directory = draft_dir(&app)?;
+    let directory = draft_dir(app)?;
     fs::create_dir_all(&directory).map_err(|error| {
         FractalCommandError::io(format!("Could not create draft storage: {error}"))
     })?;
@@ -130,12 +153,11 @@ pub(crate) fn fractal_write_draft(app: AppHandle, draft: PageDraft) -> FractalRe
 }
 
 #[tauri::command]
-pub(crate) fn fractal_move_draft(
-    app: AppHandle,
-    project_root: String,
-    from: String,
-    to: String,
-) -> FractalResult<()> {
+pub(crate) async fn fractal_write_draft(app: AppHandle, draft: PageDraft) -> FractalResult<()> {
+    run_filesystem_task("write", move || write_draft(&app, draft)).await
+}
+
+fn move_draft(app: AppHandle, project_root: String, from: String, to: String) -> FractalResult<()> {
     let directory = draft_dir(&app)?;
     let source = draft_path(&directory, &project_root, &from);
     if !source.exists() {
@@ -143,17 +165,22 @@ pub(crate) fn fractal_move_draft(
     }
     let mut draft = read_record(&source)?;
     draft.page_path = to.clone();
-    fractal_write_draft(app.clone(), draft)?;
+    write_draft(&app, draft)?;
     fs::remove_file(source)
         .map_err(|error| FractalCommandError::io(format!("Could not remove moved draft: {error}")))
 }
 
 #[tauri::command]
-pub(crate) fn fractal_delete_draft(
+pub(crate) async fn fractal_move_draft(
     app: AppHandle,
     project_root: String,
-    page_path: String,
+    from: String,
+    to: String,
 ) -> FractalResult<()> {
+    run_filesystem_task("move", move || move_draft(app, project_root, from, to)).await
+}
+
+fn delete_draft(app: AppHandle, project_root: String, page_path: String) -> FractalResult<()> {
     let path = draft_path(&draft_dir(&app)?, &project_root, &page_path);
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -164,14 +191,45 @@ pub(crate) fn fractal_delete_draft(
     }
 }
 
+#[tauri::command]
+pub(crate) async fn fractal_delete_draft(
+    app: AppHandle,
+    project_root: String,
+    page_path: String,
+) -> FractalResult<()> {
+    run_filesystem_task("deletion", move || {
+        delete_draft(app, project_root, page_path)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::digest;
+
     #[test]
     fn draft_names_do_not_expose_paths() {
         let name = digest("/secret/project", "notes/page.fractal.html");
         assert_eq!(name.len(), 69);
         assert!(!name.contains("secret"));
         assert_eq!(name, digest("/secret/project", "notes/page.fractal.html"));
+    }
+
+    #[test]
+    fn filesystem_commands_do_not_run_on_the_ui_thread() {
+        let source = include_str!("drafts.rs");
+        for command in [
+            "fractal_list_drafts",
+            "fractal_read_draft",
+            "fractal_write_draft",
+            "fractal_move_draft",
+            "fractal_delete_draft",
+        ] {
+            assert!(
+                source.contains(&format!("pub(crate) async fn {command}")),
+                "{command} must remain asynchronous"
+            );
+        }
+        assert!(source.contains("tauri::async_runtime::spawn_blocking(task)"));
     }
 }
