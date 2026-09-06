@@ -1,107 +1,112 @@
-# Amanite and Fractal review
+# Amanite repo roast
 
-> Historical review from before the native v2 trust work. The active roadmap is
-> [`docs/amanite-native-v2-plan.md`](docs/amanite-native-v2-plan.md).
+Reviewed 2026-09-06 at `2d7325c`. The findings below were the pre-fix baseline. The current working tree includes fixes for the highest-risk save, editor-preservation, recovery, blocking, and link-matching issues.
 
-Reviewed 2026-09-03 against Amanite `0afae9a`, its locked Fractal dependency `1974c93`, and Fractal `ba5cabf`.
+Amanite has a sensible persistence boundary and a much less convincing editor boundary. Fractal owns durable writes, locking, hashes, and transaction recovery. Good. Above that, the app sometimes forgets what it has saved, accepts markup it cannot preserve, and repeatedly processes entire projects to answer small questions. The README's reliability promises are ahead of the implementation.
 
-## Verdict
-
-Amanite has crossed out of prototype territory. The persistence design is thoughtful, the real desktop smoke test covers meaningful behavior, and the folder view gives the product a character that Obsidian does not have by default.
-
-It is not ready to ask for unconditional trust yet. The remaining problems sit exactly where users notice them most: recovery storage is best effort, some mutations make the frontend guess what Fractal did, opening a project can silently rename or rewrite files, and the Fractal revision currently locked by Amanite predates a known folder-rename transaction fix.
-
-The next Amanite release should be a trust release, not another editor-feature release. Fractal can remain on an explicitly unstable v2 contract while that work happens. Its larger direction is dependable conversion into and out of Fractal projects, with validation and clear reports whenever a conversion cannot preserve something.
-
-## Structure and maintainability
-
-The main ownership split is sound. Fractal owns files, validation, graph derivation, and mutations. Amanite owns editor buffers, save timing, recovery prompts, and presentation. One buffer per page across both editor groups is the right model.
-
-### Medium: mutation outcomes are inferred instead of returned as receipts
-
-Several Amanite flows compare snapshots or reuse user input to infer renamed paths. `Workspace.tsx` uses the requested destination after a page move even though Fractal may normalize it. Folder rename reconciliation searches for a matching title and reconstructs descendant paths.
-
-Smallest fix: make every Fractal mutation return a typed receipt with changed paths, deleted paths, old-to-new path mappings, committed hashes, and repairs. Have Amanite apply that receipt instead of rediscovering the result.
-
-### Low: the Tauri adapter has become a second application layer
-
-`src-tauri/src/lib.rs` is 1,516 lines and owns catalog scanning, filesystem policy, import orchestration, AI HTTP calls, platform integration, DTO conversion, and command registration. It is still readable, but ownership is getting muddy.
-
-Smallest fix: split only the filesystem/catalog and AI adapter code. Keep Fractal command wrappers direct.
+Priority order: prevent content loss, fix save/recovery semantics, remove synchronous filesystem commands, then reduce repeated parsing and editor work. Deleting a few unused helpers will not cure this app's expensive habits.
 
 ## Correctness and data integrity
 
-### High: Amanite ships a Fractal revision from before the folder transaction fix
+### High: the protection check approves content the editor deletes
 
-`src-tauri/Cargo.lock` pins Fractal at `1974c93`. That revision renames a folder first, then rewrites pages and metadata one by one. Its rollback only renames the directory back, so a later write failure can leave earlier rewrites committed. Fractal `ba5cabf` replaces this with the recoverable transaction path.
+[`editorHtml.ts:6`](src/features/editor/components/editorHtml.ts#L6) permits `caption`, `time`, `datetime`, and other markup without matching preservation support in the [registered Lexical nodes](src/features/editor/components/RichDocumentEditor.tsx#L133).
 
-Smallest fix: update Amanite to a tested Fractal commit before trusting folder rename. Tracking `main` is reasonable during active development, but every distributed Amanite build should identify and test its exact Fractal revision.
+An isolated round trip using the installed Lexical importer/exporter and the relevant registered nodes removed an entire `<caption>Important caption</caption>`. It also converted `<time datetime="2026-09-06">Sunday</time>` into plain text. Both pass the compatibility allowlist. Editing elsewhere and saving exports the lossy representation through [HtmlBridgePlugin](src/features/editor/components/HtmlBridgePlugin.tsx#L30).
 
-### Medium: project open is a hidden mutation
+Smallest fix: restrict editable markup to what actually survives round trips. Add preservation tests before widening that list. A guard that says "safe" while deleting captions is worse than a missing feature.
 
-`Project::open` calls `repair_title_paths`, and folder loading appends newly discovered children to stored order files. Opening after an external rename can therefore rename files and rewrite links before Amanite shows the project.
+### High: a multi-section save can silently waive conflict protection
 
-Smallest fix: keep transaction recovery automatic, but make title and order repair an explicit inspected operation. If automatic repair remains, return and display an open report listing every file changed.
+[`documentPersistence.ts:74`](src/features/workspace/documents/documentPersistence.ts#L74) writes title before content, then replaces all section hashes with the title mutation's returned snapshot. If another program changed the body since this buffer was loaded, the title write can succeed and return that external body's hash. Amanite then uses the new hash to overwrite the body with local content, without reporting the original conflict.
 
-### Medium: page move can desynchronize tabs and buffers
+An isolated probe of the actual persistence function confirmed that an original `content-old` baseline became `external-content` in the next write's expected hash. This was a mocked command-boundary reproduction, not an external-editor desktop test.
 
-Fractal accepts convenient destinations and normalizes suffixes and prefixes. `Workspace.tsx` renames tabs, buffers, and reloads with the unnormalized destination supplied by the user.
+Smallest fix: preserve the original expected hashes for sections still awaiting a write. Update paths and hashes only where the preceding mutation justifies it.
 
-Smallest fix: use the resulting active path or, preferably, the mutation receipt. Test omitted suffixes and a leading `pages/`.
+### High: partial saves lose their committed progress
 
-### Medium: the advertised missing-file recovery action cannot recreate the file
+The same [section loop](src/features/workspace/documents/documentPersistence.ts#L74) returns a bare conflict or throws if a later section fails. Earlier receipts, new paths, and saved hashes never reach buffer reconciliation. A successful title rename followed by a failed content write leaves the buffer pointing at the old, nonexistent filename. The isolated probe confirmed this stale path.
 
-Polling labels a deleted open file as conflicted and offers `Replace disk`. Both native force-save and raw writes expect the page to exist, so the action fails in the case where it is needed most.
+Smallest fix: reconcile each committed section immediately, or return partial progress with the failure. Keep only unsaved sections pending. Do not present a partly committed rename as an ordinary failed save.
 
-Smallest fix: show `Recreate page` for a missing target and add a create-from-buffer operation guarded by the last known page identity.
+### High: closing a tab can discard edits that arrived during a save
 
-### Medium: recovery drafts are silent best effort
+[`saveDocument()`](src/features/workspace/documents/documentPersistence.ts#L204) returns `true` even when the buffer still contains newer dirty edits. The [first persistence test](src/features/workspace/documents/documentPersistence.test.ts#L59) explicitly asserts this behavior. [`closeTab()`](src/features/workspace/components/Workspace.tsx#L190) awaits that result and then forgets the buffer without checking it again. A slow autosave followed by more typing and tab close provides a credible path. Recovery drafts may help, but they are delayed and are not a substitute for saving.
 
-Drafts live in webview `localStorage`. Full, unavailable, cleared, or migrated storage makes writes disappear without telling the user. This is acceptable as a convenience cache, not as the final crash-recovery story for long unsaved sessions.
+There is another shutdown gap: [HTML export waits 120 ms](src/features/editor/components/HtmlBridgePlugin.tsx#L16), while [native window close](src/app/App.tsx#L131) trusts the workspace dirty flag and has no explicit editor flush. Loss in that window depends on focus/event ordering and was not reproduced in the desktop run.
 
-Smallest fix: atomically store recovery files in native app data with the base page hash and timestamp. Surface recovery health in the UI. They can remain temporary and do not need to become a second project format.
+Smallest fix: flush editor state before close, then drain that document's revisions before forgetting it. `saveAll()` already rescans dirty buffers; the single-document close path needs an equivalent guarantee.
 
-## Tests and verification
+### Medium: draft recovery ignores the baseline it stores
 
-Current results:
+[`PageDraft.baseSourceHash`](src/app/pageDrafts.ts#L35) is written but never consulted by the recovery logic in [`useWorkspaceDocuments.ts:77`](src/features/workspace/useWorkspaceDocuments.ts#L77). Recovery compares the old draft against today's disk content, uses today's hashes, and marks differences as local edits. After the generic "Recover draft" confirmation, autosave can overwrite intervening external changes without explaining that consequence.
 
-- 67 frontend tests pass across 19 files.
-- The production frontend build passes.
-- 9 Amanite Rust tests pass.
-- 59 tests pass in the current Fractal checkout.
-- The real Tauri WebDriver smoke flow passes editing, saving, conflicts, split panes, folder editing, and draft recovery.
-- Amanite Clippy fails on `large_enum_variant` and `items_after_test_module`.
-- The desktop process prints `free(): corrupted unsorted chunks` after the smoke flow.
-- Amanite has no checked-in CI workflow.
-
-The smoke test is unusually useful, but it is one broad happy path. It does not prove power-loss durability, repeated crash recovery, large projects, upgrade compatibility, move normalization, missing-file recreation, or packaged builds on all supported platforms.
-
-Smallest fix: add CI for the existing checks, resolve the allocator message, then build a small reliability matrix with fault injection at write and rename boundaries. Keep permanent v1 fixtures and representative v2 fixtures so contract changes are intentional and visible even before v2 stabilizes.
+Smallest fix: compare the stored baseline before recovery. A mismatch should remain a conflict requiring an explicit replacement decision. The current patch does this and changes the prompt to an explicit "Replace with draft" action when the baseline does not match.
 
 ## Failure handling and operability
 
-Normal concurrent editing is handled well. Section hashes allow disjoint native edits to merge, stale writes become visible conflicts, and save queues keep revisions that arrive during an in-flight write.
+### Medium: one corrupt draft can break recovery listing for every project
 
-What is missing is an inspectable account of what happened. There is no project health view, durable recovery inventory, recent mutation journal, backup workflow, or one-click verification after a suspicious shutdown. A user sees small save markers and transient notices but cannot ask, "Are all of my files safe right now?"
+[`drafts.rs:81`](src-tauri/src/drafts.rs#L81) parses each record with `?` before filtering by project. One malformed JSON file aborts the entire list, including requests for an unrelated healthy project. [`useFractalSession.ts:90`](src/app/useFractalSession.ts#L90) then converts listing failure into a draft count of zero. Broken recovery storage can look empty.
 
-Smallest fix: add a project health panel backed by Fractal. It should report format version, validation state, pending recovery drafts, last successful save, unfinished transaction recovery, and changed paths from the last mutation. This is more valuable now than another editor tool.
+Draft deletion is also frequently fire-and-forget, including [successful saves](src/features/workspace/documents/documentPersistence.ts#L185). Failed cleanup is neither awaited nor reported there, leaving stale recovery prompts. Draft errors from Tauri are plain objects, but several frontend paths stringify them into `[object Object]`.
+
+Smallest fix: report per-record listing failures alongside healthy drafts; preserve an unknown/error count; handle cleanup failures and normalize structured errors.
+
+## UI performance and frontend/backend blocking
+
+### High: filesystem work still runs in synchronous Tauri commands
+
+Page read/write/search and draft commands use blocking workers. However, [project open](src-tauri/src/fractal_adapter.rs#L527), [inspection](src-tauri/src/fractal_adapter.rs#L241), catalog loading, creation, moves, deletion, repair, validation, and [exports](src-tauri/src/fractal_adapter.rs#L719) remain synchronous commands. The installed Tauri macro executes these through its blocking command path. Frontend `await` does not move their work off the native event thread.
+
+Fractal project operations scan files and acquire filesystem locks. A large project, slow storage, or another process holding a lock can stall native event handling. The smoke run did not measure such a stall.
+
+Smallest fix: use the existing `spawn_blocking` pattern consistently for filesystem commands. Keep write ordering explicit when moving more work onto workers.
+
+### High at scale: page operations repeatedly scan the entire project
+
+[`fractal_read_page`](src-tauri/src/fractal_adapter.rs#L547), search, and [three-second polling](src-tauri/src/fractal_adapter.rs#L681) each open a fresh Fractal project. Inspection of the locked `9f947c7` dependency confirms that opening reads, parses, and hashes all native pages. Mutations also reload under the lock and after commit. [Mutation snapshots](src-tauri/src/fractal_adapter.rs#L308) send every page's text and links back over IPC.
+
+Opening one page therefore scales with the whole library. Polling one open tab repeatedly pays that cost while idle. Saving several sections repeats it again. Moving work to a worker avoids one kind of freeze but does not remove this I/O, CPU, allocation, or IPC cost.
+
+Smallest fix: first coalesce project work and reduce snapshot payloads. Then provide a Fractal-supported way to reuse or refresh project state. Keep Fractal as the write authority; do not build a competing persistent index.
+
+### High at scale: derived links perform expensive work inside editor transforms
+
+[`pageLinks.ts:44`](src/features/editor/components/pageLinks.ts#L44) tests every title at every character position, repeatedly slicing and lowercasing strings. A local Node probe of the actual function, with an 8,100-character text node and no matches, took roughly 136 ms for 100 titles and 1,320 ms for 1,000 titles. These are single-run algorithm measurements, not WebKit frame timings.
+
+[`InlinePageLinksPlugin.tsx:93`](src/features/editor/components/InlinePageLinksPlugin.tsx#L93) marks every text node dirty when the pages array changes. Each save supplies a new array. [`EditorGroupPane.tsx:100`](src/features/workspace/components/EditorGroupPane.tsx#L100) keeps hidden tabs and their editors mounted, multiplying retained DOM, history, and transform work.
+
+Smallest fix: key link targets by title/path changes, precompute normalized titles, and replace the character-by-title scan with a multi-pattern matcher. Suspend unnecessary work in hidden editors while preserving undo state.
+
+### Medium: the HTML bridge repeatedly processes whole documents
+
+Every exported edit serializes the Lexical document, parses it for cleanup, reparses the native source to replace its body, and reparses that source for counts, outline, and compatibility. See [HtmlBridgePlugin](src/features/editor/components/HtmlBridgePlugin.tsx#L30), [pageSource](src/features/editor/components/pageSource.ts#L36), and [FractalEditor](src/features/editor/components/FractalEditor.tsx#L80). Debouncing delays this synchronous work; it does not divide it.
+
+The [batched importer](src/features/editor/components/editorHtml.ts#L77) also parses the whole HTML first and batches by top-level node. One enormous table is still one enormous batch.
+
+Smallest fix: derive counts and outline from editor state, defer nonessential analysis, and bound import work inside large containers. Measure large tables and long paragraphs, not just many small paragraphs.
+
+## Structure, dead code, and stale material
+
+Low severity. The dependency list is mostly defensible for the shipped features. I did not establish widespread dead production code or an abandoned subsystem worth ripping out.
+
+- The unused importer helper in [`editorHtml.ts`](src/features/editor/components/editorHtml.ts) was removed in the current patch.
+- [`docs/architecture.md`](docs/architecture.md) describes raw HTML editing, iframe/media preservation, browser-local drafts, and manual folder creation that no longer match this native-only implementation. It also promises save-queue draining that single-document saves did not provide. Rewrite it against current behavior.
+- The stale `Amanite/0.2` AI user-agent was replaced with the Cargo package version in the current patch.
+- Workspace orchestration is 616 lines, with project state held in both session and workspace layers plus refs and document copies. The partial-save bugs show why ownership matters here. Clarify snapshot and receipt ownership before adding another coordination hook.
+
+The production build contains a 591.23 kB workspace JS chunk and 112.45 kB of CSS before gzip. Vite warns about chunk size. Those numbers merit profiling, but the confirmed repeated work above is a better first target than cosmetic bundle splitting.
 
 ## Security and trust boundaries
 
-Raw previews and native iframes are sandboxed, file paths are mostly contained, and AI reads are limited to the current catalog. Those are good boundaries.
+The native-only write boundary, section hashes, Fractal locks and transactions, restrictive production CSP, URL checks, and session-only AI key are good choices. No confirmed security exploit emerged from this review. The markup allowlist issue above is a preservation failure despite those protections.
 
-### Medium: the AI key and app origin need hardening
+## Tests and verification
 
-The API key is persisted in `localStorage`, and Tauri CSP is disabled. A future frontend injection would be able to read a paid credential.
+The baseline passed 77 frontend tests across 23 files, 17 Rust tests, TypeScript/Vite build, Rust formatting, and Clippy with all targets/features and warnings denied. The prescribed WebDriver doctor and real Tauri desktop smoke run also passed. Desktop artifacts are in `artifacts/tauri-webdriver/2026-09-06T17-47-03-712Z/`.
 
-Smallest fix: move the key to the OS keychain or require it per session, and add a tested CSP before expanding Borealis to write tools.
+The current fix set adds regression coverage for markup protection, section-hash conflicts, partial rename failure, revision draining, and editor flush coordination. It passes 81 frontend tests across 24 files, 17 Rust tests, the TypeScript/Vite build, Rust formatting, Clippy, and the real Tauri desktop smoke flow. The latest desktop artifacts are in `artifacts/tauri-webdriver/2026-09-06T18-42-08-301Z/`.
 
-## Product direction
-
-Fractal is the main adoption product. It should become dependable conversion software for structured documents and projects. Importers should produce valid Fractal candidates plus a loss report. Exporters should derive target files without changing the source project. Each format needs an explicit promise such as lossless, structure-preserving, or best effort.
-
-Do not begin with a universal converter framework. Implement two meaningfully different importers and exporters as direct engine operations, learn which concepts actually repeat, then extract the shared conversion types. Project-level assets, links, metadata, ordering, and unsupported constructs matter more than converting isolated text.
-
-Amanite is Fractal's reference application and proving ground. Its job is to make validation, recovery, conversion previews, and conversion reports understandable while remaining a strong editor. The folder view is still an important Amanite idea because it demonstrates Fractal's ordered project model, but Amanite does not need to compete for Obsidian users.
-
-Internal migrations between Fractal contract versions belong after a contract is ready to stabilize. During v2 development, permanent fixtures and explicit breaking-change notes are enough. Borealis should remain read-only until the trust work lands, then begin with cited suggestions and reviewable patches rather than invisible direct edits.
+The suite covers useful happy paths, but several tests inspect source strings or isolated helpers rather than exercising the advertised behavior. Desktop smoke is absent from CI. There are no demonstrated large-project latency budgets or tests here for close-during-save, multi-section partial failure, and recovery over an externally changed baseline. Those are the next tests that would earn trust. Another assertion that a command name exists would not.

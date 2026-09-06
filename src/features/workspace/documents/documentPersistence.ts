@@ -14,7 +14,9 @@ type MutableValue<T> = { current: T };
 type PersistenceOptions = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
+  flushDocument?: (path: string) => void;
   onDocumentPathChange: (from: string, to: string) => void;
+  onDraftStorageError?: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
   publishProject: (project: FractalProject) => void;
 };
@@ -54,7 +56,7 @@ function applySection(
 
 type NativeSaveResult =
   | { kind: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
-  | { kind: "conflict"; message: string };
+  | { kind: "conflict" | "failed"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string };
 
 async function saveNativeDocument(
   project: FractalProject,
@@ -69,19 +71,30 @@ async function saveNativeDocument(
   }
   if (!parts) throw new Error(`Fractal did not provide native document sections for ${buffer.path}.`);
 
+  // Every section must be checked against the same snapshot. A preceding
+  // title mutation returns a fresh project snapshot, which may include an
+  // external content edit. Using that returned content hash would turn a
+  // stale local content write into an unconditional overwrite.
+  const expectedParts = parts;
   const sent: FractalNativeSectionEdits = {};
   let resultingPath = buffer.path;
+  const projectAfterCommittedSections = () => Object.keys(sent).length ? workingProject : project;
   for (const section of nativeSectionOrder) {
     const value = buffer.nativeEdits[section];
     if (value == null) continue;
-    const result = await applySection(workingProject, section, value, sectionHash(parts, section));
-    if (result.status === "conflict") return { kind: "conflict", message: result.error.message };
-    sent[section] = value;
-    resultingPath = mapPagePath(resultingPath, receiptMappings(result.result.receipt));
-    workingProject = result.result.project;
-    parts = workingProject.activePageNativeDocumentParts ?? parts;
+    try {
+      const result = await applySection(workingProject, section, value, sectionHash(expectedParts, section));
+      if (result.status === "conflict") {
+        return { kind: "conflict", message: result.error.message, project: projectAfterCommittedSections(), sent, resultingPath };
+      }
+      sent[section] = value;
+      resultingPath = mapPagePath(resultingPath, receiptMappings(result.result.receipt));
+      workingProject = result.result.project;
+    } catch (error) {
+      return { kind: "failed", message: errorMessage(error), project: projectAfterCommittedSections(), sent, resultingPath };
+    }
   }
-  return { kind: "saved", project: workingProject, sent, resultingPath };
+  return { kind: "saved", project: projectAfterCommittedSections(), sent, resultingPath };
 }
 
 function mergeSavedProject(
@@ -108,9 +121,15 @@ function mergeSavedProject(
   };
 }
 
-export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange, projectRef, publishProject }: PersistenceOptions) {
+export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
+
+  function clearDraft(projectRoot: string, pagePath: string) {
+    void clearPageDraft(projectRoot, pagePath).catch((error) => {
+      onDraftStorageError?.(errorMessage(error));
+    });
+  }
 
   function saveDocument(path: string, force = false): Promise<boolean> {
     if (force) forceRequests.add(path);
@@ -118,42 +137,32 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
     if (inFlight) return inFlight;
 
     const savePromise = (async () => {
+      let currentPath = path;
       while (true) {
-        const start = buffersRef.current[path];
-        const forceAttempt = forceRequests.delete(path);
+        // The editor export is debounced. Flush it before every queue pass so
+        // a close or project mutation cannot save an older HTML snapshot.
+        flushDocument?.(currentPath);
+        const start = buffersRef.current[currentPath];
+        const forceAttempt = forceRequests.delete(currentPath)
+          || (currentPath !== path && forceRequests.delete(path));
         if (!start || (!start.dirty && !forceAttempt)) return true;
 
         commitBuffers((current) => {
-          const buffer = current[path];
+          const buffer = current[currentPath];
           return buffer
-            ? { ...current, [path]: { ...buffer, operation: "save", error: null } }
+            ? { ...current, [currentPath]: { ...buffer, operation: "save", error: null } }
             : current;
         });
 
         try {
           const result = await saveNativeDocument(projectRef.current, start, forceAttempt);
-          if (result.kind === "conflict") {
-            commitBuffers((current) => {
-              const buffer = current[path];
-              return buffer ? {
-                ...current,
-                [path]: {
-                  ...buffer,
-                  operation: null,
-                  conflict: true,
-                  error: "This page changed on disk. Reload it or replace the external version."
-                }
-              } : current;
-            });
-            if (forceRequests.has(path)) continue;
-            return false;
-          }
           const savedProject = result.project;
           const sent = result.sent;
 
           const resultingPath = result.resultingPath;
+          let nextBufferDirty = false;
           commitBuffers((current) => {
-            const currentBuffer = current[path];
+            const currentBuffer = current[currentPath] ?? current[resultingPath];
             if (!currentBuffer) return current;
             const remainingEdits = { ...currentBuffer.nativeEdits };
             for (const section of Object.keys(sent) as FractalNativeSection[]) {
@@ -161,11 +170,12 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
             }
             const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
             const hasNewerEdits = currentBuffer.revision !== start.revision;
+            const failed = result.kind !== "saved";
             const savedPage = pageForProject(savedProject, resultingPath);
             const nextBuffer: DocumentBuffer = {
               ...currentBuffer,
               path: resultingPath,
-              source: hasPendingNativeEdits || hasNewerEdits
+              source: failed || hasPendingNativeEdits || hasNewerEdits
                 ? currentBuffer.source
                 : savedProject.activePageSource ?? currentBuffer.source,
               links: savedPage?.links ?? savedProject.activePageLinks,
@@ -173,40 +183,52 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
               contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
               nativeDocumentParts: savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
               nativeEdits: remainingEdits,
-              conflict: false,
-              dirty: hasPendingNativeEdits || hasNewerEdits,
-              error: null,
+              conflict: result.kind === "conflict",
+              dirty: failed || hasPendingNativeEdits || hasNewerEdits,
+              error: result.kind === "conflict"
+                ? "This page changed on disk. Reload it or replace the external version."
+                : result.kind === "failed" ? result.message : null,
               operation: null
             };
             const next = { ...current };
-            delete next[path];
+            delete next[currentPath];
             next[resultingPath] = nextBuffer;
+            nextBufferDirty = nextBuffer.dirty;
             if (!nextBuffer.dirty) {
-              clearPageDraft(projectRef.current.rootPath, path);
-              if (resultingPath !== path) clearPageDraft(projectRef.current.rootPath, resultingPath);
+              clearDraft(projectRef.current.rootPath, currentPath);
+              if (resultingPath !== currentPath) clearDraft(projectRef.current.rootPath, resultingPath);
             }
             return next;
           });
 
-          forceRequests.delete(path);
-          const currentBuffer = buffersRef.current[path] ?? buffersRef.current[resultingPath];
+          const currentBuffer = buffersRef.current[currentPath] ?? buffersRef.current[resultingPath];
           const nextProject = mergeSavedProject(
             projectRef.current,
             savedProject,
-            path,
+            currentPath,
             resultingPath,
             currentBuffer?.source ?? start.source,
-            !currentBuffer?.dirty
+            result.kind === "saved" && !currentBuffer?.dirty
           );
           projectRef.current = nextProject;
-          if (resultingPath !== path || !currentBuffer?.dirty) publishProject(nextProject);
-          if (resultingPath !== path) onDocumentPathChange(path, resultingPath);
+          publishProject(nextProject);
+          if (resultingPath !== currentPath) {
+            onDocumentPathChange(currentPath, resultingPath);
+            currentPath = resultingPath;
+          }
+
+          if (result.kind !== "saved") {
+            if (forceRequests.has(currentPath) || forceRequests.has(path)) continue;
+            return false;
+          }
+          if (nextBufferDirty) continue;
+          forceRequests.delete(currentPath);
           return true;
         } catch (error) {
           commitBuffers((current) => {
-            const buffer = current[path];
+            const buffer = current[currentPath];
             return buffer
-              ? { ...current, [path]: { ...buffer, operation: null, error: errorMessage(error) } }
+              ? { ...current, [currentPath]: { ...buffer, operation: null, error: errorMessage(error) } }
               : current;
           });
           return false;
@@ -215,7 +237,9 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, onDocumen
     })();
 
     savePromises.set(path, savePromise);
-    void savePromise.finally(() => {
+    void savePromise.then(() => {
+      if (savePromises.get(path) === savePromise) savePromises.delete(path);
+    }, () => {
       if (savePromises.get(path) === savePromise) savePromises.delete(path);
     });
     return savePromise;

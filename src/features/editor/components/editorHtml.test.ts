@@ -22,4 +22,14 @@ describe("rich editor HTML contract", () => {
       "<iframe> src"
     ]);
   });
+
+  it("protects semantic metadata that Lexical drops during import", () => {
+    expect(richEditorCompatibilityIssues('<table><caption>Important</caption><tbody><tr><td>Cell</td></tr></tbody></table>')).toEqual([
+      "<caption>"
+    ]);
+    expect(richEditorCompatibilityIssues('<p><time datetime="2026-09-06">Sunday</time></p>')).toEqual([
+      "<time>",
+      "<time> datetime"
+    ]);
+  });
 });

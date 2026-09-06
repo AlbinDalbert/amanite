@@ -237,14 +237,14 @@ pub(crate) struct FractalRepairResult {
     inspection: fractal::ProjectInspection,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_inspect_project(
     project_root: String,
 ) -> FractalResult<fractal::ProjectInspection> {
     Ok(fractal::Project::inspect(project_root)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_recover_project(
     project_root: String,
 ) -> FractalResult<FractalRecoveryResult> {
@@ -262,7 +262,7 @@ pub(crate) fn fractal_recover_project(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_repair_project(project_root: String) -> FractalResult<FractalRepairResult> {
     let mut project = fractal::Project::open(&project_root)?;
     let report = project.repair()?;
@@ -275,7 +275,7 @@ pub(crate) fn fractal_repair_project(project_root: String) -> FractalResult<Frac
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_recreate_page(
     project_root: String,
     page_path: String,
@@ -480,7 +480,7 @@ fn mutation_result(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_list_projects(app: AppHandle) -> FractalResult<FractalProjectCatalog> {
     let root = catalog::projects_root(&app).map_err(FractalCommandError::from)?;
     let (projects, issues) =
@@ -492,7 +492,7 @@ pub(crate) fn fractal_list_projects(app: AppHandle) -> FractalResult<FractalProj
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_create_project(
     app: AppHandle,
     project_name: String,
@@ -508,7 +508,7 @@ pub(crate) fn fractal_create_project(
     read_project(root, None)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_open_project(
     app: AppHandle,
     directory_name: String,
@@ -523,7 +523,7 @@ pub(crate) fn fractal_open_project(
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_open_project_path(project_root: String) -> FractalResult<FractalProject> {
     read_project(PathBuf::from(project_root), None)
 }
@@ -651,7 +651,7 @@ pub(crate) async fn fractal_set_page_metadata(
     })?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_repair_page_structure(
     project_root: String,
     page_path: String,
@@ -715,7 +715,7 @@ pub(crate) async fn fractal_page_content_states(
     })?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_export_html(
     project_root: String,
     page_path: String,
@@ -736,7 +736,7 @@ pub(crate) fn fractal_export_html(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_export_folder_html(
     project_root: String,
     folder_path: String,
@@ -770,7 +770,7 @@ pub(crate) fn fractal_export_folder_html(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_create_page(
     project_root: String,
     title: String,
@@ -792,7 +792,7 @@ pub(crate) fn fractal_create_page(
     mutation_result(project, Some(&path), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_duplicate_page(
     project_root: String,
     page_path: String,
@@ -850,7 +850,7 @@ pub(crate) fn fractal_duplicate_page(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_create_folder(
     project_root: String,
     parent: String,
@@ -862,7 +862,7 @@ pub(crate) fn fractal_create_folder(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_set_folder_title(
     project_root: String,
     folder_path: String,
@@ -879,7 +879,7 @@ pub(crate) fn fractal_set_folder_title(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_reorder_folder(
     project_root: String,
     folder_path: String,
@@ -896,7 +896,7 @@ pub(crate) fn fractal_reorder_folder(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_delete_folder(
     project_root: String,
     folder_path: String,
@@ -908,7 +908,7 @@ pub(crate) fn fractal_delete_folder(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_move_page(
     project_root: String,
     page_path: String,
@@ -930,7 +930,7 @@ pub(crate) fn fractal_move_page(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_delete_page(
     project_root: String,
     page_path: String,
@@ -941,7 +941,7 @@ pub(crate) fn fractal_delete_page(
     mutation_result(project, active_page_path.as_deref(), receipt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_validate_project(
     project_root: String,
 ) -> FractalResult<FractalCommandResult> {

@@ -4,18 +4,16 @@ import { $createParagraphNode, $getRoot, type LexicalEditor } from "lexical";
 export const AMANITE_HTML_LOAD_TAG = "amanite-html-load";
 
 const ALLOWED_ELEMENTS = new Set([
-  "a", "abbr", "b", "blockquote", "br", "caption", "cite", "code", "col", "colgroup", "del", "em",
-  "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "ins",
-  "kbd", "li", "mark", "ol", "p", "pre", "q", "s", "samp", "small", "span", "strong", "sub", "sup",
-  "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var"
+  "a", "b", "blockquote", "br", "code", "em",
+  "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i",
+  "li", "ol", "p", "pre", "span", "strong",
+  "table", "tbody", "td", "th", "thead", "tr", "u", "ul"
 ]);
 
 function allowedAttributes(tag: string) {
   return tag === "a" ? ["href", "title"]
     : tag === "h1" ? ["data-fractal-title"]
-    : tag === "time" ? ["datetime"]
     : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
-    : tag === "col" || tag === "colgroup" ? ["span"]
     : [];
 }
 
@@ -60,15 +58,6 @@ export function cleanEditorHtml(html: string) {
     }
   }
   return template.innerHTML || "<p></p>";
-}
-
-export function importHtmlIntoEditor(editor: LexicalEditor, html: string) {
-  const document = new DOMParser().parseFromString(cleanEditorHtml(html), "text/html");
-  const nodes = $generateNodesFromDOM(editor, document.body);
-  const root = $getRoot();
-  root.clear();
-  if (nodes.length) root.append(...nodes);
-  if (!root.getChildrenSize()) root.append($createParagraphNode());
 }
 
 const IMPORT_BATCH_NODES = 1;

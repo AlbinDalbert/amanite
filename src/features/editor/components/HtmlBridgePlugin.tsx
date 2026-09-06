@@ -3,6 +3,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
+import { listenForEditorFlush } from "./editorFlush";
 import { AMANITE_HTML_LOAD_TAG, cleanEditorHtml, importHtmlIntoEditorInBatches } from "./editorHtml";
 
 type Props = {
@@ -68,6 +69,8 @@ function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onLoaded, onLoading }:
       root.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
   }, [editor, exportPendingState]);
+
+  useEffect(() => listenForEditorFlush(pagePath, exportPendingState), [exportPendingState, pagePath]);
 
   useEffect(() => () => exportPendingState(), [exportPendingState]);
 

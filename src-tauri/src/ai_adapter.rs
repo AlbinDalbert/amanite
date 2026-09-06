@@ -126,7 +126,7 @@ async fn ai_response_error(response: reqwest::Response) -> String {
 fn ai_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
-        .user_agent("Amanite/0.2")
+        .user_agent(format!("Amanite/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("Could not prepare the AI connection: {error}"))
 }

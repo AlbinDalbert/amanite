@@ -1,7 +1,7 @@
 use crate::fractal_adapter::{validated_page_target, FractalCommandError, FractalResult};
 use std::{path::PathBuf, process::Command};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_reveal_page(
     project_root: String,
     page_path: Option<String>,
@@ -65,7 +65,7 @@ fn safe_external_url(href: &str) -> FractalResult<String> {
     Ok(url.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fractal_open_external(href: String) -> FractalResult<()> {
     let href = safe_external_url(&href)?;
     #[cfg(target_os = "windows")]

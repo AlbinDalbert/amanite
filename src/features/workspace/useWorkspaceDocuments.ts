@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft, readPageDraft } from "@/app/pageDrafts";
+import { requestEditorFlush } from "@/features/editor/components/editorFlush";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalLoadedPage, FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import {
@@ -55,10 +56,12 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
+    flushDocument: requestEditorFlush,
     onDocumentPathChange,
+    onDraftStorageError: setDraftStorageError,
     projectRef,
     publishProject
-  }), [commitBuffers, onDocumentPathChange, publishProject]);
+  }), [commitBuffers, onDocumentPathChange, publishProject, setDraftStorageError]);
 
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath) {
@@ -84,7 +87,13 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     let dirty = false;
     const draft = checkDraft ? await readPageDraft(loaded.rootPath, path) : null;
     if (draft && draft.source !== source) {
-      const recover = await onRequestConfirmation(`Recover the unsaved draft for ${path}?`, "Recover draft");
+      const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === loaded.activePageContentHash);
+      const recover = await onRequestConfirmation(
+        baselineMatches
+          ? `Recover the unsaved draft for ${path}?`
+          : `The page changed on disk after this draft was created. Replace the disk version with the draft for ${path}?`,
+        baselineMatches ? "Recover draft" : "Replace with draft"
+      );
       if (recover) {
         source = draft.source;
         dirty = true;
@@ -113,7 +122,13 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     let dirty = false;
     const draft = checkDraft ? await readPageDraft(rootPath, path) : null;
     if (draft && draft.source !== source) {
-      const recover = await onRequestConfirmation(`Recover the unsaved draft for ${path}?`, "Recover draft");
+      const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === loaded.contentHash);
+      const recover = await onRequestConfirmation(
+        baselineMatches
+          ? `Recover the unsaved draft for ${path}?`
+          : `The page changed on disk after this draft was created. Replace the disk version with the draft for ${path}?`,
+        baselineMatches ? "Recover draft" : "Replace with draft"
+      );
       if (recover) {
         source = draft.source;
         dirty = true;

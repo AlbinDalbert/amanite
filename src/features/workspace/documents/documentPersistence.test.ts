@@ -71,7 +71,8 @@ describe("document persistence", () => {
     const firstWrite = deferred<FractalConditionalWriteResult>();
 
     vi.spyOn(fractalClient, "setPageContent")
-      .mockImplementationOnce(() => firstWrite.promise);
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockResolvedValueOnce(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "Revision two"), nativeParts({ contentHtml: "<p>Revision two</p>", contentHash: "content-hash-3", sourceHash: "source-hash-3" }))));
 
     const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange: vi.fn(), projectRef, publishProject });
     const saving = persistence.saveDocument(path);
@@ -85,15 +86,15 @@ describe("document persistence", () => {
     firstWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "Revision one"), nativeParts({ contentHtml: "<p>Revision one</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }))));
 
     await expect(saving).resolves.toBe(true);
-    expect(fractalClient.setPageContent).toHaveBeenCalledTimes(1);
+    expect(fractalClient.setPageContent).toHaveBeenCalledTimes(2);
     expect(buffersRef.current[path]).toMatchObject({
-      contentHash: "source-hash-2",
-      dirty: true,
+      contentHash: "source-hash-3",
+      dirty: false,
       operation: null,
       revision: 2,
-      nativeEdits: { content: "<p>Revision two</p>" }
+      nativeEdits: {}
     });
-    expect(publishProject).not.toHaveBeenCalled();
+    expect(publishProject).toHaveBeenCalled();
   });
 
   it("rescans dirty buffers before save-all returns", async () => {
@@ -162,6 +163,66 @@ describe("document persistence", () => {
 
     await expect(persistence.saveDocument(path)).resolves.toBe(false);
     expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
+  });
+
+  it("checks every section against the original snapshot", async () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.source = NATIVE_SOURCE.replaceAll("Test", "Renamed").replace("Before", "Local edit");
+    buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    buffer.revision = 1;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const projectRef = { current: initialProject };
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    const titleProject = nativeProject(path, NATIVE_SOURCE.replace("Before", "External edit"), nativeParts({ contentHtml: "<p>External edit</p>", contentHash: "external-content" }));
+    vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue(saved(titleProject));
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockResolvedValue({
+      status: "conflict",
+      error: { code: "conflict", message: "content changed" }
+    });
+
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers,
+      onDocumentPathChange: vi.fn(),
+      projectRef,
+      publishProject: vi.fn()
+    });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(false);
+    expect(setPageContent).toHaveBeenCalledWith(titleProject, "<p>Local edit</p>", "content-hash");
+    expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, nativeEdits: { content: "<p>Local edit</p>" } });
+  });
+
+  it("keeps a committed rename visible when a later section fails", async () => {
+    const path = "test.fractal.html";
+    const nextPath = "renamed.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.source = NATIVE_SOURCE.replaceAll("Test", "Renamed").replace("Before", "Local edit");
+    buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    buffer.revision = 1;
+    const savedProject = nativeProject(nextPath, buffer.source, nativeParts({ title: "Renamed", titleHash: "title-hash-2" }));
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const projectRef = { current: initialProject };
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue({
+      status: "saved",
+      result: { project: savedProject, receipt: { operation: "set_page_title", warnings: [], changes: [
+        { change: "moved", from: `pages/${path}`, to: `pages/${nextPath}`, entry: "file" }
+      ] } }
+    });
+    vi.spyOn(fractalClient, "setPageContent").mockRejectedValue(new Error("disk full"));
+    const onDocumentPathChange = vi.fn();
+    const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange, projectRef, publishProject: vi.fn() });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(false);
+    expect(buffersRef.current[path]).toBeUndefined();
+    expect(buffersRef.current[nextPath]).toMatchObject({ path: nextPath, dirty: true, error: "disk full", nativeEdits: { content: "<p>Local edit</p>" } });
+    expect(onDocumentPathChange).toHaveBeenCalledWith(path, nextPath);
   });
 
   it("saves native body edits through Fractal's content section", async () => {

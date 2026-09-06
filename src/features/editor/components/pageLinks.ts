@@ -7,7 +7,12 @@ export type DerivedPageLinkMatch = {
   title: string;
 };
 
-export type DerivedPageLinkTarget = { path: string; title: string };
+export type DerivedPageLinkTarget = {
+  firstCharacter?: string;
+  normalizedTitle?: string;
+  path: string;
+  title: string;
+};
 
 const ALPHANUMERIC = /[\p{L}\p{N}]/u;
 
@@ -23,6 +28,11 @@ export function derivedPageLinkTargets(pagePath: string, pages: FractalPage[]) {
     .filter((targets) => targets.length === 1)
     .map(([target]) => target)
     .filter((target): target is DerivedPageLinkTarget => Boolean(target))
+    .map((target) => ({
+      ...target,
+      firstCharacter: Array.from(target.title)[0]?.toLocaleLowerCase(),
+      normalizedTitle: target.title.toLocaleLowerCase()
+    }))
     .sort((left, right) => Array.from(right.title).length - Array.from(left.title).length || left.path.localeCompare(right.path));
 }
 
@@ -44,13 +54,28 @@ export function findDerivedPageLinksForTargets(text: string, targets: DerivedPag
   const offsets = [0];
   for (const character of characters) offsets.push(offsets.at(-1)! + character.length);
 
-  const matches: DerivedPageLinkMatch[] = [];
+  // Most page titles cannot match most text positions. Indexing by the first
+  // character avoids the old titles-times-characters scan while keeping the
+  // same Unicode boundary checks and match ordering.
+  const targetsByFirstCharacter = new Map<string, DerivedPageLinkTarget[]>();
   for (const target of targets) {
-    const titleLength = Array.from(target.title).length;
-    const titleLower = target.title.toLocaleLowerCase();
-    for (let index = 0; index + titleLength <= characters.length; index += 1) {
+    const firstCharacter = target.firstCharacter ?? Array.from(target.title)[0]?.toLocaleLowerCase();
+    if (!firstCharacter) continue;
+    const bucket = targetsByFirstCharacter.get(firstCharacter) ?? [];
+    bucket.push(target);
+    targetsByFirstCharacter.set(firstCharacter, bucket);
+  }
+
+  const matches: DerivedPageLinkMatch[] = [];
+  for (let index = 0; index < characters.length; index += 1) {
+    const candidates = targetsByFirstCharacter.get(characters[index].toLocaleLowerCase());
+    if (!candidates) continue;
+    for (const target of candidates) {
+      const titleLength = Array.from(target.title).length;
+      if (index + titleLength > characters.length) continue;
       const start = offsets[index];
       const end = offsets[index + titleLength];
+      const titleLower = target.normalizedTitle ?? target.title.toLocaleLowerCase();
       if (text.slice(start, end).toLocaleLowerCase() !== titleLower) continue;
       const before = characters[index - 1];
       const after = characters[index + titleLength];

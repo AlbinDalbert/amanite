@@ -78,7 +78,12 @@ fn list_drafts(app: AppHandle, project_root: Option<String>) -> FractalResult<Ve
         if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
         }
-        let draft = read_record(&entry.path())?;
+        // A damaged recovery record must not hide every healthy draft. The
+        // specific read command still reports malformed JSON when the user
+        // asks for that record directly.
+        let Ok(draft) = read_record(&entry.path()) else {
+            continue;
+        };
         if project_root
             .as_deref()
             .is_none_or(|root| draft.project_root == root)

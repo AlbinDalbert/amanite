@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { writePageDraftSource } from "@/app/pageDrafts";
-import type { DocumentBuffers } from "./documentBuffers";
+import { errorMessage, type DocumentBuffers } from "./documentBuffers";
 
 type Options = {
   autoSave: boolean;
@@ -19,7 +19,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
       for (const buffer of dirty) {
         void writePageDraftSource(projectRoot, buffer.path, buffer.source, buffer.contentHash ?? "")
           .then(() => onStorageError(null))
-          .catch((error) => onStorageError(error instanceof Error ? error.message : String(error)));
+          .catch((error) => onStorageError(errorMessage(error)));
       }
     }, 180);
     const autoSavePaths = dirty
