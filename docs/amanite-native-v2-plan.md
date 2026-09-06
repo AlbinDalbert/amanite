@@ -93,7 +93,7 @@ partial success behind best-effort deletion.
 | --- | --- | --- | --- |
 | A1 | Remove non-native editor behavior | Complete | None |
 | A2 | Adopt Fractal `9f947c7` and rebuild the adapter contract | Complete | A1 |
-| A3 | Establish clean checks, CI, and backend module ownership | Pending | A2 |
+| A3 | Establish clean checks, CI, and backend module ownership | Complete | A2 |
 | A4 | Reconcile application state from mutation receipts | Pending | A2, A3 |
 | A5 | Add project inspection, recovery, and explicit repair | Pending | A4 |
 | A6 | Add durable drafts and missing-page recreation | Pending | A4, A5 |
