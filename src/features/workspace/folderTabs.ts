@@ -1,4 +1,5 @@
-export const FOLDER_TAB_PREFIX = "folder://";
+const FOLDER_TAB_PREFIX = "folder://";
+
 export const PROJECT_OVERVIEW_TAB_ID = FOLDER_TAB_PREFIX;
 
 export function folderTabId(path: string) {

@@ -73,8 +73,8 @@ export function bufferFromProject(
     revision: dirty ? 1 : 0,
     operation: null,
     error: null,
-    conflict: false
-    ,missing: false
+    conflict: false,
+    missing: false
   };
 }
 
@@ -91,7 +91,7 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
     revision: dirty ? 1 : 0,
     operation: null,
     error: null,
-    conflict: false
-    ,missing: false
+    conflict: false,
+    missing: false
   };
 }

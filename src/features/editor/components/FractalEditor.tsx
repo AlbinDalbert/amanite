@@ -11,6 +11,7 @@ import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditable
 import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
 import { fractalClient } from "@/lib/fractal/client";
+import { startPointerResize } from "@/components/ui/pointerResize";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 
@@ -75,9 +76,9 @@ function FractalEditor(props: FractalEditorProps) {
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [source]);
+  const matchCount = useMemo(() => countTextMatches(source, findQuery, true), [findQuery, source]);
   const page = nativeAnalysis.page;
   const counts = nativeAnalysis.counts;
-  const matchCount = useMemo(() => countTextMatches(source, findQuery, true), [findQuery, source]);
   const outline = nativeAnalysis.outline;
 
   useEffect(() => {
@@ -110,7 +111,7 @@ function FractalEditor(props: FractalEditorProps) {
       onNavigatePage(derivedLink.dataset.amaniteDerivedTarget);
       return;
     }
-    if (!(event.metaKey || event.ctrlKey)) return;
+    if (!event.metaKey && !event.ctrlKey) return;
     const key = event.key.toLowerCase();
     if (key === "s") { event.preventDefault(); onSave(); }
     else if (key === "f" || key === "h") { event.preventDefault(); setIsFindOpen(true); }
@@ -124,17 +125,11 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
     const editor = editorRootRef.current;
     if (!editor) return;
-    const move = (pointerEvent: globalThis.PointerEvent) => {
-      const bounds = editor.getBoundingClientRect();
+    startPointerResize(event, editor, (pointerEvent, bounds) => {
       setInspectorWidth(Math.round(Math.min(420, Math.max(230, bounds.right - pointerEvent.clientX))));
-    };
-    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); document.body.classList.remove("resizing-panel"); };
-    document.body.classList.add("resizing-panel");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
+    });
   }
 
   function handleEditorLinkClick(event: MouseEvent<HTMLDivElement>) {

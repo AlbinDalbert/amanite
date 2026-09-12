@@ -87,13 +87,98 @@ function ConfirmDialog({
   );
 }
 
+type FractalSession = ReturnType<typeof useFractalSession>;
+
+function windowIsTauri() {
+  return "__TAURI_INTERNALS__" in window;
+}
+
+function useWorkspaceCloseGuard() {
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const hasUnsavedRef = useRef(hasUnsavedChanges);
+  const saveWorkspaceRef = useRef<(() => Promise<boolean>) | null>(null);
+
+  const registerWorkspace = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
+    hasUnsavedRef.current = dirty;
+    setHasUnsavedChanges(dirty);
+    saveWorkspaceRef.current = save;
+  }, []);
+
+  const requestWindowClose = useCallback(async () => {
+    const saveWorkspace = saveWorkspaceRef.current;
+    if (hasUnsavedRef.current) {
+      if (!saveWorkspace) return;
+      try {
+        if (!(await saveWorkspace())) return;
+      } catch {
+        return;
+      }
+    }
+    if (windowIsTauri()) await getCurrentWindow().destroy();
+    else window.close();
+  }, []);
+
+  useEffect(() => {
+    if (!windowIsTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+    void appWindow.onCloseRequested(async (event) => {
+      if (!hasUnsavedRef.current) return;
+      event.preventDefault();
+      const saveWorkspace = saveWorkspaceRef.current;
+      if (!saveWorkspace) return;
+      try {
+        if (!(await saveWorkspace())) return;
+      } catch {
+        return;
+      }
+      await appWindow.destroy();
+    }).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  return { hasUnsavedChanges, registerWorkspace, requestWindowClose, saveWorkspaceRef };
+}
+
+function useSessionStartup(loadProject: FractalSession["loadProject"], restoreLastSessionEnabled: boolean, projectCatalog: FractalSession["projectCatalog"], activeProject: FractalSession["activeProject"]) {
+  const restoredSessionRef = useRef(false);
+  useEffect(() => {
+    void migrateLegacyDrafts();
+  }, []);
+  useEffect(() => {
+    if (restoredSessionRef.current || !restoreLastSessionEnabled || !projectCatalog || activeProject) return;
+    restoredSessionRef.current = true;
+    try {
+      const stored = JSON.parse(localStorage.getItem("amanite.last-session.v1") ?? "null") as { projectRoot?: string } | null;
+      if (stored?.projectRoot) loadProject(() => fractalClient.openProjectPath(stored.projectRoot!), stored.projectRoot);
+    } catch {
+      // A stale or inaccessible session record should leave the start screen usable.
+    }
+  }, [activeProject, loadProject, projectCatalog, restoreLastSessionEnabled]);
+}
+
 function App() {
   const appearance = useAppearanceSettings();
   const ai = useAiSettings();
   const session = useFractalSession();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [hasWorkspaceUnsavedChanges, setHasWorkspaceUnsavedChanges] = useState(false);
-  const restoredSessionRef = useRef(false);
   const {
     activeProject,
     commandResult,
@@ -102,105 +187,83 @@ function App() {
     isBusy,
     projectCatalog
   } = session;
-  const hasWorkspaceUnsavedRef = useRef(hasWorkspaceUnsavedChanges);
-  const saveWorkspaceRef = useRef<(() => Promise<boolean>) | null>(null);
-  hasWorkspaceUnsavedRef.current = hasWorkspaceUnsavedChanges;
-
-  useEffect(() => {
-    void migrateLegacyDrafts();
-  }, []);
-
-  const registerWorkspace = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
-    hasWorkspaceUnsavedRef.current = dirty;
-    setHasWorkspaceUnsavedChanges(dirty);
-    saveWorkspaceRef.current = save;
-  }, []);
-
-  const requestWindowClose = useCallback(async () => {
-    if (hasWorkspaceUnsavedRef.current && saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
-    if ("__TAURI_INTERNALS__" in window) await getCurrentWindow().destroy();
-    else window.close();
-  }, []);
-
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    const appWindow = getCurrentWindow();
-
-    void appWindow.onCloseRequested(async (event) => {
-      if (!hasWorkspaceUnsavedRef.current) return;
-      event.preventDefault();
-      if (saveWorkspaceRef.current && !(await saveWorkspaceRef.current())) return;
-      await appWindow.destroy();
-    }).then((removeListener) => {
-      if (disposed) removeListener();
-      else unlisten = removeListener;
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (restoredSessionRef.current || !appearance.settings.restoreLastSession || !projectCatalog || activeProject) return;
-    restoredSessionRef.current = true;
-    try {
-      const stored = JSON.parse(localStorage.getItem("amanite.last-session.v1") ?? "null") as { projectRoot?: string } | null;
-      if (!stored?.projectRoot) return;
-      void session.loadProject(() => fractalClient.openProjectPath(stored.projectRoot!), stored.projectRoot);
-    } catch {
-      // A stale session record should leave the start screen usable.
-    }
-  }, [activeProject, appearance.settings.restoreLastSession, projectCatalog, session]);
-
+  const closeGuard = useWorkspaceCloseGuard();
+  const { hasUnsavedChanges: hasWorkspaceUnsavedChanges, registerWorkspace, requestWindowClose, saveWorkspaceRef } = closeGuard;
+  useSessionStartup(session.loadProject, appearance.settings.restoreLastSession, projectCatalog, activeProject);
   const openProjectFolder = useCallback(async () => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
+    if (!windowIsTauri()) return;
     const selected = await open({ directory: true, multiple: false, title: "Open Fractal project" });
-    if (typeof selected === "string") await session.loadProject(() => fractalClient.openProjectPath(selected), selected);
-  }, [session]);
-
-  useEffect(() => {
-    function handleBeforeUnload(event: BeforeUnloadEvent) {
-      if (!hasWorkspaceUnsavedChanges) return;
-      event.preventDefault();
-      event.returnValue = "";
+    if (typeof selected === "string") {
+      await session.loadProject(() => fractalClient.openProjectPath(selected), selected);
     }
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasWorkspaceUnsavedChanges]);
-
-  const contextMenuActions: UniversalContextMenuAction[] = activeProject
-    ? [
-        {
-          disabled: isBusy || !hasWorkspaceUnsavedChanges,
-          label: "Save pages",
-          title: hasWorkspaceUnsavedChanges ? "Save edited pages." : "No page changes to save.",
-          onSelect: () => {
-            if (saveWorkspaceRef.current) void saveWorkspaceRef.current();
-          }
-        },
-        {
-          disabled: isBusy,
-          label: "Validate project",
-          onSelect: () => void session.validateProject()
-        }
-      ]
-    : [];
+  }, [session.loadProject]);
+  const projectHealth = activeProject ? {
+    projectName: activeProject.name,
+    projectRoot: activeProject.rootPath,
+    pageCount: activeProject.pages.length,
+    inspection: session.inspection,
+    draftCount: session.draftCount,
+    hasUnsavedChanges: hasWorkspaceUnsavedChanges,
+    lastReceipt: session.lastReceipt,
+    isBusy: session.isBusy,
+    onInspect: () => void session.inspectProject(),
+    onRepair: () => void session.repairProject()
+  } : undefined;
+  const contextMenuActions: UniversalContextMenuAction[] = activeProject ? [
+    {
+      disabled: isBusy || !hasWorkspaceUnsavedChanges,
+      label: "Save pages",
+      title: hasWorkspaceUnsavedChanges ? "Save edited pages." : "No page changes to save.",
+      onSelect: () => {
+        if (saveWorkspaceRef.current) void saveWorkspaceRef.current();
+      }
+    },
+    {
+      disabled: isBusy,
+      label: "Validate project",
+      onSelect: () => void session.validateProject()
+    }
+  ] : [];
 
   return (
     <UniversalContextMenu actions={contextMenuActions}>
-      {!activeProject ? (
+      {activeProject ? (
+        <div className="workspace-view">
+          <Suspense fallback={<AppLoading />}><Workspace
+            commandResult={commandResult}
+            error={error}
+            isBusy={isBusy}
+            project={activeProject}
+            aiSettings={ai.settings}
+            settings={appearance.settings}
+            onCloseProject={session.closeProject}
+            onCloseRequest={() => void requestWindowClose()}
+            onCreatePage={session.createProjectPage}
+            onCreateFolder={session.createProjectFolder}
+            onSetFolderTitle={session.setProjectFolderTitle}
+            onReorderFolder={session.reorderProjectFolder}
+            onDeletePage={session.deleteProjectPage}
+            onDeleteFolder={session.deleteProjectFolder}
+            onDuplicatePage={session.duplicateProjectPage}
+            onDismissStatus={session.dismissStatus}
+            onMovePage={session.moveProjectPage}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onRepairPage={session.repairProjectPage}
+            onProjectSnapshot={session.adoptProjectSnapshot}
+            onRegisterWorkspace={registerWorkspace}
+            onRequestConfirmation={session.requestConfirmation}
+            onRevealPage={session.revealPage}
+            onSearchProject={session.searchProject}
+            onValidate={session.validateProject}
+          /></Suspense>
+        </div>
+      ) : (
         <StartScreen
           error={error}
           isBusy={isBusy}
           onCloseRequest={() => void requestWindowClose()}
           projectCatalog={projectCatalog}
-          onCreateProject={(projectName) =>
-            session.loadProject(() => fractalClient.createProject(projectName))
-          }
+          onCreateProject={(projectName) => session.loadProject(() => fractalClient.createProject(projectName))}
           onOpenProject={(directoryName) => {
             const root = projectCatalog?.projects.find((project) => project.directoryName === directoryName)?.rootPath;
             void session.loadProject(() => fractalClient.openProject(directoryName), root);
@@ -210,60 +273,17 @@ function App() {
           onRefreshProjects={session.refreshProjectCatalog}
           onRecoverProject={(root) => void session.recoverProject(root)}
         />
-      ) : (
-        <>
-          <div className="workspace-view">
-            <Suspense fallback={<AppLoading />}><Workspace
-              commandResult={commandResult}
-              error={error}
-              isBusy={isBusy}
-              project={activeProject}
-              aiSettings={ai.settings}
-              settings={appearance.settings}
-              onCloseProject={session.closeProject}
-              onCloseRequest={() => void requestWindowClose()}
-              onCreatePage={session.createProjectPage}
-              onCreateFolder={session.createProjectFolder}
-              onSetFolderTitle={session.setProjectFolderTitle}
-              onReorderFolder={session.reorderProjectFolder}
-              onDeletePage={session.deleteProjectPage}
-              onDeleteFolder={session.deleteProjectFolder}
-              onDuplicatePage={session.duplicateProjectPage}
-              onDismissStatus={session.dismissStatus}
-              onMovePage={session.moveProjectPage}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-              onRepairPage={session.repairProjectPage}
-              onProjectSnapshot={session.adoptProjectSnapshot}
-              onRegisterWorkspace={registerWorkspace}
-              onRequestConfirmation={session.requestConfirmation}
-              onRevealPage={session.revealPage}
-              onSearchProject={session.searchProject}
-              onValidate={session.validateProject}
-            /></Suspense>
-          </div>
-        </>
       )}
-
-      {isSettingsOpen ? <Suspense fallback={null}><SettingsScreen
-        aiSettings={ai.settings}
-        projectHealth={activeProject ? {
-          projectName: activeProject.name,
-          projectRoot: activeProject.rootPath,
-          pageCount: activeProject.pages.length,
-          inspection: session.inspection,
-          draftCount: session.draftCount,
-          hasUnsavedChanges: hasWorkspaceUnsavedChanges,
-          lastReceipt: session.lastReceipt,
-          isBusy: session.isBusy,
-          onInspect: () => void session.inspectProject(),
-          onRepair: () => void session.repairProject()
-        } : undefined}
-        settings={appearance.settings}
-        onAiChange={ai.setSettings}
-        onChange={appearance.setSettings}
-        onClose={() => setIsSettingsOpen(false)}
-      /></Suspense> : null}
-
+      {isSettingsOpen ? (
+        <Suspense fallback={null}><SettingsScreen
+          aiSettings={ai.settings}
+          projectHealth={projectHealth}
+          settings={appearance.settings}
+          onAiChange={ai.setSettings}
+          onChange={appearance.setSettings}
+          onClose={() => setIsSettingsOpen(false)}
+        /></Suspense>
+      ) : null}
       {confirmDialog ? <ConfirmDialog {...confirmDialog} /> : null}
     </UniversalContextMenu>
   );

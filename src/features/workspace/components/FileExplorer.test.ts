@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FractalFolder, FractalPage } from "@/lib/fractal/types";
-import { buildExplorerTree, compareExplorerEntries } from "./FileExplorer";
+import { buildExplorerTree, compareExplorerEntries } from "./fileExplorerTree";
 
 function page(path: string) {
   return { kind: "page" as const, path, page: { contentHash: path, links: [], path, text: "" } as FractalPage };

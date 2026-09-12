@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
+import DerivedLinksOption from "@/components/ui/DerivedLinksOption";
+import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 
 type Props = {
@@ -11,20 +13,7 @@ function ExportDialog({ pagePath, onClose, onExport }: Props) {
   const [includeDerivedLinks, setIncludeDerivedLinks] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialogRef.current?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isExporting) onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      previousFocus?.focus();
-    };
-  }, [isExporting, onClose]);
+  const dialogRef = useDialogFocus(isExporting, onClose);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -43,7 +32,7 @@ function ExportDialog({ pagePath, onClose, onExport }: Props) {
 
   return (
     <div className="modal-backdrop export-backdrop" onClick={(event) => event.target === event.currentTarget && !isExporting && onClose()}>
-      <form aria-labelledby="export-title" aria-modal="true" className="export-dialog" onSubmit={submit} role="dialog">
+      <form aria-labelledby="export-title" aria-modal="true" className="export-dialog" onSubmit={submit} ref={dialogRef} role="dialog" tabIndex={-1}>
         <header className="export-dialog-header">
           <div><p className="dialog-kicker">Publish a copy</p><h2 id="export-title">Export page</h2></div>
           <button aria-label="Close export" disabled={isExporting} onClick={onClose} type="button">×</button>
@@ -68,10 +57,12 @@ function ExportDialog({ pagePath, onClose, onExport }: Props) {
 
         <fieldset className="export-options" disabled={isExporting}>
           <legend>HTML options</legend>
-          <label className="export-check-row">
-            <input checked={includeDerivedLinks} onChange={(event) => setIncludeDerivedLinks(event.currentTarget.checked)} type="checkbox" />
-            <span><strong>Include mentioned pages</strong><small>Add pages found through automatic title mentions to the references section.</small></span>
-          </label>
+          <DerivedLinksOption
+            checked={includeDerivedLinks}
+            description="Add pages found through automatic title mentions to the references section."
+            label="Include mentioned pages"
+            onChange={setIncludeDerivedLinks}
+          />
           <p>Explicit page links are always included as references.</p>
         </fieldset>
 

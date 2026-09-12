@@ -48,31 +48,39 @@ function clamp(value: unknown, minimum: number, maximum: number, fallback: numbe
     : fallback;
 }
 
+function enumSetting<T extends string>(value: unknown, allowed: readonly T[], fallback: T) {
+  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+}
+
+function normalizeSettings(stored: StoredAppearanceSettings): AppearanceSettings {
+  const legacyParagraphStyle = stored.paragraphStyle;
+  return {
+    autoSave: stored.autoSave !== false,
+    colorTheme: enumSetting(stored.colorTheme, ["system", "ember", "moss", "ink"], "ember"),
+    documentFont: enumSetting(stored.documentFont, ["literary", "book", "sans"], "literary"),
+    lineHeight: clamp(stored.lineHeight, 1.35, 2.1, 1.72),
+    logoMark: enumSetting(stored.logoMark, ["facet", "cap", "spore", "sigil"], "spore"),
+    noiseIntensity: clamp(stored.noiseIntensity, 0, 0.6, 0.16),
+    pageWidth: clamp(stored.pageWidth, 560, 960, 760),
+    paragraphIndent: typeof stored.paragraphIndent === "boolean"
+      ? stored.paragraphIndent
+      : legacyParagraphStyle === "indented" || legacyParagraphStyle === "both",
+    paragraphSpace: typeof stored.paragraphSpace === "boolean"
+      ? stored.paragraphSpace
+      : legacyParagraphStyle ? legacyParagraphStyle === "spaced" || legacyParagraphStyle === "both" : true,
+    restoreLastSession: stored.restoreLastSession !== false,
+    spellCheck: stored.spellCheck !== false,
+    textScale: clamp(stored.textScale, 0.85, 1.35, 1),
+    uiScale: clamp(stored.uiScale, 0.85, 1.2, 1),
+    wordGoal: clamp(stored.wordGoal, 0, 100000, 0)
+  };
+}
+
 function readSettings(): AppearanceSettings {
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as StoredAppearanceSettings | null;
     if (!stored) return DEFAULT_APPEARANCE_SETTINGS;
-    const legacyParagraphStyle = stored.paragraphStyle;
-    return {
-      autoSave: stored.autoSave !== false,
-      colorTheme: stored.colorTheme === "system" || stored.colorTheme === "moss" || stored.colorTheme === "ink" ? stored.colorTheme : "ember",
-      documentFont: stored.documentFont === "book" || stored.documentFont === "sans" ? stored.documentFont : "literary",
-      lineHeight: clamp(stored.lineHeight, 1.35, 2.1, 1.72),
-      logoMark: stored.logoMark === "facet" || stored.logoMark === "cap" || stored.logoMark === "sigil" ? stored.logoMark : "spore",
-      noiseIntensity: clamp(stored.noiseIntensity, 0, 0.6, 0.16),
-      pageWidth: clamp(stored.pageWidth, 560, 960, 760),
-      paragraphIndent: typeof stored.paragraphIndent === "boolean"
-        ? stored.paragraphIndent
-        : legacyParagraphStyle === "indented" || legacyParagraphStyle === "both",
-      paragraphSpace: typeof stored.paragraphSpace === "boolean"
-        ? stored.paragraphSpace
-        : legacyParagraphStyle ? legacyParagraphStyle === "spaced" || legacyParagraphStyle === "both" : true,
-      restoreLastSession: stored.restoreLastSession !== false,
-      spellCheck: stored.spellCheck !== false,
-      textScale: clamp(stored.textScale, 0.85, 1.35, 1),
-      uiScale: clamp(stored.uiScale, 0.85, 1.2, 1),
-      wordGoal: clamp(stored.wordGoal, 0, 100000, 0)
-    };
+    return normalizeSettings(stored);
   } catch {
     return DEFAULT_APPEARANCE_SETTINGS;
   }

@@ -1,6 +1,8 @@
 import type { DocumentCounts } from "./DocumentTools";
 import { richEditorCompatibilityIssuesForRoot } from "./editorHtml";
 
+const NATIVE_ROOT_SELECTOR = "main[data-fractal-document]";
+
 export type EditablePage = {
   bodyHtml: string;
   hasTitleHeading: boolean;
@@ -18,15 +20,10 @@ export type EditablePageAnalysis = {
   page: EditablePage;
 };
 
-const NATIVE_ROOT_SELECTOR = "main[data-fractal-document]";
-
 export function readEditablePage(source: string): EditablePage {
   const document = new DOMParser().parseFromString(source, "text/html");
   const documentRoot = document.body.querySelector(NATIVE_ROOT_SELECTOR);
-  const titleHeading = documentRoot?.querySelector("h1");
-  const titleElement = document.head.querySelector("title");
-  const title = titleElement?.textContent?.trim() || titleHeading?.textContent?.trim() || "";
-  const hasTitleHeading = Boolean(titleHeading && (!titleElement || titleHeading.textContent?.trim() === titleElement.textContent?.trim()));
+  const { title, titleHeading, hasTitleHeading } = pageTitleParts(document, documentRoot, false);
   if (hasTitleHeading) titleHeading?.remove();
 
   return {
@@ -36,35 +33,46 @@ export function readEditablePage(source: string): EditablePage {
   };
 }
 
-export function analyzeEditablePage(source: string): EditablePageAnalysis {
-  const document = new DOMParser().parseFromString(source, "text/html");
-  const roots = Array.from(document.body.querySelectorAll(NATIVE_ROOT_SELECTOR));
-  const documentRoot = roots[0];
-  const titleHeading = documentRoot?.querySelector(":scope > h1");
+function pageTitleParts(document: Document, documentRoot: Element | null, directHeading: boolean) {
+  const titleHeading = documentRoot?.querySelector(directHeading ? ":scope > h1" : "h1") ?? null;
   const titleElement = document.head.querySelector("title");
   const title = titleElement?.textContent?.trim() || titleHeading?.textContent?.trim() || "";
   const hasTitleHeading = Boolean(titleHeading && (!titleElement || titleHeading.textContent?.trim() === titleElement.textContent?.trim()));
-  const compatibilityIssues = documentRoot ? richEditorCompatibilityIssuesForRoot(documentRoot) : [];
+  return { hasTitleHeading, title, titleHeading };
+}
 
-  const outline = documentRoot ? Array.from(documentRoot.querySelectorAll("h1, h2, h3, h4, h5, h6"))
+function pageOutline(documentRoot: Element | undefined, titleHeading: Element | null, hasTitleHeading: boolean) {
+  if (!documentRoot) return [];
+  return Array.from(documentRoot.querySelectorAll("h1, h2, h3, h4, h5, h6"))
     .filter((heading) => !hasTitleHeading || heading !== titleHeading)
     .map((heading, index) => ({
       index,
       label: heading.textContent?.trim() || "Untitled heading",
       level: Number(heading.tagName.slice(1))
-    })) : [];
+    }));
+}
 
+function pageText(document: Document, documentRoot: Element | undefined, titleHeading: Element | null, hasTitleHeading: boolean) {
+  if (!documentRoot) return "";
   const textParts: string[] = [];
-  if (documentRoot) {
-    const walker = document.createTreeWalker(documentRoot, NodeFilter.SHOW_TEXT);
-    let node: Node | null;
-    while ((node = walker.nextNode())) {
-      if (!node.parentElement?.closest("script, style") && (!hasTitleHeading || !titleHeading?.contains(node))) {
-        textParts.push(node.textContent ?? "");
-      }
+  const walker = document.createTreeWalker(documentRoot, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (!node.parentElement?.closest("script, style") && (!hasTitleHeading || !titleHeading?.contains(node))) {
+      textParts.push(node.textContent ?? "");
     }
   }
-  const text = textParts.join(" ").replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+  return textParts.join(" ").replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+}
+
+export function analyzeEditablePage(source: string): EditablePageAnalysis {
+  const document = new DOMParser().parseFromString(source, "text/html");
+  const roots = Array.from(document.body.querySelectorAll(NATIVE_ROOT_SELECTOR));
+  const documentRoot = roots[0];
+  const { title, titleHeading, hasTitleHeading } = pageTitleParts(document, documentRoot, true);
+  const compatibilityIssues = documentRoot ? richEditorCompatibilityIssuesForRoot(documentRoot) : [];
+  const outline = pageOutline(documentRoot, titleHeading, hasTitleHeading);
+  const text = pageText(document, documentRoot, titleHeading, hasTitleHeading);
   const words = text ? text.split(/\s+/u).length : 0;
 
   if (hasTitleHeading) titleHeading?.remove();

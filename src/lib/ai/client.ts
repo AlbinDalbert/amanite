@@ -15,7 +15,7 @@ export type AiChatMessage =
   | { role: "assistant"; content: string | null; tool_calls?: AiToolCall[] }
   | { role: "tool"; content: string; tool_call_id: string };
 
-export type AiAssistantMessage = {
+type AiAssistantMessage = {
   content: string | null;
   tool_calls: AiToolCall[];
 };

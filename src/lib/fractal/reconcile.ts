@@ -7,7 +7,7 @@ export function pagePathFromProjectPath(path: string) {
     : null;
 }
 
-export function folderPathFromProjectPath(path: string) {
+function folderPathFromProjectPath(path: string) {
   const normalized = path.replace(/^\/+/, "");
   if (!normalized.startsWith("pages/")) return null;
   const folder = normalized.slice("pages/".length).replace(/\/\.fractal-folder\.json$/, "");
@@ -24,10 +24,22 @@ export function createdPagePath(receipt: FractalMutationReceipt) {
   return null;
 }
 
-export type ReceiptMappings = { pages: Map<string, string>; folders: Map<string, string>; deletedPages: Set<string>; deletedFolders: Set<string>; rewrittenPages: Set<string> };
+export type ReceiptMappings = {
+  pages: Map<string, string>;
+  folders: Map<string, string>;
+  deletedPages: Set<string>;
+  deletedFolders: Set<string>;
+  rewrittenPages: Set<string>;
+};
 
 export function receiptMappings(receipt: FractalMutationReceipt): ReceiptMappings {
-  const result: ReceiptMappings = { pages: new Map(), folders: new Map(), deletedPages: new Set(), deletedFolders: new Set(), rewrittenPages: new Set() };
+  const result: ReceiptMappings = {
+    pages: new Map(),
+    folders: new Map(),
+    deletedPages: new Set(),
+    deletedFolders: new Set(),
+    rewrittenPages: new Set()
+  };
   for (const change of receipt.changes) applyChange(result, change);
   return result;
 }

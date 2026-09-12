@@ -76,11 +76,16 @@ function groupContext(workspace: AiWorkspace, id: "left" | "right") {
 }
 
 export function workspaceSystemPrompt(workspace: AiWorkspace) {
+  const editorGroups = [];
+  const leftGroup = groupContext(workspace, "left");
+  const rightGroup = groupContext(workspace, "right");
+  if (leftGroup) editorGroups.push(leftGroup);
+  if (rightGroup) editorGroups.push(rightGroup);
   const context = {
     project: {
       name: workspace.project.name,
       folders: workspace.project.folders,
-      editorGroups: [groupContext(workspace, "left"), groupContext(workspace, "right")].filter(Boolean),
+      editorGroups,
       pages: workspace.project.pages.map((page) => ({
         path: page.path,
         title: page.title ?? null,
@@ -136,38 +141,58 @@ async function search(workspace: AiWorkspace, query: string) {
   return [...byPath.values()].slice(0, 20);
 }
 
+function requiredString(args: Record<string, unknown>, key: string) {
+  const value = args[key];
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must be a non-empty string.`);
+  return value.trim();
+}
+
+async function executeSearchTool(args: Record<string, unknown>, workspace: AiWorkspace) {
+  const query = requiredString(args, "query");
+  const results = await search(workspace, query);
+  return JSON.stringify({ query, results });
+}
+
+function readPageLimit(args: Record<string, unknown>) {
+  const offset = typeof args.offset === "number" && Number.isInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
+  const requestedLimit = typeof args.limit === "number" && Number.isInteger(args.limit) ? args.limit : 30000;
+  return { limit: Math.max(1, Math.min(50000, requestedLimit)), offset };
+}
+
+function pageText(workspace: AiWorkspace, path: string) {
+  const page = workspace.project.pages.find((candidate) => candidate.path === path);
+  if (!page) throw new Error(`No page exists at ${path}.`);
+  const buffer = workspace.buffers[page.path];
+  return { buffer, page, text: buffer ? sourceText(buffer.source) : page.text };
+}
+
+function executeReadPageTool(args: Record<string, unknown>, workspace: AiWorkspace) {
+  const path = requiredString(args, "path");
+  const { buffer, page, text } = pageText(workspace, path);
+  const { limit, offset } = readPageLimit(args);
+  const content = text.slice(offset, offset + limit);
+  const nextOffset = offset + content.length < text.length ? offset + content.length : null;
+  return JSON.stringify({
+    path: page.path,
+    title: page.title ?? null,
+    source: buffer?.dirty ? "unsaved_buffer" : "saved_page",
+    offset,
+    nextOffset,
+    totalCharacters: text.length,
+    content
+  });
+}
+
+async function executeTool(name: string, args: Record<string, unknown>, workspace: AiWorkspace) {
+  if (name === "fractal_search") return executeSearchTool(args, workspace);
+  if (name === "fractal_read_page") return executeReadPageTool(args, workspace);
+  throw new Error(`Unknown tool: ${name}.`);
+}
+
 export async function executeWorkspaceTool(call: AiToolCall, workspace: AiWorkspace) {
   try {
     const args = parseArguments(call);
-    if (call.function.name === "fractal_search") {
-      if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string.");
-      const results = await search(workspace, args.query.trim());
-      return JSON.stringify({ query: args.query.trim(), results });
-    }
-
-    if (call.function.name === "fractal_read_page") {
-      if (typeof args.path !== "string" || !args.path.trim()) throw new Error("path must be a non-empty string.");
-      const page = workspace.project.pages.find((candidate) => candidate.path === args.path);
-      if (!page) throw new Error(`No page exists at ${args.path}.`);
-      const buffer = workspace.buffers[page.path];
-      const text = buffer ? sourceText(buffer.source) : page.text;
-      const offset = typeof args.offset === "number" && Number.isInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
-      const requestedLimit = typeof args.limit === "number" && Number.isInteger(args.limit) ? args.limit : 30000;
-      const limit = Math.max(1, Math.min(50000, requestedLimit));
-      const content = text.slice(offset, offset + limit);
-      const nextOffset = offset + content.length < text.length ? offset + content.length : null;
-      return JSON.stringify({
-        path: page.path,
-        title: page.title ?? null,
-        source: buffer?.dirty ? "unsaved_buffer" : "saved_page",
-        offset,
-        nextOffset,
-        totalCharacters: text.length,
-        content
-      });
-    }
-
-    throw new Error(`Unknown tool: ${call.function.name}.`);
+    return await executeTool(call.function.name, args, workspace);
   } catch (error) {
     return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
   }

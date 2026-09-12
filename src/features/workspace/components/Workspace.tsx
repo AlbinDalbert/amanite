@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type PointerEvent, type SetStateAction } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { startPointerResize } from "@/components/ui/pointerResize";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { AiSettings } from "@/app/useAiSettings";
 import BorealisChat, { BorealisSessionProvider } from "@/features/ai-chat/components/AiChat";
@@ -9,6 +10,7 @@ import { reconcilePageDrafts } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import { useWorkspaceDocuments } from "../useWorkspaceDocuments";
 import { folderPathFromTabId, folderTabId, isFolderTab } from "../folderTabs";
+import { useWorkspaceShortcuts } from "../useWorkspaceShortcuts";
 import {
   activateGroup,
   BOREALIS_TAB_ID,
@@ -20,8 +22,6 @@ import {
   openGroupTab,
   reconcileWorkspaceGroups,
   renameGroupTab,
-  tabPathForDirection,
-  tabPathForShortcut,
   type EditorGroupId,
   type WorkspaceGroups
 } from "../workspaceGroups";
@@ -109,7 +109,429 @@ function QuickOpen({ pages, onClose, onOpen, onSearch }: {
   );
 }
 
-function Workspace(props: WorkspaceProps) {
+type WorkspaceDocuments = ReturnType<typeof useWorkspaceDocuments>;
+type WorkspacePaneProps = Omit<ComponentProps<typeof EditorGroupPane>, "buffer" | "focused" | "group" | "isLoading" | "onActivate" | "onCreateFirstPage">
+  & Pick<ComponentProps<typeof WorkspaceTabs>, "onCloseTab" | "onDragEnd" | "onDragStart" | "onDropTab" | "onSelectTab" | "onSplitTab">;
+
+type WorkspaceViewProps = {
+  activeFolderPath: string | null;
+  activeGroup: WorkspaceGroups["left"];
+  anySaving: boolean;
+  borealisOpen: boolean;
+  borealisTabGroup: ReturnType<typeof groupForPath>;
+  closeRightGroup: () => Promise<void>;
+  closeWorkspaceProject: () => Promise<void>;
+  createFolder: (path: string) => Promise<void>;
+  createPage: (title: string, folderPath?: string) => Promise<void>;
+  deleteFolder: (path: string) => Promise<void>;
+  deletePage: (path: string) => Promise<void>;
+  documents: WorkspaceDocuments;
+  draggedTab: DraggedWorkspaceTab | null;
+  duplicatePage: (path: string) => Promise<void>;
+  focusMode: boolean;
+  groups: WorkspaceGroups;
+  groupsRef: { current: WorkspaceGroups };
+  movePage: (path: string, destinationFolder: string) => Promise<void>;
+  moveWorkspaceTab: (tab: DraggedWorkspaceTab, groupId: EditorGroupId, index?: number) => void;
+  openFolderInGroup: (groupId: EditorGroupId, path: string) => void;
+  openInGroup: (groupId: EditorGroupId, path: string, knownProject?: FractalProject) => Promise<void>;
+  openSettings: () => Promise<void>;
+  paneProps: WorkspacePaneProps;
+  props: WorkspaceProps;
+  quickOpen: boolean;
+  setGroups: Dispatch<SetStateAction<WorkspaceGroups>>;
+  setQuickOpen: Dispatch<SetStateAction<boolean>>;
+  setSidebarOpen: Dispatch<SetStateAction<boolean>>;
+  setSidebarWidth: Dispatch<SetStateAction<number>>;
+  setSplitPercent: Dispatch<SetStateAction<number>>;
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+  splitPercent: number;
+  startSidebarResize: (event: PointerEvent<HTMLDivElement>) => void;
+  startSplitResize: (event: PointerEvent<HTMLDivElement>) => void;
+  validateProject: () => Promise<void>;
+};
+
+function WorkspaceSidebar({ view }: { view: WorkspaceViewProps }) {
+  const { activeFolderPath, activeGroup, documents, props } = view;
+  return (
+    <Sidebar
+      activePagePath={activeGroup.activePath === BOREALIS_TAB_ID || isFolderTab(activeGroup.activePath) ? null : activeGroup.activePath}
+      activeFolderPath={activeFolderPath}
+      folders={documents.project.folders}
+      isBusy={props.isBusy}
+      logoMark={props.settings.logoMark}
+      pages={documents.project.pages}
+      projectName={documents.project.name}
+      onCloseProject={() => void view.closeWorkspaceProject()}
+      onCreateFolder={(path) => { void view.createFolder(path); }}
+      onCreatePage={(title, folder) => { void view.createPage(title, folder); }}
+      onDeleteFolder={(path) => { void view.deleteFolder(path); }}
+      onDeletePage={(path) => { void view.deletePage(path); }}
+      onDuplicatePage={(path) => { void view.duplicatePage(path); }}
+      onMovePage={(path, destination) => { void view.movePage(path, destination); }}
+      onOpenSettings={() => void view.openSettings()}
+      onResizeReset={() => view.setSidebarWidth(244)}
+      onResizeStart={view.startSidebarResize}
+      onRevealPage={props.onRevealPage}
+      onSelectPage={(path) => { void view.openInGroup(view.groupsRef.current.activeGroupId, path); }}
+      onSelectFolder={(path) => view.openFolderInGroup(view.groupsRef.current.activeGroupId, path)}
+      onValidate={() => void view.validateProject()}
+    />
+  );
+}
+
+function WorkspaceTabStrips({ view }: { view: WorkspaceViewProps }) {
+  const { documents, draggedTab, groups, paneProps } = view;
+  return (
+    <>
+      <WorkspaceTabs
+        buffers={documents.buffers}
+        draggedTab={draggedTab}
+        focused={groups.activeGroupId === "left"}
+        group={groups.left}
+        project={documents.project}
+        onActivate={() => view.setGroups((current) => activateGroup(current, "left"))}
+        onCloseTab={paneProps.onCloseTab}
+        onDragEnd={paneProps.onDragEnd}
+        onDragStart={paneProps.onDragStart}
+        onDropTab={paneProps.onDropTab}
+        onSelectTab={paneProps.onSelectTab}
+        onSplitTab={paneProps.onSplitTab}
+      />
+      {groups.right ? (
+        <WorkspaceTabs
+          buffers={documents.buffers}
+          draggedTab={draggedTab}
+          focused={groups.activeGroupId === "right"}
+          group={groups.right}
+          project={documents.project}
+          onActivate={() => view.setGroups((current) => activateGroup(current, "right"))}
+          onCloseGroup={() => void view.closeRightGroup()}
+          onCloseTab={paneProps.onCloseTab}
+          onDragEnd={paneProps.onDragEnd}
+          onDragStart={paneProps.onDragStart}
+          onDropTab={paneProps.onDropTab}
+          onSelectTab={paneProps.onSelectTab}
+          onSplitTab={paneProps.onSplitTab}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function WorkspaceHeader({ view }: { view: WorkspaceViewProps }) {
+  const { activeGroup, anySaving, documents, props } = view;
+  return (
+    <WorkspaceToolbar
+      activeGroupLabel={activeGroup.id}
+      canGoBack={activeGroup.historyIndex > 0}
+      canGoForward={activeGroup.historyIndex < activeGroup.history.length - 1}
+      dirtyCount={documents.dirtyCount}
+      isSaving={anySaving}
+      onBack={() => view.setGroups((current) => navigateGroupHistory(current, current.activeGroupId, -1))}
+      onCloseRequest={props.onCloseRequest}
+      onForward={() => view.setGroups((current) => navigateGroupHistory(current, current.activeGroupId, 1))}
+      onOpenQuick={() => view.setQuickOpen(true)}
+      onToggleSidebar={() => view.setSidebarOpen((open) => !open)}
+      tabs={<WorkspaceTabStrips view={view} />}
+    />
+  );
+}
+
+function WorkspaceStatus({ view }: { view: WorkspaceViewProps }) {
+  const { documents, props } = view;
+  return (
+    <div className="workspace-status-stack" aria-live="polite">
+      <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />
+      {documents.pollingNotice ? (
+        <button className="status-message error" onClick={documents.dismissPollingNotice} type="button">
+          <span>Could not check files on disk</span>
+          <small>{documents.pollingNotice.message}</small>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkspaceEditorGroup({ groupId, view }: { groupId: EditorGroupId; view: WorkspaceViewProps }) {
+  const group = groupId === "left" ? view.groups.left : view.groups.right;
+  if (!group) return null;
+  return (
+    <EditorGroupPane
+      {...view.paneProps}
+      buffer={group.activePath ? view.documents.buffers[group.activePath] : undefined}
+      focused={view.groups.activeGroupId === groupId}
+      group={group}
+      isLoading={Boolean(group.activePath && view.documents.loadingPaths.has(group.activePath))}
+      loadError={group.activePath ? view.documents.loadErrors[group.activePath] : undefined}
+      onActivate={() => view.setGroups((current) => activateGroup(current, groupId))}
+      onCreateFirstPage={groupId === "left" ? () => void view.createPage("Index") : undefined}
+    />
+  );
+}
+
+function WorkspaceEditorGroups({ view }: { view: WorkspaceViewProps }) {
+  const { draggedTab, groups, splitPercent } = view;
+  return (
+    <div className={`${groups.right ? "editor-groups split" : "editor-groups"}${draggedTab ? " dragging-tab" : ""}`} style={{ "--split-primary": `${splitPercent}%` } as CSSProperties}>
+      <WorkspaceEditorGroup groupId="left" view={view} />
+      {groups.right ? (
+        <>
+          <div aria-label="Resize editor groups" className="split-resize-handle" onDoubleClick={() => view.setSplitPercent(50)} onPointerDown={view.startSplitResize} role="separator"><i /></div>
+          <WorkspaceEditorGroup groupId="right" view={view} />
+        </>
+      ) : null}
+      {draggedTab && !groups.right && !(draggedTab.path === BOREALIS_TAB_ID && groups.left.tabs.length === 1) ? (
+        <div
+          className="create-group-drop-zone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            view.moveWorkspaceTab(draggedTab, "right");
+          }}
+        ><span>Drop to open right</span></div>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkspaceShell({ view }: { view: WorkspaceViewProps }) {
+  return (
+    <main className={`${view.focusMode ? "app-shell focus-mode" : "app-shell"}${view.sidebarOpen ? "" : " sidebar-closed"}`} style={{ "--sidebar-width": `${view.sidebarWidth}px` } as CSSProperties}>
+      <WorkspaceSidebar view={view} />
+      <section className="workspace" aria-label="Fractal workspace">
+        <WorkspaceHeader view={view} />
+        <WorkspaceStatus view={view} />
+        <WorkspaceEditorGroups view={view} />
+      </section>
+      {view.quickOpen ? <QuickOpen pages={view.documents.project.pages} onClose={() => view.setQuickOpen(false)} onOpen={(path) => { void view.openInGroup(view.groups.activeGroupId, path); }} onSearch={view.props.onSearchProject} /> : null}
+    </main>
+  );
+}
+
+type WorkspaceClosedTab = { groupId: EditorGroupId; path: string };
+
+type WorkspaceTabActionsOptions = {
+  documents: WorkspaceDocuments;
+  groupsRef: { current: WorkspaceGroups };
+  setBorealisOpen: Dispatch<SetStateAction<boolean>>;
+  setClosedTabs: Dispatch<SetStateAction<WorkspaceClosedTab[]>>;
+  setDraggedTab: Dispatch<SetStateAction<DraggedWorkspaceTab | null>>;
+  setGroups: Dispatch<SetStateAction<WorkspaceGroups>>;
+};
+
+function useWorkspaceTabActions({ documents, groupsRef, setBorealisOpen, setClosedTabs, setDraggedTab, setGroups }: WorkspaceTabActionsOptions) {
+  const openInGroup = useCallback(async (groupId: EditorGroupId, path: string, knownProject?: FractalProject) => {
+    setGroups((current) => openGroupTab(current, groupId, path));
+    if (path !== BOREALIS_TAB_ID && !isFolderTab(path)) await documents.openDocument(path, knownProject);
+  }, [documents.openDocument, setGroups]);
+
+  const openFolderInGroup = useCallback((groupId: EditorGroupId, path: string) => {
+    setGroups((current) => openGroupTab(current, groupId, folderTabId(path)));
+  }, [setGroups]);
+
+  const closeTab = useCallback(async (groupId: EditorGroupId, path: string) => {
+    if (path === BOREALIS_TAB_ID) {
+      setGroups((current) => closeGroupTab(current, groupId, path));
+      setBorealisOpen(false);
+      return;
+    }
+    if (isFolderTab(path)) {
+      if (!(await documents.saveAll())) return;
+      setClosedTabs((tabs) => [...tabs.filter((tab) => tab.path !== path || tab.groupId !== groupId), { groupId, path }]);
+      setGroups((current) => closeGroupTab(current, groupId, path));
+      return;
+    }
+    const buffer = documents.buffers[path];
+    if (buffer?.dirty && !(await documents.saveDocument(path))) return;
+    const next = closeGroupTab(groupsRef.current, groupId, path);
+    setClosedTabs((tabs) => [...tabs.filter((tab) => tab.path !== path || tab.groupId !== groupId), { groupId, path }]);
+    setGroups(next);
+    const stillOpen = next.left.tabs.includes(path) || Boolean(next.right?.tabs.includes(path));
+    if (!stillOpen) documents.forgetDocument(path);
+  }, [documents.buffers, documents.forgetDocument, documents.saveAll, documents.saveDocument, groupsRef, setBorealisOpen, setClosedTabs, setGroups]);
+
+  const closeRightGroup = useCallback(async () => {
+    const right = groupsRef.current.right;
+    if (!right || !(await documents.saveAll())) return;
+    let next = groupsRef.current;
+    for (const path of right.tabs) next = closeGroupTab(next, "right", path);
+    setGroups(next);
+    for (const path of right.tabs) {
+      if (path !== BOREALIS_TAB_ID && !next.left.tabs.includes(path)) documents.forgetDocument(path);
+    }
+  }, [documents.forgetDocument, documents.saveAll, groupsRef, setGroups]);
+
+  const toggleBorealis = useCallback(() => {
+    const tabGroup = groupForPath(groupsRef.current, BOREALIS_TAB_ID);
+    if (tabGroup) {
+      setGroups((current) => openGroupTab(current, tabGroup, BOREALIS_TAB_ID));
+      setBorealisOpen(false);
+      return;
+    }
+    setBorealisOpen((open) => !open);
+  }, [groupsRef, setBorealisOpen, setGroups]);
+
+  const maximizeBorealis = useCallback(() => {
+    setGroups((current) => openGroupTab(current, current.activeGroupId, BOREALIS_TAB_ID));
+    setBorealisOpen(false);
+  }, [setBorealisOpen, setGroups]);
+
+  const moveWorkspaceTab = useCallback((tab: DraggedWorkspaceTab, groupId: EditorGroupId, index?: number) => {
+    setGroups((current) => {
+      const source = tab.groupId === "left" ? current.left : current.right;
+      if (tab.path === BOREALIS_TAB_ID && tab.groupId === "left" && groupId === "right" && source?.tabs.length === 1) return current;
+      return moveGroupTab(current, tab.groupId, groupId, tab.path, index);
+    });
+    setDraggedTab(null);
+  }, [setDraggedTab, setGroups]);
+
+  const splitWorkspaceTab = useCallback((groupId: EditorGroupId, path: string) => {
+    if (path !== BOREALIS_TAB_ID) {
+      void openInGroup("right", path);
+      return;
+    }
+    setGroups((current) => {
+      const source = groupId === "left" ? current.left : current.right;
+      if (!source || (groupId === "left" && source.tabs.length === 1)) return current;
+      return moveGroupTab(current, groupId, "right", path);
+    });
+  }, [openInGroup, setGroups]);
+
+  return { closeRightGroup, closeTab, maximizeBorealis, moveWorkspaceTab, openFolderInGroup, openInGroup, splitWorkspaceTab, toggleBorealis };
+}
+
+type WorkspaceProjectActionsOptions = {
+  documents: WorkspaceDocuments;
+  groupsRef: { current: WorkspaceGroups };
+  openInGroup: (groupId: EditorGroupId, path: string, knownProject?: FractalProject) => Promise<void>;
+  props: WorkspaceProps;
+  setGroups: Dispatch<SetStateAction<WorkspaceGroups>>;
+};
+
+function useWorkspacePageActions({ documents, groupsRef, openInGroup, props }: WorkspaceProjectActionsOptions) {
+  const createPage = useCallback(async (title: string, folderPath?: string) => {
+    if (!(await documents.saveAll())) return;
+    const result = await props.onCreatePage(title, folderPath);
+    const next = result?.project;
+    const created = result ? createdPagePath(result.receipt) : null;
+    if (!next || !created) return;
+    documents.publishProject(next);
+    await openInGroup(groupsRef.current.activeGroupId, created, next);
+  }, [documents.publishProject, documents.saveAll, groupsRef, openInGroup, props.onCreatePage]);
+
+  const repairPage = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const result = await props.onRepairPage(path);
+    const next = result?.project;
+    if (!next) return;
+    documents.publishProject(next);
+    await documents.reloadDocument(path);
+  }, [documents.publishProject, documents.reloadDocument, documents.saveAll, props.onRepairPage]);
+
+  const duplicatePage = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const next = await props.onDuplicatePage(path);
+    if (!next?.activePagePath) return;
+    documents.publishProject(next);
+    await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
+  }, [documents.publishProject, documents.saveAll, groupsRef, openInGroup, props.onDuplicatePage]);
+
+  const createFolder = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const next = (await props.onCreateFolder(path))?.project;
+    if (next) documents.publishProject(next);
+  }, [documents.publishProject, documents.saveAll, props.onCreateFolder]);
+
+  return { createFolder, createPage, duplicatePage, repairPage };
+}
+
+function useWorkspaceFolderActions({ documents, groupsRef, props, setGroups }: WorkspaceProjectActionsOptions) {
+  const setFolderTitle = useCallback(async (path: string, title: string) => {
+    if (!(await documents.saveAll())) return;
+    const result = await props.onSetFolderTitle(path, title);
+    const next = result?.project;
+    if (!next || !result) return;
+    const mappings = receiptMappings(result.receipt);
+    await reconcilePageDrafts(next.rootPath, mappings);
+    for (const [from, to] of mappings.folders) setGroups((current) => renameGroupTab(current, folderTabId(from), folderTabId(to)));
+    for (const bufferPath of Object.keys(documents.buffers)) {
+      const mapped = mapPagePath(bufferPath, mappings);
+      if (mapped !== bufferPath) { documents.renameDocument(bufferPath, mapped); setGroups((current) => renameGroupTab(current, bufferPath, mapped)); }
+    }
+    documents.publishProject(next);
+  }, [documents.buffers, documents.publishProject, documents.renameDocument, documents.saveAll, props.onSetFolderTitle, setGroups]);
+
+  const reorderFolder = useCallback(async (path: string, order: string[]) => {
+    if (!(await documents.saveAll())) return;
+    const next = (await props.onReorderFolder(path, order))?.project;
+    if (next) documents.publishProject(next);
+  }, [documents.publishProject, documents.saveAll, props.onReorderFolder]);
+
+  const deletePage = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const next = (await props.onDeletePage(path))?.project;
+    if (!next) return;
+    documents.publishProject(next);
+    documents.forgetDocument(path);
+    setGroups((current) => reconcileWorkspaceGroups(current, validWorkspaceTabs(next)));
+  }, [documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeletePage, setGroups]);
+
+  const deleteFolder = useCallback(async (path: string) => {
+    if (!(await documents.saveAll())) return;
+    const next = (await props.onDeleteFolder(path))?.project;
+    if (!next) return;
+    documents.publishProject(next);
+    const valid = validWorkspaceTabs(next);
+    for (const bufferPath of Object.keys(documents.buffers)) {
+      if (!valid.has(bufferPath)) documents.forgetDocument(bufferPath);
+    }
+    setGroups((current) => reconcileWorkspaceGroups(current, valid));
+  }, [documents.buffers, documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeleteFolder, setGroups]);
+
+  const movePage = useCallback(async (path: string, destinationFolder: string) => {
+    if (!(await documents.saveAll())) return;
+    const result = await props.onMovePage(path, destinationFolder);
+    const next = result?.project;
+    const resultingPath = result ? mapPagePath(path, receiptMappings(result.receipt)) : path;
+    if (!next || resultingPath === path) return;
+    await reconcilePageDrafts(next.rootPath, receiptMappings(result.receipt));
+    documents.publishProject(next);
+    setGroups((current) => renameGroupTab(current, path, resultingPath));
+    documents.renameDocument(path, resultingPath);
+    await documents.reloadDocument(resultingPath);
+    await documents.refreshChangedDocuments(next, [resultingPath]);
+  }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage, setGroups]);
+
+  return { deleteFolder, deletePage, movePage, reorderFolder, setFolderTitle };
+}
+
+function useWorkspaceExportActions({ documents }: WorkspaceProjectActionsOptions) {
+  const exportPage = useCallback(async (path: string, includeDerivedLinks: boolean) => {
+    if (!(await documents.saveDocument(path))) return null;
+    const page = documents.project.pages.find((candidate) => candidate.path === path);
+    const suggestedName = `${page?.title?.trim() || path.split("/").at(-1)?.replace(/\.fractal\.html$/i, "") || "page"}.html`;
+    const output = await save({ defaultPath: suggestedName, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export HTML" });
+    if (!output) return null;
+    return fractalClient.exportHtml(documents.project, path, output, includeDerivedLinks);
+  }, [documents.project, documents.saveDocument]);
+
+  const exportFolder = useCallback(async (path: string, options: FractalFolderHtmlExportOptions) => {
+    if (!(await documents.saveAll())) return null;
+    const folder = documents.project.folders.find((candidate) => candidate.path === path);
+    const baseName = (folder?.title.trim() || path.split("/").at(-1) || documents.project.name || "folder")
+      .replace(/[\\/:*?"<>|]+/g, "-");
+    const output = await save({ defaultPath: `${baseName}.html`, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export folder as HTML" });
+    if (!output) return null;
+    return fractalClient.exportFolderHtml(documents.project, path, output, options);
+  }, [documents.project, documents.saveAll]);
+
+  return { exportFolder, exportPage };
+}
+
+function useWorkspaceUiState(initialRoot: string) {
   const [focusMode, setFocusMode] = useState(false);
   const [borealisOpen, setBorealisOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -119,13 +541,88 @@ function Workspace(props: WorkspaceProps) {
   const [closedTabs, setClosedTabs] = useState<Array<{ groupId: EditorGroupId; path: string }>>([]);
   const [splitPercent, setSplitPercent] = useState(50);
   const [draggedTab, setDraggedTab] = useState<DraggedWorkspaceTab | null>(null);
-  const previousRootRef = useRef(props.project.rootPath);
+  const previousRootRef = useRef(initialRoot);
   const groupsRef = useRef(groups);
-  groupsRef.current = groups;
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+  return {
+    closedTabs,
+    draggedTab,
+    focusMode,
+    groups,
+    groupsRef,
+    previousRootRef,
+    quickOpen,
+    setBorealisOpen,
+    setClosedTabs,
+    setDraggedTab,
+    setFocusMode,
+    setGroups,
+    setQuickOpen,
+    setSidebarOpen,
+    setSidebarWidth,
+    setSplitPercent,
+    sidebarOpen,
+    sidebarWidth,
+    splitPercent,
+    borealisOpen
+  };
+}
+
+function useWorkspaceEffects(props: WorkspaceProps, ui: ReturnType<typeof useWorkspaceUiState>, documents: WorkspaceDocuments) {
+  const { previousRootRef, setClosedTabs, setGroups } = ui;
+  useEffect(() => {
+    if (previousRootRef.current !== props.project.rootPath) {
+      previousRootRef.current = props.project.rootPath;
+      setGroups(createProjectOverviewGroups());
+      setClosedTabs([]);
+    }
+  }, [props.project.rootPath, previousRootRef, setClosedTabs, setGroups]);
+
+  useEffect(() => {
+    const validPaths = validWorkspaceTabs(documents.project);
+    setGroups((current) => reconcileWorkspaceGroups(current, validPaths));
+    for (const path of Object.keys(documents.buffers)) {
+      if (!validPaths.has(path)) documents.forgetDocument(path);
+    }
+  }, [documents.project.folders, documents.project.pages, setGroups]);
+
+  useEffect(() => {
+    props.onRegisterWorkspace(documents.dirtyCount > 0, documents.saveAll);
+    return () => props.onRegisterWorkspace(false, null);
+  }, [documents.dirtyCount, documents.saveAll, props.onRegisterWorkspace]);
+}
+
+function useWorkspaceActions(props: WorkspaceProps, ui: ReturnType<typeof useWorkspaceUiState>, documents: WorkspaceDocuments, activeGroup: WorkspaceGroups["left"]) {
+  const tabActions = useWorkspaceTabActions({ documents, groupsRef: ui.groupsRef, setBorealisOpen: ui.setBorealisOpen, setClosedTabs: ui.setClosedTabs, setDraggedTab: ui.setDraggedTab, setGroups: ui.setGroups });
+  const projectActionOptions = { documents, groupsRef: ui.groupsRef, openInGroup: tabActions.openInGroup, props, setGroups: ui.setGroups };
+  const pageActions = useWorkspacePageActions(projectActionOptions);
+  const folderActions = useWorkspaceFolderActions(projectActionOptions);
+  const exportActions = useWorkspaceExportActions(projectActionOptions);
+
+  useWorkspaceShortcuts({
+    activeGroup,
+    closeTab: tabActions.closeTab,
+    closedTabs: ui.closedTabs,
+    createPage: pageActions.createPage,
+    documents: { saveAll: documents.saveAll, saveDocument: documents.saveDocument },
+    groupsRef: ui.groupsRef,
+    openInGroup: tabActions.openInGroup,
+    setClosedTabs: ui.setClosedTabs,
+    setQuickOpen: ui.setQuickOpen,
+    setSidebarOpen: ui.setSidebarOpen
+  });
+
+  return { exportActions, folderActions, pageActions, tabActions };
+}
+
+function Workspace(props: WorkspaceProps) {
+  const ui = useWorkspaceUiState(props.project.rootPath);
+  const { borealisOpen, closedTabs, draggedTab, focusMode, groups, groupsRef, quickOpen, setBorealisOpen, setClosedTabs, setDraggedTab, setFocusMode, setGroups, setQuickOpen, setSidebarOpen, setSidebarWidth, setSplitPercent, sidebarOpen, sidebarWidth, splitPercent } = ui;
   const onDocumentPathChange = useCallback((from: string, to: string) => {
     setGroups((current) => renameGroupTab(current, from, to));
-  }, []);
-
+  }, [setGroups]);
   const documents = useWorkspaceDocuments({
     autoSave: props.settings.autoSave,
     initialProject: props.project,
@@ -146,252 +643,28 @@ function Workspace(props: WorkspaceProps) {
     searchProject: (query: string) => fractalClient.searchProject(documents.project, query)
   }), [documents.buffers, documents.project, groups]);
 
-  useEffect(() => {
-    if (previousRootRef.current !== props.project.rootPath) {
-      previousRootRef.current = props.project.rootPath;
-      setGroups(createProjectOverviewGroups());
-      setClosedTabs([]);
-    }
-  }, [props.project.rootPath]);
-
-  useEffect(() => {
-    const validPaths = validWorkspaceTabs(documents.project);
-    setGroups((current) => reconcileWorkspaceGroups(current, validPaths));
-    for (const path of Object.keys(documents.buffers)) {
-      if (!validPaths.has(path)) documents.forgetDocument(path);
-    }
-  }, [documents.project.folders, documents.project.pages]);
-
-  useEffect(() => {
-    props.onRegisterWorkspace(documents.dirtyCount > 0, documents.saveAll);
-    return () => props.onRegisterWorkspace(false, null);
-  }, [documents.dirtyCount, documents.saveAll, props.onRegisterWorkspace]);
-
-  const openInGroup = useCallback(async (groupId: EditorGroupId, path: string, knownProject?: FractalProject) => {
-    setGroups((current) => openGroupTab(current, groupId, path));
-    if (path !== BOREALIS_TAB_ID && !isFolderTab(path)) await documents.openDocument(path, knownProject);
-  }, [documents.openDocument]);
-
-  const openFolderInGroup = useCallback((groupId: EditorGroupId, path: string) => {
-    setGroups((current) => openGroupTab(current, groupId, folderTabId(path)));
-  }, []);
-
-  const closeTab = useCallback(async (groupId: EditorGroupId, path: string) => {
-    if (path === BOREALIS_TAB_ID) {
-      setGroups((current) => closeGroupTab(current, groupId, path));
-      setBorealisOpen(false);
-      return;
-    }
-    if (isFolderTab(path)) {
-      if (!(await documents.saveAll())) return;
-      setClosedTabs((tabs) => [...tabs.filter((tab) => tab.path !== path || tab.groupId !== groupId), { groupId, path }]);
-      setGroups((current) => closeGroupTab(current, groupId, path));
-      return;
-    }
-    const buffer = documents.buffers[path];
-    if (buffer?.dirty && !(await documents.saveDocument(path))) return;
-    const current = groupsRef.current;
-    const next = closeGroupTab(current, groupId, path);
-    setClosedTabs((tabs) => [...tabs.filter((tab) => tab.path !== path || tab.groupId !== groupId), { groupId, path }]);
-    setGroups(next);
-    const stillOpen = next.left.tabs.includes(path) || Boolean(next.right?.tabs.includes(path));
-    if (!stillOpen) documents.forgetDocument(path);
-  }, [documents.buffers, documents.forgetDocument, documents.saveAll, documents.saveDocument]);
-
-  const closeRightGroup = useCallback(async () => {
-    const right = groupsRef.current.right;
-    if (!right) return;
-    if (!(await documents.saveAll())) return;
-    for (const path of right.tabs) {
-      const buffer = documents.buffers[path];
-      if (buffer?.dirty && !(await documents.saveDocument(path))) return;
-    }
-    let next = groupsRef.current;
-    for (const path of right.tabs) next = closeGroupTab(next, "right", path);
-    setGroups(next);
-    for (const path of right.tabs) {
-      if (path !== BOREALIS_TAB_ID && !next.left.tabs.includes(path)) documents.forgetDocument(path);
-    }
-  }, [documents.buffers, documents.forgetDocument, documents.saveAll, documents.saveDocument]);
-
-  const createPage = useCallback(async (title: string, folderPath?: string) => {
-    if (!(await documents.saveAll())) return;
-    const result = await props.onCreatePage(title, folderPath);
-    const next = result?.project;
-    const created = result ? createdPagePath(result.receipt) : null;
-    if (!next || !created) return;
-    documents.publishProject(next);
-    await openInGroup(groupsRef.current.activeGroupId, created, next);
-  }, [documents.publishProject, documents.saveAll, openInGroup, props.onCreatePage]);
-
-  const repairPage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const result = await props.onRepairPage(path);
-    const next = result?.project;
-    if (!next) return;
-    documents.publishProject(next);
-    await documents.reloadDocument(path);
-  }, [documents.publishProject, documents.reloadDocument, documents.saveAll, props.onRepairPage]);
-
-  const duplicatePage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = await props.onDuplicatePage(path);
-    if (!next?.activePagePath) return;
-    documents.publishProject(next);
-    await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
-  }, [documents.publishProject, documents.saveAll, openInGroup, props.onDuplicatePage]);
-
-  const createFolder = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onCreateFolder(path))?.project;
-    if (next) documents.publishProject(next);
-  }, [documents.publishProject, documents.saveAll, props.onCreateFolder]);
-
-  const setFolderTitle = useCallback(async (path: string, title: string) => {
-    if (!(await documents.saveAll())) return;
-    const result = await props.onSetFolderTitle(path, title);
-    const next = result?.project;
-    if (!next || !result) return;
-    const mappings = receiptMappings(result.receipt);
-    await reconcilePageDrafts(next.rootPath, mappings);
-    for (const [from, to] of mappings.folders) setGroups((current) => renameGroupTab(current, folderTabId(from), folderTabId(to)));
-    for (const bufferPath of Object.keys(documents.buffers)) {
-      const mapped = mapPagePath(bufferPath, mappings);
-      if (mapped !== bufferPath) { documents.renameDocument(bufferPath, mapped); setGroups((current) => renameGroupTab(current, bufferPath, mapped)); }
-    }
-    documents.publishProject(next);
-  }, [documents.project, documents.publishProject, documents.renameDocument, documents.saveAll, props.onSetFolderTitle]);
-
-  const reorderFolder = useCallback(async (path: string, order: string[]) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onReorderFolder(path, order))?.project;
-    if (next) documents.publishProject(next);
-  }, [documents.publishProject, documents.saveAll, props.onReorderFolder]);
-
-  const deletePage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onDeletePage(path))?.project;
-    if (!next) return;
-    documents.publishProject(next);
-    documents.forgetDocument(path);
-    setGroups((current) => reconcileWorkspaceGroups(current, validWorkspaceTabs(next)));
-  }, [documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeletePage]);
-
-  const deleteFolder = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onDeleteFolder(path))?.project;
-    if (!next) return;
-    documents.publishProject(next);
-    const valid = validWorkspaceTabs(next);
-    for (const bufferPath of Object.keys(documents.buffers)) {
-      if (!valid.has(bufferPath)) documents.forgetDocument(bufferPath);
-    }
-    setGroups((current) => reconcileWorkspaceGroups(current, valid));
-  }, [documents.buffers, documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeleteFolder]);
-
-  const movePage = useCallback(async (path: string, destinationFolder: string) => {
-    if (!(await documents.saveAll())) return;
-    const result = await props.onMovePage(path, destinationFolder);
-    const next = result?.project;
-    const resultingPath = result ? mapPagePath(path, receiptMappings(result.receipt)) : path;
-    if (!next || resultingPath === path) return;
-    await reconcilePageDrafts(next.rootPath, receiptMappings(result.receipt));
-    documents.publishProject(next);
-    setGroups((current) => renameGroupTab(current, path, resultingPath));
-    documents.renameDocument(path, resultingPath);
-    await documents.reloadDocument(resultingPath);
-    await documents.refreshChangedDocuments(next, [resultingPath]);
-  }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage]);
-
-  const exportPage = useCallback(async (path: string, includeDerivedLinks: boolean) => {
-    if (!(await documents.saveDocument(path))) return null;
-    const page = documents.project.pages.find((candidate) => candidate.path === path);
-    const suggestedName = `${page?.title?.trim() || path.split("/").at(-1)?.replace(/\.fractal\.html$/i, "") || "page"}.html`;
-    const output = await save({ defaultPath: suggestedName, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export HTML" });
-    if (!output) return null;
-    return fractalClient.exportHtml(documents.project, path, output, includeDerivedLinks);
-  }, [documents.project, documents.saveDocument]);
-
-  const exportFolder = useCallback(async (path: string, options: FractalFolderHtmlExportOptions) => {
-    if (!(await documents.saveAll())) return null;
-    const folder = documents.project.folders.find((candidate) => candidate.path === path);
-    const baseName = (folder?.title.trim() || path.split("/").at(-1) || documents.project.name || "folder")
-      .replace(/[\\/:*?"<>|]+/g, "-");
-    const output = await save({ defaultPath: `${baseName}.html`, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export folder as HTML" });
-    if (!output) return null;
-    return fractalClient.exportFolderHtml(documents.project, path, output, options);
-  }, [documents.project, documents.saveAll]);
-
-  useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
-      const cyclingTab = key === "tab" && !event.altKey
-        ? tabPathForDirection(activeGroup, event.shiftKey ? -1 : 1)
-        : null;
-      const numberedTab = !event.altKey && !event.shiftKey ? tabPathForShortcut(activeGroup, key) : null;
-      if (cyclingTab) {
-        event.preventDefault();
-        void openInGroup(activeGroup.id, cyclingTab);
-      } else if (numberedTab) {
-        event.preventDefault();
-        void openInGroup(activeGroup.id, numberedTab);
-      } else if (key === "s") {
-        if (event.defaultPrevented) return;
-        event.preventDefault();
-        if (activeGroup.activePath && isFolderTab(activeGroup.activePath)) void documents.saveAll();
-        else if (activeGroup.activePath && activeGroup.activePath !== BOREALIS_TAB_ID) void documents.saveDocument(activeGroup.activePath);
-      } else if (key === "p" || (key === "f" && event.shiftKey)) {
-        event.preventDefault();
-        setQuickOpen(true);
-      } else if (key === "b") {
-        event.preventDefault();
-        setSidebarOpen((open) => !open);
-      } else if (key === "n") {
-        event.preventDefault();
-        void createPage("Untitled");
-      } else if (key === "w" && activeGroup.activePath) {
-        event.preventDefault();
-        void closeTab(activeGroup.id, activeGroup.activePath);
-      } else if (key === "t" && event.shiftKey) {
-        const tab = closedTabs.at(-1);
-        if (!tab) return;
-        event.preventDefault();
-        setClosedTabs((tabs) => tabs.slice(0, -1));
-        void openInGroup(tab.groupId === "right" && !groupsRef.current.right ? "left" : tab.groupId, tab.path);
-      }
-    }
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
-  }, [activeGroup.activePath, activeGroup.id, activeGroup.tabs, closedTabs, closeTab, createPage, documents.saveDocument, openInGroup]);
+  useWorkspaceEffects(props, ui, documents);
+  const { exportActions, folderActions, pageActions, tabActions } = useWorkspaceActions(props, ui, documents, activeGroup);
+  const { closeRightGroup, closeTab, maximizeBorealis, moveWorkspaceTab, openFolderInGroup, openInGroup, splitWorkspaceTab, toggleBorealis } = tabActions;
+  const { createFolder, createPage, duplicatePage, repairPage } = pageActions;
+  const { deleteFolder, deletePage, movePage, reorderFolder, setFolderTitle } = folderActions;
+  const { exportFolder, exportPage } = exportActions;
 
   function startSplitResize(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
     const stage = event.currentTarget.parentElement;
     if (!stage) return;
-    const move = (pointerEvent: globalThis.PointerEvent) => {
-      const bounds = stage.getBoundingClientRect();
+    startPointerResize(event, stage, (pointerEvent, bounds) => {
       const percentage = ((pointerEvent.clientX - bounds.left) / bounds.width) * 100;
       setSplitPercent(Math.min(70, Math.max(30, percentage)));
-    };
-    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); document.body.classList.remove("resizing-panel"); };
-    document.body.classList.add("resizing-panel");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
+    });
   }
 
   function startSidebarResize(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const shell = event.currentTarget.closest(".app-shell");
+    const shell = event.currentTarget.closest<HTMLElement>(".app-shell");
     if (!shell) return;
-    const move = (pointerEvent: globalThis.PointerEvent) => {
-      const bounds = shell.getBoundingClientRect();
+    startPointerResize(event, shell, (pointerEvent, bounds) => {
       setSidebarWidth(Math.min(380, Math.max(190, pointerEvent.clientX - bounds.left)));
-    };
-    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); document.body.classList.remove("resizing-panel"); };
-    document.body.classList.add("resizing-panel");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
+    });
   }
 
   async function closeWorkspaceProject() {
@@ -409,44 +682,7 @@ function Workspace(props: WorkspaceProps) {
     props.onValidate();
   }
 
-  const toggleBorealis = useCallback(() => {
-    const tabGroup = groupForPath(groupsRef.current, BOREALIS_TAB_ID);
-    if (tabGroup) {
-      setGroups((current) => openGroupTab(current, tabGroup, BOREALIS_TAB_ID));
-      setBorealisOpen(false);
-      return;
-    }
-    setBorealisOpen((open) => !open);
-  }, []);
-
-  const maximizeBorealis = useCallback(() => {
-    setGroups((current) => openGroupTab(current, current.activeGroupId, BOREALIS_TAB_ID));
-    setBorealisOpen(false);
-  }, []);
-
-  const moveWorkspaceTab = useCallback((tab: DraggedWorkspaceTab, groupId: EditorGroupId, index?: number) => {
-    setGroups((current) => {
-      const source = tab.groupId === "left" ? current.left : current.right;
-      if (tab.path === BOREALIS_TAB_ID && tab.groupId === "left" && groupId === "right" && source?.tabs.length === 1) return current;
-      return moveGroupTab(current, tab.groupId, groupId, tab.path, index);
-    });
-    setDraggedTab(null);
-  }, []);
-
-  const splitWorkspaceTab = useCallback((groupId: EditorGroupId, path: string) => {
-    if (path !== BOREALIS_TAB_ID) {
-      void openInGroup("right", path);
-      return;
-    }
-    setGroups((current) => {
-      const source = groupId === "left" ? current.left : current.right;
-      if (!source || (groupId === "left" && source.tabs.length === 1)) return current;
-      return moveGroupTab(current, groupId, "right", path);
-    });
-  }, [openInGroup]);
-
   const paneProps = useMemo(() => ({
-    aiSettings: props.aiSettings,
     borealisOpen: borealisVisible,
     borealisWorkspace: borealisTabGroup !== null,
     buffers: documents.buffers,
@@ -482,132 +718,50 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.aiSettings, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+
+  const view: WorkspaceViewProps = {
+    activeFolderPath,
+    activeGroup,
+    anySaving,
+    borealisOpen,
+    borealisTabGroup,
+    closeRightGroup,
+    closeWorkspaceProject,
+    createFolder,
+    createPage,
+    deleteFolder,
+    deletePage,
+    documents,
+    draggedTab,
+    duplicatePage,
+    focusMode,
+    groups,
+    groupsRef,
+    movePage,
+    moveWorkspaceTab,
+    openFolderInGroup,
+    openInGroup,
+    openSettings,
+    paneProps,
+    props,
+    quickOpen,
+    setGroups,
+    setQuickOpen,
+    setSidebarOpen,
+    setSidebarWidth,
+    setSplitPercent,
+    sidebarOpen,
+    sidebarWidth,
+    splitPercent,
+    startSidebarResize,
+    startSplitResize,
+    validateProject
+  };
 
   return (
     <BorealisSessionProvider settings={props.aiSettings} workspace={aiWorkspace}>
-      <main className={`${focusMode ? "app-shell focus-mode" : "app-shell"}${sidebarOpen ? "" : " sidebar-closed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
-      <Sidebar
-        activePagePath={activeGroup.activePath === BOREALIS_TAB_ID || isFolderTab(activeGroup.activePath) ? null : activeGroup.activePath}
-        activeFolderPath={activeFolderPath}
-        folders={documents.project.folders}
-        isBusy={props.isBusy}
-        logoMark={props.settings.logoMark}
-        pages={documents.project.pages}
-        projectName={documents.project.name}
-        onCloseProject={() => void closeWorkspaceProject()}
-        onCreateFolder={(path) => { void createFolder(path); }}
-        onCreatePage={(title, folder) => { void createPage(title, folder); }}
-        onDeleteFolder={(path) => { void deleteFolder(path); }}
-        onDeletePage={(path) => { void deletePage(path); }}
-        onDuplicatePage={(path) => { void duplicatePage(path); }}
-        onMovePage={(path, destination) => { void movePage(path, destination); }}
-        onOpenSettings={() => void openSettings()}
-        onResizeReset={() => setSidebarWidth(244)}
-        onResizeStart={startSidebarResize}
-        onRevealPage={props.onRevealPage}
-        onSelectPage={(path) => { void openInGroup(groupsRef.current.activeGroupId, path); }}
-        onSelectFolder={(path) => openFolderInGroup(groupsRef.current.activeGroupId, path)}
-        onValidate={() => void validateProject()}
-      />
-      <section className="workspace" aria-label="Fractal workspace">
-        <WorkspaceToolbar
-          activeGroupLabel={activeGroup.id}
-          canGoBack={activeGroup.historyIndex > 0}
-          canGoForward={activeGroup.historyIndex < activeGroup.history.length - 1}
-          dirtyCount={documents.dirtyCount}
-          isSaving={anySaving}
-          onBack={() => setGroups((current) => navigateGroupHistory(current, current.activeGroupId, -1))}
-          onCloseRequest={props.onCloseRequest}
-          onForward={() => setGroups((current) => navigateGroupHistory(current, current.activeGroupId, 1))}
-          onOpenQuick={() => setQuickOpen(true)}
-          onToggleSidebar={() => setSidebarOpen((open) => !open)}
-          tabs={(
-            <>
-              <WorkspaceTabs
-                buffers={documents.buffers}
-                draggedTab={draggedTab}
-                focused={groups.activeGroupId === "left"}
-                group={groups.left}
-                project={documents.project}
-                onActivate={() => setGroups((current) => activateGroup(current, "left"))}
-                onCloseTab={paneProps.onCloseTab}
-                onDragEnd={paneProps.onDragEnd}
-                onDragStart={paneProps.onDragStart}
-                onDropTab={paneProps.onDropTab}
-                onSelectTab={paneProps.onSelectTab}
-                onSplitTab={paneProps.onSplitTab}
-              />
-              {groups.right ? (
-                <WorkspaceTabs
-                  buffers={documents.buffers}
-                  draggedTab={draggedTab}
-                  focused={groups.activeGroupId === "right"}
-                  group={groups.right}
-                  project={documents.project}
-                  onActivate={() => setGroups((current) => activateGroup(current, "right"))}
-                  onCloseGroup={() => void closeRightGroup()}
-                  onCloseTab={paneProps.onCloseTab}
-                  onDragEnd={paneProps.onDragEnd}
-                  onDragStart={paneProps.onDragStart}
-                  onDropTab={paneProps.onDropTab}
-                  onSelectTab={paneProps.onSelectTab}
-                  onSplitTab={paneProps.onSplitTab}
-                />
-              ) : null}
-            </>
-          )}
-        />
-        <div className="workspace-status-stack" aria-live="polite">
-          <CommandStatus error={props.error} result={props.commandResult} onDismiss={props.onDismissStatus} />
-          {documents.pollingNotice ? (
-            <button className="status-message error" onClick={documents.dismissPollingNotice} type="button">
-              <span>Could not check files on disk</span>
-              <small>{documents.pollingNotice.message}</small>
-            </button>
-          ) : null}
-        </div>
-        <div className={`${groups.right ? "editor-groups split" : "editor-groups"}${draggedTab ? " dragging-tab" : ""}`} style={{ "--split-primary": `${splitPercent}%` } as CSSProperties}>
-          <EditorGroupPane
-            {...paneProps}
-            buffer={groups.left.activePath ? documents.buffers[groups.left.activePath] : undefined}
-            focused={groups.activeGroupId === "left"}
-            group={groups.left}
-            isLoading={Boolean(groups.left.activePath && documents.loadingPaths.has(groups.left.activePath))}
-            loadError={groups.left.activePath ? documents.loadErrors[groups.left.activePath] : undefined}
-            onActivate={() => setGroups((current) => activateGroup(current, "left"))}
-            onCreateFirstPage={() => void createPage("Index")}
-          />
-          {groups.right ? (
-            <>
-              <div aria-label="Resize editor groups" className="split-resize-handle" onDoubleClick={() => setSplitPercent(50)} onPointerDown={startSplitResize} role="separator"><i /></div>
-              <EditorGroupPane
-                {...paneProps}
-                buffer={groups.right.activePath ? documents.buffers[groups.right.activePath] : undefined}
-                focused={groups.activeGroupId === "right"}
-                group={groups.right}
-                isLoading={Boolean(groups.right.activePath && documents.loadingPaths.has(groups.right.activePath))}
-                loadError={groups.right.activePath ? documents.loadErrors[groups.right.activePath] : undefined}
-                onActivate={() => setGroups((current) => activateGroup(current, "right"))}
-                onCloseGroup={() => void closeRightGroup()}
-              />
-            </>
-          ) : null}
-          {draggedTab && !groups.right && !(draggedTab.path === BOREALIS_TAB_ID && groups.left.tabs.length === 1) ? (
-            <div
-              className="create-group-drop-zone"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                moveWorkspaceTab(draggedTab, "right");
-              }}
-            ><span>Drop to open right</span></div>
-          ) : null}
-        </div>
-      </section>
-      {quickOpen ? <QuickOpen pages={documents.project.pages} onClose={() => setQuickOpen(false)} onOpen={(path) => { void openInGroup(groupsRef.current.activeGroupId, path); }} onSearch={props.onSearchProject} /> : null}
-      </main>
+      <WorkspaceShell view={view} />
       {!borealisTabGroup ? <BorealisChat hidden={focusMode} isOpen={borealisOpen} onMaximize={maximizeBorealis} onOpenChange={setBorealisOpen} onOpenSettings={() => void openSettings()} showTrigger={false} /> : null}
     </BorealisSessionProvider>
   );

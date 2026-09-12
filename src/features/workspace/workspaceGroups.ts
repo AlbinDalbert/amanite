@@ -53,15 +53,13 @@ export function openGroupTab(state: WorkspaceGroups, id: EditorGroupId, path: st
   return { ...updateGroup(state, id, next), activeGroupId: id };
 }
 
-function activeAfterRemoval(group: EditorGroup, path: string, tabs: string[]) {
-  if (group.activePath !== path) return group.activePath;
-  const removedIndex = group.tabs.indexOf(path);
-  return tabs[Math.min(Math.max(removedIndex, 0), tabs.length - 1)] ?? tabs.at(-1) ?? null;
-}
-
 function withoutTab(group: EditorGroup, path: string): EditorGroup {
   const tabs = group.tabs.filter((candidate) => candidate !== path);
-  const activePath = activeAfterRemoval(group, path, tabs);
+  let activePath = group.activePath;
+  if (activePath === path) {
+    const removedIndex = group.tabs.indexOf(path);
+    activePath = tabs[Math.min(Math.max(removedIndex, 0), tabs.length - 1)] ?? tabs.at(-1) ?? null;
+  }
   const history = group.history.filter((candidate) => candidate !== path);
   const historyIndex = activePath ? Math.max(0, history.lastIndexOf(activePath)) : -1;
   return { ...group, tabs, activePath, history, historyIndex };
@@ -71,16 +69,9 @@ export function closeGroupTab(state: WorkspaceGroups, id: EditorGroupId, path: s
   const group = id === "left" ? state.left : state.right;
   if (!group?.tabs.includes(path)) return state;
   const next = withoutTab(group, path);
-
-  if (id === "right" && !next.tabs.length) {
-    return { ...state, activeGroupId: "left", right: null };
-  }
+  if (id === "right" && !next.tabs.length) return { ...state, activeGroupId: "left", right: null };
   if (id === "left" && !next.tabs.length && state.right) {
-    return {
-      activeGroupId: "left",
-      left: { ...state.right, id: "left" },
-      right: null
-    };
+    return { activeGroupId: "left", left: { ...state.right, id: "left" }, right: null };
   }
   return updateGroup({ ...state, activeGroupId: id }, id, next);
 }
@@ -91,16 +82,9 @@ function insertAt(tabs: string[], path: string, index?: number) {
   return [...without.slice(0, insertion), path, ...without.slice(insertion)];
 }
 
-export function moveGroupTab(
-  state: WorkspaceGroups,
-  sourceId: EditorGroupId,
-  targetId: EditorGroupId,
-  path: string,
-  targetIndex?: number
-): WorkspaceGroups {
+export function moveGroupTab(state: WorkspaceGroups, sourceId: EditorGroupId, targetId: EditorGroupId, path: string, targetIndex?: number): WorkspaceGroups {
   const source = sourceId === "left" ? state.left : state.right;
   if (!source?.tabs.includes(path)) return state;
-
   if (sourceId === targetId) {
     const tabs = insertAt(source.tabs, path, targetIndex);
     return updateGroup({ ...state, activeGroupId: targetId }, targetId, { ...source, tabs, activePath: path });

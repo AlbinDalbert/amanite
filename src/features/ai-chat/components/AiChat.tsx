@@ -25,6 +25,39 @@ function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function appendToolReplies(messages: AiChatMessage[], toolCalls: NonNullable<Awaited<ReturnType<typeof aiClient.chat>>>["tool_calls"], workspace: AiWorkspace) {
+  for (const call of toolCalls) {
+    messages.push({
+      role: "tool",
+      tool_call_id: call.id,
+      content: await executeWorkspaceTool(call, workspace)
+    });
+  }
+}
+
+async function completeConversation(settings: AiSettings, requestMessages: AiChatMessage[], workspace: AiWorkspace) {
+  const workingMessages = [...requestMessages];
+  for (let round = 0; round < 8; round += 1) {
+    const reply = await aiClient.chat(
+      settings,
+      [{ role: "system", content: workspaceSystemPrompt(workspace) }, ...workingMessages],
+      FRACTAL_AI_TOOLS
+    );
+    workingMessages.push({
+      role: "assistant",
+      content: reply.content,
+      ...(reply.tool_calls.length ? { tool_calls: reply.tool_calls } : {})
+    });
+    if (!reply.tool_calls.length) {
+      const content = reply.content?.trim() || null;
+      if (!content) throw new Error("Borealis did not finish after several tool calls.");
+      return { content, messages: workingMessages };
+    }
+    await appendToolReplies(workingMessages, reply.tool_calls, workspace);
+  }
+  throw new Error("Borealis did not finish after several tool calls.");
+}
+
 export function BorealisSessionProvider({ children, settings, workspace }: {
   children: ReactNode;
   settings: AiSettings;
@@ -63,34 +96,9 @@ export function BorealisSessionProvider({ children, settings, workspace }: {
     setError(null);
     setIsSending(true);
     try {
-      const workingMessages = [...requestMessages];
-      let finalReply: string | null = null;
-      for (let round = 0; round < 8; round += 1) {
-        const reply = await aiClient.chat(
-          settings,
-          [{ role: "system", content: workspaceSystemPrompt(workspaceRef.current) }, ...workingMessages],
-          FRACTAL_AI_TOOLS
-        );
-        workingMessages.push({
-          role: "assistant",
-          content: reply.content,
-          ...(reply.tool_calls.length ? { tool_calls: reply.tool_calls } : {})
-        });
-        if (!reply.tool_calls.length) {
-          finalReply = reply.content?.trim() || null;
-          break;
-        }
-        for (const call of reply.tool_calls) {
-          workingMessages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: await executeWorkspaceTool(call, workspaceRef.current)
-          });
-        }
-      }
-      if (!finalReply) throw new Error("Borealis did not finish after several tool calls.");
-      conversationRef.current = workingMessages;
-      setMessages((current) => [...current, { id: nextId.current++, role: "assistant", content: finalReply }]);
+      const completion = await completeConversation(settings, requestMessages, workspaceRef.current);
+      conversationRef.current = completion.messages;
+      setMessages((current) => [...current, { id: nextId.current++, role: "assistant", content: completion.content }]);
     } catch (sendError) {
       conversationRef.current = requestMessages;
       setError(messageFromError(sendError));
@@ -139,6 +147,116 @@ type ChatProps = {
   showTrigger?: boolean;
 };
 
+type ChatPanelProps = {
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  onClose: () => void;
+  onMaximize?: () => void;
+  onOpenSettings: () => void;
+  presentation: "popover" | "workspace";
+  session: BorealisSession;
+  transcriptRef: React.RefObject<HTMLDivElement | null>;
+};
+
+function ChatHeader({ onClose, onMaximize, presentation, session }: Pick<ChatPanelProps, "onClose" | "onMaximize" | "presentation" | "session">) {
+  return (
+    <header className="ai-chat-header">
+      <div>
+        <span className="ai-chat-status" aria-hidden="true" />
+        <p>Borealis</p>
+        <small>{session.configured ? session.model : "Connection needed"}</small>
+      </div>
+      <div className="ai-chat-header-actions">
+        <button aria-label="Start a new chat" disabled={session.isSending || (!session.messages.length && !session.error && !session.draft)} onClick={session.startNewChat} title="Start a new chat" type="button">
+          <Icon name="restart" size={16} />
+        </button>
+        {presentation === "popover" && onMaximize ? (
+          <button
+            aria-label="Open Borealis in the workspace"
+            onClick={(event) => {
+              event.currentTarget.blur();
+              requestAnimationFrame(onMaximize);
+            }}
+            type="button"
+          >
+            <Icon name="maximize" size={15} />
+          </button>
+        ) : null}
+        {presentation === "popover" ? (
+          <button aria-label="Close Borealis" onClick={onClose} title="Close Borealis" type="button">
+            <Icon name="close" size={17} />
+          </button>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
+function ChatTranscript({ onOpenSettings, session, transcriptRef }: Pick<ChatPanelProps, "onOpenSettings" | "session" | "transcriptRef">) {
+  return (
+    <div aria-live="polite" className="ai-chat-transcript" ref={transcriptRef}>
+      {!session.configured ? (
+        <div className="ai-chat-empty">
+          <span className="ai-chat-glyph" aria-hidden="true"><i /><i /><i /></span>
+          <h2>Connect Borealis</h2>
+          <p>Add an OpenAI-compatible endpoint, then choose one of its models.</p>
+          <button onClick={onOpenSettings} type="button">Open settings</button>
+        </div>
+      ) : session.messages.length === 0 ? (
+        <div className="ai-chat-empty">
+          <span className="ai-chat-glyph" aria-hidden="true"><i /><i /><i /></span>
+          <h2>Start here</h2>
+          <p>This conversation stays in memory until Amanite closes.</p>
+        </div>
+      ) : null}
+
+      {session.messages.map((message) => (
+        <article className={`ai-chat-message ${message.role}`} key={message.id}>
+          <span>{message.role === "user" ? "You" : "Borealis"}</span>
+          {message.role === "assistant" ? <MarkdownContent content={message.content} /> : <p className="ai-chat-message-content">{message.content}</p>}
+        </article>
+      ))}
+      {session.isSending ? <div className="ai-chat-thinking" aria-label="Borealis is responding"><i /><i /><i /></div> : null}
+      {session.error ? <p className="ai-chat-error" role="alert">{session.error}</p> : null}
+    </div>
+  );
+}
+
+function ChatComposer({ inputRef, session }: Pick<ChatPanelProps, "inputRef" | "session">) {
+  return (
+    <form className="ai-chat-compose" onSubmit={(event) => void session.send(event)}>
+      <textarea
+        aria-label="Message"
+        disabled={!session.configured || session.isSending}
+        onChange={(event) => session.setDraft(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void session.send();
+          }
+        }}
+        placeholder={session.configured ? "Ask Borealis something…" : "Configure Borealis in settings"}
+        ref={inputRef}
+        rows={2}
+        value={session.draft}
+      />
+      <button aria-label="Send message" disabled={!session.draft.trim() || session.isSending || !session.configured} title="Send message" type="submit">
+        <Icon name="arrow-up" size={18} />
+      </button>
+      <small>Enter to send · Shift+Enter for a new line</small>
+    </form>
+  );
+}
+
+function ChatPanel({ inputRef, onClose, onMaximize, onOpenSettings, presentation, session, transcriptRef }: ChatPanelProps) {
+  return (
+    <section aria-label="Borealis chat" className={`ai-chat-panel${presentation === "workspace" ? " ai-chat-workspace" : ""}`}>
+      <ChatHeader onClose={onClose} onMaximize={onMaximize} presentation={presentation} session={session} />
+      <ChatTranscript onOpenSettings={onOpenSettings} session={session} transcriptRef={transcriptRef} />
+      <ChatComposer inputRef={inputRef} session={session} />
+    </section>
+  );
+}
+
 function BorealisChat({ hidden = false, isOpen: controlledOpen, onMaximize, onOpenChange, onOpenSettings, presentation = "popover", showTrigger = true }: ChatProps) {
   const [localOpen, setLocalOpen] = useState(false);
   const isOpen = controlledOpen ?? localOpen;
@@ -159,87 +277,7 @@ function BorealisChat({ hidden = false, isOpen: controlledOpen, onMaximize, onOp
     if (visible) transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [session.messages, session.isSending, visible]);
 
-  const panel = (
-    <section aria-label="Borealis chat" className={`ai-chat-panel${presentation === "workspace" ? " ai-chat-workspace" : ""}`}>
-      <header className="ai-chat-header">
-        <div>
-          <span className="ai-chat-status" aria-hidden="true" />
-          <p>Borealis</p>
-          <small>{session.configured ? session.model : "Connection needed"}</small>
-        </div>
-        <div className="ai-chat-header-actions">
-          <button aria-label="Start a new chat" disabled={session.isSending || (!session.messages.length && !session.error && !session.draft)} onClick={session.startNewChat} title="Start a new chat" type="button">
-            <Icon name="restart" size={16} />
-          </button>
-          {presentation === "popover" && onMaximize ? (
-            <button
-              aria-label="Open Borealis in the workspace"
-              onClick={(event) => {
-                event.currentTarget.blur();
-                requestAnimationFrame(onMaximize);
-              }}
-              type="button"
-            >
-              <Icon name="maximize" size={15} />
-            </button>
-          ) : null}
-          {presentation === "popover" ? (
-            <button aria-label="Close Borealis" onClick={() => setIsOpen(false)} title="Close Borealis" type="button">
-              <Icon name="close" size={17} />
-            </button>
-          ) : null}
-        </div>
-      </header>
-
-      <div aria-live="polite" className="ai-chat-transcript" ref={transcriptRef}>
-        {!session.configured ? (
-          <div className="ai-chat-empty">
-            <span className="ai-chat-glyph" aria-hidden="true"><i /><i /><i /></span>
-            <h2>Connect Borealis</h2>
-            <p>Add an OpenAI-compatible endpoint, then choose one of its models.</p>
-            <button onClick={onOpenSettings} type="button">Open settings</button>
-          </div>
-        ) : session.messages.length === 0 ? (
-          <div className="ai-chat-empty">
-            <span className="ai-chat-glyph" aria-hidden="true"><i /><i /><i /></span>
-            <h2>Start here</h2>
-            <p>This conversation stays in memory until Amanite closes.</p>
-          </div>
-        ) : null}
-
-        {session.messages.map((message) => (
-          <article className={`ai-chat-message ${message.role}`} key={message.id}>
-            <span>{message.role === "user" ? "You" : "Borealis"}</span>
-            {message.role === "assistant" ? <MarkdownContent content={message.content} /> : <p className="ai-chat-message-content">{message.content}</p>}
-          </article>
-        ))}
-        {session.isSending ? <div className="ai-chat-thinking" aria-label="Borealis is responding"><i /><i /><i /></div> : null}
-        {session.error ? <p className="ai-chat-error" role="alert">{session.error}</p> : null}
-      </div>
-
-      <form className="ai-chat-compose" onSubmit={(event) => void session.send(event)}>
-        <textarea
-          aria-label="Message"
-          disabled={!session.configured || session.isSending}
-          onChange={(event) => session.setDraft(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void session.send();
-            }
-          }}
-          placeholder={session.configured ? "Ask Borealis something…" : "Configure Borealis in settings"}
-          ref={inputRef}
-          rows={2}
-          value={session.draft}
-        />
-        <button aria-label="Send message" disabled={!session.draft.trim() || session.isSending || !session.configured} title="Send message" type="submit">
-          <Icon name="arrow-up" size={18} />
-        </button>
-        <small>Enter to send · Shift+Enter for a new line</small>
-      </form>
-    </section>
-  );
+  const panel = <ChatPanel inputRef={inputRef} onClose={() => setIsOpen(false)} onMaximize={onMaximize} onOpenSettings={onOpenSettings} presentation={presentation} session={session} transcriptRef={transcriptRef} />;
 
   if (presentation === "workspace") return panel;
 

@@ -75,11 +75,10 @@ body::after {
   min-height: 100vh;
 }
 
-.app-context-menu {
+.app-context-menu,
+.file-context-menu {
   position: fixed;
-  z-index: 80;
   display: grid;
-  width: 224px;
   gap: 2px;
   border: 1px solid var(--app-border-strong);
   border-radius: var(--radius-md);
@@ -93,7 +92,13 @@ body::after {
     0 0 0 1px color-mix(in srgb, var(--app-accent) 5%, transparent);
 }
 
-.app-context-label {
+.app-context-menu {
+  z-index: 80;
+  width: 224px;
+}
+
+.app-context-label,
+.file-context-label {
   min-width: 0;
   overflow: hidden;
   color: var(--app-subtle);
@@ -108,7 +113,8 @@ body::after {
   white-space: nowrap;
 }
 
-.app-context-menu button {
+.app-context-menu button,
+.file-context-menu button {
   display: flex;
   width: 100%;
   min-height: 30px;
@@ -122,7 +128,9 @@ body::after {
 }
 
 .app-context-menu button:hover,
-.app-context-menu button:focus-visible {
+.app-context-menu button:focus-visible,
+.file-context-menu button:hover,
+.file-context-menu button:focus-visible {
   outline: none;
   background: var(--sidebar-hover);
   color: var(--app-text);
