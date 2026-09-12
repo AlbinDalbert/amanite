@@ -10,9 +10,11 @@ export function startPointerResize(
   const stop = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", stop);
+    window.removeEventListener("pointercancel", stop);
     document.body.classList.remove("resizing-panel");
   };
   document.body.classList.add("resizing-panel");
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", stop, { once: true });
+  window.addEventListener("pointercancel", stop, { once: true });
 }

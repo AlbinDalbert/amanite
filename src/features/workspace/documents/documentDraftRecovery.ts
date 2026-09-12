@@ -7,18 +7,23 @@ type Options = {
   projectRoot: string;
   source: string;
   sourceHash: string | null | undefined;
+  isCurrent?: () => boolean;
 };
 
-export async function resolveDocumentDraft({ checkDraft, onRequestConfirmation, pagePath, projectRoot, source, sourceHash }: Options) {
+export async function resolveDocumentDraft({ checkDraft, isCurrent, onRequestConfirmation, pagePath, projectRoot, source, sourceHash }: Options) {
+  const stillCurrent = () => !isCurrent || isCurrent();
   if (!checkDraft) return { dirty: false, source };
+  if (!stillCurrent()) return { dirty: false, source };
 
   const draft = await readPageDraft(projectRoot, pagePath);
   if (!draft) return { dirty: false, source };
+  if (!stillCurrent()) return { dirty: false, source };
   if (draft.source === source) {
-    void clearPageDraft(projectRoot, pagePath);
+    if (stillCurrent()) void clearPageDraft(projectRoot, pagePath);
     return { dirty: false, source };
   }
 
+  if (!stillCurrent()) return { dirty: false, source };
   const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === sourceHash);
   const recover = await onRequestConfirmation(
     baselineMatches
@@ -28,6 +33,6 @@ export async function resolveDocumentDraft({ checkDraft, onRequestConfirmation, 
   );
   if (recover) return { dirty: true, source: draft.source };
 
-  void clearPageDraft(projectRoot, pagePath);
+  if (stillCurrent()) void clearPageDraft(projectRoot, pagePath);
   return { dirty: false, source };
 }

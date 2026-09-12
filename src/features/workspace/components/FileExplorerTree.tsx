@@ -20,7 +20,7 @@ function ExplorerFolderRow({ activeFolderPath, collapsedFolders, entry, onContex
   const collapsed = collapsedFolders.has(entry.path);
   const active = entry.path === activeFolderPath;
   return (
-    <li className="file-tree-node folder-node" key={`folder:${entry.path}`} role="treeitem" aria-expanded={!collapsed} aria-selected={active}>
+    <li className="file-tree-node folder-node" role="treeitem" aria-expanded={!collapsed} aria-selected={active}>
       <div
         className={`${dropTarget === entry.path ? "explorer-row folder drop-target" : "explorer-row folder"}${active ? " active" : ""}`}
         onContextMenu={(event) => onContextMenu(event, entry.path, "folder")}
@@ -40,7 +40,7 @@ function ExplorerFolderRow({ activeFolderPath, collapsedFolders, entry, onContex
 function ExplorerPageRow({ activePagePath, entry, isBusy, onContextMenu, onSelectPage, onSetDropTarget }: Props & { entry: Extract<ExplorerEntry, { kind: "page" }> }) {
   const active = entry.path === activePagePath;
   return (
-    <li className="file-tree-node" key={entry.path} role="treeitem" aria-selected={active}>
+    <li className="file-tree-node" role="treeitem" aria-selected={active}>
       <button
         className={active ? "explorer-row page active" : "explorer-row page"}
         draggable={!isBusy}
@@ -59,8 +59,8 @@ function ExplorerPageRow({ activePagePath, entry, isBusy, onContextMenu, onSelec
 
 export default function FileExplorerTree(props: Props) {
   const renderEntries = (entries: ExplorerEntry[]): React.ReactNode => entries.map((entry) => entry.kind === "folder"
-    ? <ExplorerFolderRow {...props} entry={entry} renderEntries={renderEntries} />
-    : <ExplorerPageRow {...props} entry={entry} />);
+    ? <ExplorerFolderRow key={`folder:${entry.path}`} {...props} entry={entry} renderEntries={renderEntries} />
+    : <ExplorerPageRow key={`page:${entry.path}`} {...props} entry={entry} />);
 
   return <ul className="file-tree-group root" role="tree" aria-label="Project pages">{renderEntries(props.entries)}</ul>;
 }

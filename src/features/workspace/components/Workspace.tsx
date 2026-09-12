@@ -543,7 +543,9 @@ function useWorkspaceUiState(initialRoot: string) {
   const [draggedTab, setDraggedTab] = useState<DraggedWorkspaceTab | null>(null);
   const previousRootRef = useRef(initialRoot);
   const groupsRef = useRef(groups);
-  groupsRef.current = groups;
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
   return {
     closedTabs,
     draggedTab,

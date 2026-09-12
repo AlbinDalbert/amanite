@@ -144,7 +144,9 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
     links: savedPage?.links ?? savedProject.activePageLinks,
     backlinks: savedProject.activePageBacklinks,
     contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
-    nativeDocumentParts: savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
+    nativeDocumentParts: result.kind === "conflict"
+      ? currentBuffer.nativeDocumentParts
+      : savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
     nativeEdits: remainingEdits,
     conflict: result.kind === "conflict",
     dirty: failed || hasPendingNativeEdits || hasNewerEdits,
@@ -182,6 +184,7 @@ function updateBufferAfterSave({ clearDraft, current, currentPath, projectRoot, 
 type SaveContext = PersistenceOptions & {
   clearDraft: (projectRoot: string, pagePath: string) => void;
   forceRequests: Set<string>;
+  registerSavePath: (path: string) => void;
 };
 
 type SavePassResult = {
@@ -195,6 +198,7 @@ function publishSaveResult(context: SaveContext, currentPath: string, start: Doc
   const sent = result.sent;
   const resultingPath = result.resultingPath;
   let nextBufferDirty = false;
+  if (resultingPath !== currentPath) context.registerSavePath(resultingPath);
   context.commitBuffers((current) => {
     const update = updateBufferAfterSave({
       clearDraft: context.clearDraft,
@@ -281,6 +285,12 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
 
+  function releaseSavePromise(savePromise: Promise<boolean>) {
+    for (const [path, queuedPromise] of savePromises) {
+      if (queuedPromise === savePromise) savePromises.delete(path);
+    }
+  }
+
   function clearDraft(projectRoot: string, pagePath: string) {
     void clearPageDraft(projectRoot, pagePath).catch((error) => {
       onDraftStorageError?.(errorMessage(error));
@@ -292,6 +302,14 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
     const inFlight = savePromises.get(path);
     if (inFlight) return inFlight;
 
+    const queue = { promise: null as Promise<boolean> | null };
+    const registerSavePath = (queuedPath: string) => {
+      if (!queue.promise) return;
+      const existing = savePromises.get(queuedPath);
+      if (existing && existing !== queue.promise) return;
+      savePromises.set(queuedPath, queue.promise);
+    };
+
     const savePromise = runSaveQueue({
       buffersRef,
       clearDraft,
@@ -301,14 +319,16 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
       onDocumentPathChange,
       onDraftStorageError,
       projectRef,
-      publishProject
+      publishProject,
+      registerSavePath
     }, path);
 
-    savePromises.set(path, savePromise);
+    queue.promise = savePromise;
+    registerSavePath(path);
     void savePromise.then(() => {
-      if (savePromises.get(path) === savePromise) savePromises.delete(path);
+      releaseSavePromise(savePromise);
     }, () => {
-      if (savePromises.get(path) === savePromise) savePromises.delete(path);
+      releaseSavePromise(savePromise);
     });
     return savePromise;
   }

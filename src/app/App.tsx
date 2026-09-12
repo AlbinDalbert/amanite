@@ -97,7 +97,6 @@ function useWorkspaceCloseGuard() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const hasUnsavedRef = useRef(hasUnsavedChanges);
   const saveWorkspaceRef = useRef<(() => Promise<boolean>) | null>(null);
-  hasUnsavedRef.current = hasUnsavedChanges;
 
   const registerWorkspace = useCallback((dirty: boolean, save: (() => Promise<boolean>) | null) => {
     hasUnsavedRef.current = dirty;
@@ -107,7 +106,14 @@ function useWorkspaceCloseGuard() {
 
   const requestWindowClose = useCallback(async () => {
     const saveWorkspace = saveWorkspaceRef.current;
-    if (hasUnsavedRef.current && saveWorkspace && !(await saveWorkspace())) return;
+    if (hasUnsavedRef.current) {
+      if (!saveWorkspace) return;
+      try {
+        if (!(await saveWorkspace())) return;
+      } catch {
+        return;
+      }
+    }
     if (windowIsTauri()) await getCurrentWindow().destroy();
     else window.close();
   }, []);
@@ -121,7 +127,12 @@ function useWorkspaceCloseGuard() {
       if (!hasUnsavedRef.current) return;
       event.preventDefault();
       const saveWorkspace = saveWorkspaceRef.current;
-      if (saveWorkspace && !(await saveWorkspace())) return;
+      if (!saveWorkspace) return;
+      try {
+        if (!(await saveWorkspace())) return;
+      } catch {
+        return;
+      }
       await appWindow.destroy();
     }).then((removeListener) => {
       if (disposed) removeListener();

@@ -54,9 +54,16 @@ function applyKnownOption(options, argv, index, flag, inlineValue) {
 function applyValueOption(options, argv, index, flag, inlineValue) {
   const valueHandler = valueOptionHandlers.get(flag);
   if (!valueHandler) throw new Error(`Unknown argument: ${argv[index]}`);
-  const value = [inlineValue, argv[index + 1], ""].find((candidate) => candidate !== undefined);
-  valueHandler(options, value);
-  return inlineValue === undefined ? 2 : 1;
+  if (inlineValue !== undefined) {
+    valueHandler(options, inlineValue);
+    return 1;
+  }
+
+  const separateValue = argv[index + 1];
+  if (separateValue === undefined || separateValue === "" || separateValue.startsWith("-")) return 1;
+
+  valueHandler(options, separateValue);
+  return 2;
 }
 
 function applyOption(options, argv, index) {

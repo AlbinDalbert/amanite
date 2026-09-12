@@ -29,14 +29,45 @@ function duplicatePageTitle(pageTitle: string | null | undefined, pages: Fractal
   return title;
 }
 
+function cleanupErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function clearDeletedDrafts(
+  projectRoot: string,
+  pagePaths: string[],
+  deletionLabel: string,
+  setCommandResult: (result: FractalCommandResult | null) => void
+) {
+  const failures: string[] = [];
+  for (const pagePath of pagePaths) {
+    try {
+      await clearPageDraft(projectRoot, pagePath);
+    } catch (error) {
+      failures.push(`${pagePath}: ${cleanupErrorMessage(error)}`);
+    }
+  }
+  if (failures.length) {
+    setCommandResult({
+      ok: false,
+      message: `${deletionLabel} Draft cleanup failed for ${failures.length} page${failures.length === 1 ? "" : "s"}.`,
+      details: failures.join("; ")
+    });
+  }
+}
+
 function reportDuplicateResult(result: FractalMutationBatchResult, setCommandResult: (result: FractalCommandResult | null) => void, setError: (message: string | null) => void, setFailureStatus: (status: FractalFailureStatus | null) => void, setLastReceipt: (receipt: FractalMutationReceipt | null) => void) {
+  let hasWarning = false;
   for (const receipt of result.receipts) {
     setLastReceipt(receipt);
     const warning = receipt.warnings[0];
-    if (warning) setCommandResult({ ok: false, message: warning.message, details: warning.code });
+    if (warning) {
+      hasWarning = true;
+      setCommandResult({ ok: false, message: warning.message, details: warning.code });
+    }
   }
   if (!result.failure) {
-    setCommandResult({ ok: true, message: "Page duplicated.", details: result.project.activePagePath });
+    if (!hasWarning) setCommandResult({ ok: true, message: "Page duplicated.", details: result.project.activePagePath });
     return;
   }
   const failure = describeFractalFailure(result.failure);
@@ -49,7 +80,7 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
     const result = await withBusy("page", action);
     if (!result) return null;
     acceptMutation(result);
-    setCommandResult(success(result.project));
+    if (!result.receipt.warnings.length) setCommandResult(success(result.project));
     return result;
   }, [acceptMutation, setCommandResult, withBusy]);
 
@@ -136,9 +167,9 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
       () => fractalClient.deleteFolder(current, folderPath),
       () => ({ ok: true, message: "Folder deleted.", details: folderPath })
     );
-    if (result) for (const pagePath of pagePaths) void clearPageDraft(current.rootPath, pagePath);
+    if (result) await clearDeletedDrafts(current.rootPath, pagePaths, "Folder deleted.", setCommandResult);
     return result;
-  }, [activeProjectRef, busyRef, confirm, runMutation]);
+  }, [activeProjectRef, busyRef, confirm, runMutation, setCommandResult]);
 
   const moveProjectPage = useCallback(async (pagePath: string, destinationFolder: string) => {
     const current = activeProjectRef.current;
@@ -158,9 +189,9 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
       () => fractalClient.deletePage(current, pagePath),
       () => ({ ok: true, message: "Page deleted.", details: pagePath })
     );
-    if (result) void clearPageDraft(current.rootPath, pagePath);
+    if (result) await clearDeletedDrafts(current.rootPath, [pagePath], "Page deleted.", setCommandResult);
     return result;
-  }, [activeProjectRef, busyRef, confirm, runMutation]);
+  }, [activeProjectRef, busyRef, confirm, runMutation, setCommandResult]);
 
   return {
     createProjectFolder,

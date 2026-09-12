@@ -18,51 +18,66 @@ type Options = {
   setLoadingPaths: Dispatch<SetStateAction<Set<string>>>;
 };
 
+function loadingKey(projectRoot: string, pagePath: string) {
+  return `${projectRoot}\u0000${pagePath}`;
+}
+
 export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, onRequestConfirmation, projectRef, publishProject, setLoadErrors, setLoadingPaths }: Options) {
   const checkedDraftsRef = useRef(new Set<string>());
   const loadingPromisesRef = useRef(new Map<string, Promise<boolean>>());
 
-  const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean) => {
+  const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.activePagePath;
-    if (!path || loaded.activePageSource == null) return false;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot;
+    if (!path || loaded.activePageSource == null || loaded.rootPath !== projectRoot || !isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
       checkDraft,
+      isCurrent,
       onRequestConfirmation,
       pagePath: path,
-      projectRoot: loaded.rootPath,
+      projectRoot,
       source: loaded.activePageSource,
       sourceHash: loaded.activePageContentHash
     });
+    if (!isCurrent()) return false;
     const buffer = bufferFromProject(loaded, resolved.source, resolved.dirty);
-    if (!buffer) return false;
+    if (!buffer || !isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
+    if (!isCurrent()) return false;
     setLoadErrors((current) => {
       const next = { ...current };
       delete next[path];
       return next;
     });
+    if (!isCurrent()) return false;
     publishProject(loaded);
     return true;
-  }, [commitBuffers, onRequestConfirmation, publishProject, setLoadErrors]);
+  }, [commitBuffers, onRequestConfirmation, projectRef, publishProject, setLoadErrors]);
 
-  const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean) => {
+  const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.path;
-    const rootPath = projectRef.current.rootPath;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot;
+    if (!isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
       checkDraft,
+      isCurrent,
       onRequestConfirmation,
       pagePath: path,
-      projectRoot: rootPath,
+      projectRoot,
       source: loaded.source,
       sourceHash: loaded.contentHash
     });
+    if (!isCurrent()) return false;
     const buffer = bufferFromLoadedPage(loaded, resolved.source, resolved.dirty);
+    if (!isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
+    if (!isCurrent()) return false;
     setLoadErrors((current) => {
       const next = { ...current };
       delete next[path];
       return next;
     });
+    if (!isCurrent()) return false;
     const currentProject = projectRef.current;
     publishProject({
       ...currentProject,
@@ -84,14 +99,18 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const key = `${initialProject.rootPath}\u0000${path}`;
     if (checkedDraftsRef.current.has(key)) return;
     checkedDraftsRef.current.add(key);
-    void installLoadedProject(initialProject, true);
+    void installLoadedProject(initialProject, true, initialProject.rootPath);
   }, [initialProject, installLoadedProject]);
 
   const openDocument = useCallback((path: string, knownProject?: FractalProject): Promise<boolean> => {
     if (buffersRef.current[path]) return Promise.resolve(true);
-    const inFlight = loadingPromisesRef.current.get(path);
-    if (inFlight) return inFlight;
     const projectAtStart = projectRef.current;
+    const projectRoot = projectAtStart.rootPath;
+    const key = loadingKey(projectRoot, path);
+    const inFlight = loadingPromisesRef.current.get(key);
+    if (inFlight) return inFlight;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot;
+    const operation = { promise: null as Promise<boolean> | null };
     const loadPromise = (async () => {
       setLoadingPaths((current) => new Set(current).add(path));
       setLoadErrors((current) => {
@@ -100,35 +119,44 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
         return next;
       });
       try {
-        if (knownProject?.activePagePath === path && knownProject.activePageSource != null) {
-          return await installLoadedProject(knownProject, true);
+        if (knownProject?.rootPath === projectRoot && knownProject.activePagePath === path && knownProject.activePageSource != null) {
+          return await installLoadedProject(knownProject, true, projectRoot);
         }
         const loaded = await fractalClient.readPage(projectAtStart, path);
-        if (projectRef.current.rootPath !== projectAtStart.rootPath) return false;
-        return await installLoadedPage(loaded, true);
+        if (!isCurrent()) return false;
+        return await installLoadedPage(loaded, true, projectRoot);
       } catch (error) {
-        setLoadErrors((current) => ({ ...current, [path]: errorMessage(error) }));
+        if (isCurrent()) setLoadErrors((current) => ({ ...current, [path]: errorMessage(error) }));
         return false;
       } finally {
-        loadingPromisesRef.current.delete(path);
-        setLoadingPaths((current) => {
-          const next = new Set(current);
-          next.delete(path);
-          return next;
-        });
+        if (loadingPromisesRef.current.get(key) === operation.promise) loadingPromisesRef.current.delete(key);
+        if (isCurrent()) {
+          setLoadingPaths((current) => {
+            const next = new Set(current);
+            next.delete(path);
+            return next;
+          });
+        }
       }
     })();
-    loadingPromisesRef.current.set(path, loadPromise);
+    operation.promise = loadPromise;
+    loadingPromisesRef.current.set(key, loadPromise);
     return loadPromise;
   }, [buffersRef, installLoadedPage, installLoadedProject, projectRef, setLoadErrors, setLoadingPaths]);
 
   const reloadDocument = useCallback(async (path: string) => {
+    const projectAtStart = projectRef.current;
+    const projectRoot = projectAtStart.rootPath;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot;
     setLoadingPaths((current) => new Set(current).add(path));
     try {
-      const loaded = await fractalClient.readPage(projectRef.current, path);
-      void clearPageDraft(projectRef.current.rootPath, path);
-      return await installLoadedPage(loaded, false);
+      const loaded = await fractalClient.readPage(projectAtStart, path);
+      if (!isCurrent()) return false;
+      void clearPageDraft(projectRoot, path);
+      if (!isCurrent()) return false;
+      return await installLoadedPage(loaded, false, projectRoot);
     } catch (error) {
+      if (!isCurrent()) return false;
       commitBuffers((current) => {
         const buffer = current[path];
         if (!buffer) return current;
@@ -136,11 +164,13 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
       });
       return false;
     } finally {
-      setLoadingPaths((current) => {
-        const next = new Set(current);
-        next.delete(path);
-        return next;
-      });
+      if (isCurrent()) {
+        setLoadingPaths((current) => {
+          const next = new Set(current);
+          next.delete(path);
+          return next;
+        });
+      }
     }
   }, [commitBuffers, installLoadedPage, projectRef, setLoadingPaths]);
 
