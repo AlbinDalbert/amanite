@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFolderFindGroups, directParent, folderChildPath, shouldOpenFolderChild } from "./FolderView";
-import type { FolderExportNode } from "./FolderExportDialog";
+import type { FolderExportNode } from "./folderExportTreeBuilder";
 
 describe("folder view actions", () => {
   it("creates child paths inside root and nested folders", () => {

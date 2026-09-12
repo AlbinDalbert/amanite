@@ -11,10 +11,10 @@ const ALLOWED_ELEMENTS = new Set([
 ]);
 
 function allowedAttributes(tag: string) {
-  return tag === "a" ? ["href", "title"]
-    : tag === "h1" ? ["data-fractal-title"]
-    : tag === "td" || tag === "th" ? ["colspan", "rowspan"]
-    : [];
+  if (tag === "a") return ["href", "title"];
+  if (tag === "h1") return ["data-fractal-title"];
+  if (tag === "td" || tag === "th") return ["colspan", "rowspan"];
+  return [];
 }
 
 export function richEditorCompatibilityIssuesForRoot(root: ParentNode) {
@@ -23,8 +23,7 @@ export function richEditorCompatibilityIssuesForRoot(root: ParentNode) {
     const tag = element.tagName.toLowerCase();
     if (!ALLOWED_ELEMENTS.has(tag)) issues.push(`<${tag}>`);
     for (const attribute of Array.from(element.attributes)) {
-      const allowed = allowedAttributes(tag);
-      if (allowed && !allowed.includes(attribute.name)) issues.push(`<${tag}> ${attribute.name}`);
+      if (!allowedAttributes(tag).includes(attribute.name)) issues.push(`<${tag}> ${attribute.name}`);
     }
   }
   return [...new Set(issues)];
@@ -53,8 +52,7 @@ export function cleanEditorHtml(html: string) {
       continue;
     }
     for (const attribute of Array.from(element.attributes)) {
-      const allowed = allowedAttributes(tag);
-      if (allowed && !allowed.includes(attribute.name)) element.removeAttribute(attribute.name);
+      if (!allowedAttributes(tag).includes(attribute.name)) element.removeAttribute(attribute.name);
     }
   }
   return template.innerHTML || "<p></p>";

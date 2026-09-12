@@ -31,28 +31,29 @@ function menuPosition(event: globalThis.MouseEvent, actionCount: number) {
 
 function menuSurfaceLabel(target: EventTarget | null) {
   const element = target instanceof HTMLElement ? target : null;
+  const surfaces = [
+    ["Text field", "textarea, input, [contenteditable='true']"],
+    ["Inspector", ".fractal-inspector"],
+    ["Explorer", ".file-explorer, .sidebar"],
+    ["Workspace", ".workspace"],
+    ["Project library", ".start-screen"]
+  ] as const;
+  return surfaces.find(([, selector]) => element?.closest(selector))?.[0] ?? "Amanite";
+}
 
-  if (element?.closest("textarea, input, [contenteditable='true']")) {
-    return "Text field";
+function handleMenuKeyDown(event: KeyboardEvent, menuRef: { current: HTMLDivElement | null }, closeMenu: () => void) {
+  if (event.key === "Escape") {
+    closeMenu();
+    return;
   }
-
-  if (element?.closest(".fractal-inspector")) {
-    return "Inspector";
-  }
-
-  if (element?.closest(".file-explorer, .sidebar")) {
-    return "Explorer";
-  }
-
-  if (element?.closest(".workspace")) {
-    return "Workspace";
-  }
-
-  if (element?.closest(".start-screen")) {
-    return "Project library";
-  }
-
-  return "Amanite";
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+  if (!buttons.length) return;
+  event.preventDefault();
+  const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const delta = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex = (Math.max(0, currentIndex) + delta + buttons.length) % buttons.length;
+  buttons[nextIndex]?.focus();
 }
 
 function UniversalContextMenu({ actions = [], children }: UniversalContextMenuProps) {
@@ -119,27 +120,7 @@ function UniversalContextMenu({ actions = [], children }: UniversalContextMenuPr
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeMenu();
-        return;
-      }
-
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-        return;
-      }
-
-      const buttons = Array.from(
-        menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []
-      );
-      if (buttons.length === 0) {
-        return;
-      }
-
-      event.preventDefault();
-      const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex = (Math.max(0, currentIndex) + delta + buttons.length) % buttons.length;
-      buttons[nextIndex]?.focus();
+      handleMenuKeyDown(event, menuRef, closeMenu);
     }
 
     window.addEventListener("click", closeMenu);

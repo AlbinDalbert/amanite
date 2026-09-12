@@ -4,7 +4,8 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
 import { listenForEditorFlush } from "./editorFlush";
-import { AMANITE_HTML_LOAD_TAG, cleanEditorHtml, importHtmlIntoEditorInBatches } from "./editorHtml";
+import { AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
+import { cleanEditorHtml } from "./editorHtml";
 
 type Props = {
   bodyHtml: string;

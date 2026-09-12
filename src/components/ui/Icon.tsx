@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-export type IconName =
+type IconName =
   | "arrow-left"
   | "arrow-right"
   | "arrow-up"

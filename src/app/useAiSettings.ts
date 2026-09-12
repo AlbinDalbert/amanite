@@ -6,7 +6,7 @@ export type AiSettings = {
   model: string;
 };
 
-export const DEFAULT_AI_SETTINGS: AiSettings = {
+const DEFAULT_AI_SETTINGS: AiSettings = {
   endpoint: "",
   apiKey: "",
   model: ""

@@ -54,7 +54,7 @@ function applySection(
   }
 }
 
-type NativeSaveResult =
+export type NativeSaveResult =
   | { kind: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
   | { kind: "conflict" | "failed"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string };
 
@@ -121,6 +121,162 @@ function mergeSavedProject(
   };
 }
 
+function pendingNativeEdits(currentEdits: FractalNativeSectionEdits, sent: FractalNativeSectionEdits) {
+  const remaining = { ...currentEdits };
+  for (const section of Object.keys(sent) as FractalNativeSection[]) {
+    if (remaining[section] === sent[section]) delete remaining[section];
+  }
+  return remaining;
+}
+
+export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: DocumentBuffer, result: NativeSaveResult, savedProject: FractalProject, resultingPath: string, sent: FractalNativeSectionEdits) {
+  const remainingEdits = pendingNativeEdits(currentBuffer.nativeEdits, sent);
+  const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
+  const hasNewerEdits = currentBuffer.revision !== start.revision;
+  const failed = result.kind !== "saved";
+  const savedPage = pageForProject(savedProject, resultingPath);
+  return {
+    ...currentBuffer,
+    path: resultingPath,
+    source: failed || hasPendingNativeEdits || hasNewerEdits
+      ? currentBuffer.source
+      : savedProject.activePageSource ?? currentBuffer.source,
+    links: savedPage?.links ?? savedProject.activePageLinks,
+    backlinks: savedProject.activePageBacklinks,
+    contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
+    nativeDocumentParts: savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
+    nativeEdits: remainingEdits,
+    conflict: result.kind === "conflict",
+    dirty: failed || hasPendingNativeEdits || hasNewerEdits,
+    error: result.kind === "conflict"
+      ? "This page changed on disk. Reload it or replace the external version."
+      : result.kind === "failed" ? result.message : null,
+    operation: null
+  } satisfies DocumentBuffer;
+}
+
+function updateBufferAfterSave({ clearDraft, current, currentPath, projectRoot, result, resultingPath, savedProject, sent, start }: {
+  clearDraft: (projectRoot: string, pagePath: string) => void;
+  current: DocumentBuffers;
+  currentPath: string;
+  projectRoot: string;
+  result: NativeSaveResult;
+  resultingPath: string;
+  savedProject: FractalProject;
+  sent: FractalNativeSectionEdits;
+  start: DocumentBuffer;
+}) {
+  const currentBuffer = current[currentPath] ?? current[resultingPath];
+  if (!currentBuffer) return { buffers: current, dirty: false };
+  const nextBuffer = nextDocumentBuffer(currentBuffer, start, result, savedProject, resultingPath, sent);
+  const next = { ...current };
+  delete next[currentPath];
+  next[resultingPath] = nextBuffer;
+  if (!nextBuffer.dirty) {
+    clearDraft(projectRoot, currentPath);
+    if (resultingPath !== currentPath) clearDraft(projectRoot, resultingPath);
+  }
+  return { buffers: next, dirty: nextBuffer.dirty };
+}
+
+type SaveContext = PersistenceOptions & {
+  clearDraft: (projectRoot: string, pagePath: string) => void;
+  forceRequests: Set<string>;
+};
+
+type SavePassResult = {
+  kind: "finished" | "retry";
+  path: string;
+  success: boolean;
+};
+
+function publishSaveResult(context: SaveContext, currentPath: string, start: DocumentBuffer, result: NativeSaveResult) {
+  const savedProject = result.project;
+  const sent = result.sent;
+  const resultingPath = result.resultingPath;
+  let nextBufferDirty = false;
+  context.commitBuffers((current) => {
+    const update = updateBufferAfterSave({
+      clearDraft: context.clearDraft,
+      current,
+      currentPath,
+      projectRoot: context.projectRef.current.rootPath,
+      result,
+      resultingPath,
+      savedProject,
+      sent,
+      start
+    });
+    nextBufferDirty = update.dirty;
+    return update.buffers;
+  });
+
+  const currentBuffer = context.buffersRef.current[currentPath] ?? context.buffersRef.current[resultingPath];
+  const nextProject = mergeSavedProject(
+    context.projectRef.current,
+    savedProject,
+    currentPath,
+    resultingPath,
+    currentBuffer?.source ?? start.source,
+    result.kind === "saved" && !currentBuffer?.dirty
+  );
+  context.projectRef.current = nextProject;
+  context.publishProject(nextProject);
+  if (resultingPath !== currentPath) context.onDocumentPathChange(currentPath, resultingPath);
+  return { nextBufferDirty, resultingPath };
+}
+
+async function savePass(context: SaveContext, path: string, force: boolean): Promise<SavePassResult> {
+  context.flushDocument?.(path);
+  const start = context.buffersRef.current[path];
+  if (!start) return { kind: "finished", path, success: true };
+  if (!start.dirty && !force) return { kind: "finished", path, success: true };
+  context.commitBuffers((current) => {
+    const buffer = current[path];
+    return buffer
+      ? { ...current, [path]: { ...buffer, operation: "save", error: null } }
+      : current;
+  });
+
+  try {
+    const result = await saveNativeDocument(context.projectRef.current, start, force);
+    const update = publishSaveResult(context, path, start, result);
+    if (result.kind !== "saved") {
+      return { kind: "finished", path: update.resultingPath, success: false };
+    }
+    return {
+      kind: update.nextBufferDirty ? "retry" : "finished",
+      path: update.resultingPath,
+      success: true
+    };
+  } catch (error) {
+    context.commitBuffers((current) => {
+      const buffer = current[path];
+      return buffer
+        ? { ...current, [path]: { ...buffer, operation: null, error: errorMessage(error) } }
+        : current;
+    });
+    return { kind: "finished", path, success: false };
+  }
+}
+
+async function runSaveQueue(context: SaveContext, originalPath: string) {
+  let currentPath = originalPath;
+  while (true) {
+    const force = context.forceRequests.delete(currentPath)
+      || (currentPath !== originalPath && context.forceRequests.delete(originalPath));
+    const pass = await savePass(context, currentPath, force);
+    currentPath = pass.path;
+    if (pass.kind === "retry") continue;
+    if (pass.success) {
+      context.forceRequests.delete(currentPath);
+      return true;
+    }
+    if (context.forceRequests.has(currentPath) || context.forceRequests.has(originalPath)) continue;
+    return false;
+  }
+}
+
 export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
@@ -136,105 +292,17 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
     const inFlight = savePromises.get(path);
     if (inFlight) return inFlight;
 
-    const savePromise = (async () => {
-      let currentPath = path;
-      while (true) {
-        // The editor export is debounced. Flush it before every queue pass so
-        // a close or project mutation cannot save an older HTML snapshot.
-        flushDocument?.(currentPath);
-        const start = buffersRef.current[currentPath];
-        const forceAttempt = forceRequests.delete(currentPath)
-          || (currentPath !== path && forceRequests.delete(path));
-        if (!start || (!start.dirty && !forceAttempt)) return true;
-
-        commitBuffers((current) => {
-          const buffer = current[currentPath];
-          return buffer
-            ? { ...current, [currentPath]: { ...buffer, operation: "save", error: null } }
-            : current;
-        });
-
-        try {
-          const result = await saveNativeDocument(projectRef.current, start, forceAttempt);
-          const savedProject = result.project;
-          const sent = result.sent;
-
-          const resultingPath = result.resultingPath;
-          let nextBufferDirty = false;
-          commitBuffers((current) => {
-            const currentBuffer = current[currentPath] ?? current[resultingPath];
-            if (!currentBuffer) return current;
-            const remainingEdits = { ...currentBuffer.nativeEdits };
-            for (const section of Object.keys(sent) as FractalNativeSection[]) {
-              if (remainingEdits[section] === sent[section]) delete remainingEdits[section];
-            }
-            const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
-            const hasNewerEdits = currentBuffer.revision !== start.revision;
-            const failed = result.kind !== "saved";
-            const savedPage = pageForProject(savedProject, resultingPath);
-            const nextBuffer: DocumentBuffer = {
-              ...currentBuffer,
-              path: resultingPath,
-              source: failed || hasPendingNativeEdits || hasNewerEdits
-                ? currentBuffer.source
-                : savedProject.activePageSource ?? currentBuffer.source,
-              links: savedPage?.links ?? savedProject.activePageLinks,
-              backlinks: savedProject.activePageBacklinks,
-              contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
-              nativeDocumentParts: savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
-              nativeEdits: remainingEdits,
-              conflict: result.kind === "conflict",
-              dirty: failed || hasPendingNativeEdits || hasNewerEdits,
-              error: result.kind === "conflict"
-                ? "This page changed on disk. Reload it or replace the external version."
-                : result.kind === "failed" ? result.message : null,
-              operation: null
-            };
-            const next = { ...current };
-            delete next[currentPath];
-            next[resultingPath] = nextBuffer;
-            nextBufferDirty = nextBuffer.dirty;
-            if (!nextBuffer.dirty) {
-              clearDraft(projectRef.current.rootPath, currentPath);
-              if (resultingPath !== currentPath) clearDraft(projectRef.current.rootPath, resultingPath);
-            }
-            return next;
-          });
-
-          const currentBuffer = buffersRef.current[currentPath] ?? buffersRef.current[resultingPath];
-          const nextProject = mergeSavedProject(
-            projectRef.current,
-            savedProject,
-            currentPath,
-            resultingPath,
-            currentBuffer?.source ?? start.source,
-            result.kind === "saved" && !currentBuffer?.dirty
-          );
-          projectRef.current = nextProject;
-          publishProject(nextProject);
-          if (resultingPath !== currentPath) {
-            onDocumentPathChange(currentPath, resultingPath);
-            currentPath = resultingPath;
-          }
-
-          if (result.kind !== "saved") {
-            if (forceRequests.has(currentPath) || forceRequests.has(path)) continue;
-            return false;
-          }
-          if (nextBufferDirty) continue;
-          forceRequests.delete(currentPath);
-          return true;
-        } catch (error) {
-          commitBuffers((current) => {
-            const buffer = current[currentPath];
-            return buffer
-              ? { ...current, [currentPath]: { ...buffer, operation: null, error: errorMessage(error) } }
-              : current;
-          });
-          return false;
-        }
-      }
-    })();
+    const savePromise = runSaveQueue({
+      buffersRef,
+      clearDraft,
+      commitBuffers,
+      flushDocument,
+      forceRequests,
+      onDocumentPathChange,
+      onDraftStorageError,
+      projectRef,
+      publishProject
+    }, path);
 
     savePromises.set(path, savePromise);
     void savePromise.then(() => {

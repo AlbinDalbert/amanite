@@ -36,6 +36,7 @@ export class DerivedLinkNode extends TextNode {
     this.__pagePath = pagePath;
   }
 
+  // fallow-ignore-next-line unused-class-member
   getTarget() { return this.getLatest().__target; }
 
   createDOM(config: EditorConfig, editor?: LexicalEditor) {
@@ -63,7 +64,10 @@ export class DerivedLinkNode extends TextNode {
     return { ...super.exportJSON(), pagePath: this.__pagePath, target: this.__target, type: "derived-link", version: 1 };
   }
 
+  // Lexical calls these overrides when deciding where text may be inserted.
+  // fallow-ignore-next-line unused-class-member
   canInsertTextBefore() { return false; }
+  // fallow-ignore-next-line unused-class-member
   canInsertTextAfter() { return false; }
 }
 

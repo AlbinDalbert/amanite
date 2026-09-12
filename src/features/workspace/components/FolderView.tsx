@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent, type RefObject } from "react";
 import Icon from "@/components/ui/Icon";
 import TreeLocation from "@/components/ui/TreeLocation";
 import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
@@ -6,11 +6,13 @@ import RichDocumentEditor from "@/features/editor/components/RichDocumentEditor"
 import { analyzeEditablePage, writeEditableBody, writeEditableTitle } from "@/features/editor/components/pageSource";
 import type { FractalFolder, FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalNativeSection, FractalPage } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
-import FolderExportDialog, { buildFolderExportTree, type FolderExportNode } from "./FolderExportDialog";
+import type { WorkspaceDocumentCallbacks } from "../workspaceCallbacks";
+import FolderExportDialog from "./FolderExportDialog";
+import { buildFolderExportTree, type FolderExportNode } from "./folderExportTreeBuilder";
 
 const FOLDER_CHILD_MIME = "application/x-amanite-folder-child";
 
-type Props = {
+type Props = WorkspaceDocumentCallbacks & {
   buffers: Record<string, DocumentBuffer>;
   borealisOpen: boolean;
   borealisWorkspace: boolean;
@@ -23,10 +25,6 @@ type Props = {
   projectName: string;
   spellCheck: boolean;
   focusMode: boolean;
-  onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
-  onCreateFolder: (path: string) => void;
-  onCreatePage: (title: string, folderPath?: string) => void;
-  onEnsurePage: (path: string) => Promise<boolean>;
   onExport: (options: FractalFolderHtmlExportOptions) => Promise<FractalFolderHtmlExportReport | null>;
   onOpenFolder: (path: string) => void;
   onOpenPage: (path: string) => void;
@@ -165,9 +163,308 @@ function InlineFolderEditor({ buffer, isBusy, pages, spellCheck, onChangeSource 
   );
 }
 
-function FolderView(props: Props) {
+type FolderSequenceInteractions = {
+  folders: FractalFolder[];
+  isBusy: boolean;
+  loadErrors: Record<string, string>;
+  loadingPaths: Set<string>;
+  onBeginEditing: (path: string) => void;
+  onChangeSource: Props["onChangeSource"];
+  onDragEnd: () => void;
+  onDragStartName: (name: string) => void;
+  onOpenChild: (event: MouseEvent, kind: "folder" | "native", path: string, missing: boolean, editing: boolean) => void;
+  onOpenFolder: Props["onOpenFolder"];
+  onOpenPage: Props["onOpenPage"];
+  onRemoveMissing: Props["onRemoveMissing"];
+  onReorderAt: (index: number) => void;
+  onSavePage: Props["onSavePage"];
+  onTrackDrop: (event: DragEvent, index: number) => void;
+  pages: FractalPage[];
+  spellCheck: boolean;
+};
+
+type FolderSequenceItemProps = FolderSequenceInteractions & {
+  buffer?: DocumentBuffer;
+  child: FractalFolder["children"][number];
+  dropIndex: number | null;
+  editingPath: string | null;
+  folderPath: string;
+  index: number;
+};
+
+type FolderSequenceActionsProps = {
+  buffer?: DocumentBuffer;
+  child: FractalFolder["children"][number];
+  isEditing: boolean;
+  missing: boolean;
+  onBeginEditing: (path: string) => void;
+  onOpenFolder: Props["onOpenFolder"];
+  onOpenPage: Props["onOpenPage"];
+  onRemoveMissing: Props["onRemoveMissing"];
+  onSavePage: Props["onSavePage"];
+  page?: FractalPage;
+  path: string;
+};
+
+function FolderSequenceActions({ buffer, child, isEditing, missing, onBeginEditing, onOpenFolder, onOpenPage, onRemoveMissing, onSavePage, page, path }: FolderSequenceActionsProps) {
+  return (
+    <div className="folder-sequence-actions">
+      {missing ? <button onClick={() => onRemoveMissing(child.kind, path)} type="button">Remove missing entry</button> : null}
+      {child.kind === "folder" && !missing ? <button onClick={() => onOpenFolder(path)} type="button">Open folder</button> : null}
+      {page && !missing ? <>
+        <button onClick={() => onBeginEditing(path)} type="button">{isEditing ? "Close editor" : "Edit here"}</button>
+        <button onClick={() => onOpenPage(path)} type="button">Open page</button>
+        {buffer?.dirty ? <button className="folder-save-page" onClick={() => onSavePage(path)} type="button">Save</button> : null}
+      </> : null}
+    </div>
+  );
+}
+
+type FolderSequenceCardProps = Omit<FolderSequenceItemProps, "dropIndex" | "editingPath" | "folderPath" | "index" | "onDragEnd" | "onDragStartName" | "onReorderAt" | "onTrackDrop"> & { isEditing: boolean; page?: FractalPage; path: string };
+
+function FolderSequenceHeader({ child, folders, isEditing, onBeginEditing, onOpenFolder, onOpenPage, onRemoveMissing, onSavePage, page, path, buffer }: Pick<FolderSequenceCardProps, "buffer" | "child" | "folders" | "isEditing" | "onBeginEditing" | "onOpenFolder" | "onOpenPage" | "onRemoveMissing" | "onSavePage" | "page" | "path">) {
+  return (
+    <header>
+      <div>
+        <small>{child.kind === "folder" ? "Folder" : child.status === "missing" ? "Missing page" : wordLabel(page?.text ?? "")}</small>
+        <h2>{child.kind === "folder" ? folders.find((candidate) => candidate.path === path)?.title || child.name : page?.title?.trim() || child.name}</h2>
+        <code>{path}</code>
+      </div>
+      <FolderSequenceActions buffer={buffer} child={child} isEditing={isEditing} missing={child.status === "missing"} onBeginEditing={onBeginEditing} onOpenFolder={onOpenFolder} onOpenPage={onOpenPage} onRemoveMissing={onRemoveMissing} onSavePage={onSavePage} page={page} path={path} />
+    </header>
+  );
+}
+
+function FolderSequenceBody({ buffer, child, isBusy, isEditing, loadErrors, loadingPaths, onChangeSource, page, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onChangeSource" | "page" | "pages" | "path" | "spellCheck">) {
+  return (
+    <>
+      {child.status === "missing" ? <p className="folder-missing-copy">Fractal kept this place because the item was removed outside the project engine.</p> : null}
+      {page && !isEditing ? <p className="folder-page-preview">{page.text.trim() || "This page is empty."}</p> : null}
+      {isEditing && loadingPaths.has(path) ? <p className="folder-inline-state">Loading page…</p> : null}
+      {isEditing && loadErrors[path] ? <p className="folder-inline-state error">{loadErrors[path]}</p> : null}
+      {isEditing && buffer ? (
+        <div className="folder-document-editor">
+          <InlineFolderEditor buffer={buffer} isBusy={isBusy} pages={pages} spellCheck={spellCheck} onChangeSource={(source, nativeSection) => onChangeSource(path, source, nativeSection)} />
+          {buffer.error ? <p className="folder-inline-state error">{buffer.error}</p> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function FolderSequenceCard(props: FolderSequenceCardProps) {
+  return (
+    <article className="folder-sequence-card" onDoubleClick={(event) => props.onOpenChild(event, props.child.kind, props.path, props.child.status === "missing", props.isEditing)} title={props.child.status !== "missing" && !props.isEditing ? "Double-click to open" : undefined}>
+      <FolderSequenceHeader buffer={props.buffer} child={props.child} folders={props.folders} isEditing={props.isEditing} onBeginEditing={props.onBeginEditing} onOpenFolder={props.onOpenFolder} onOpenPage={props.onOpenPage} onRemoveMissing={props.onRemoveMissing} onSavePage={props.onSavePage} page={props.page} path={props.path} />
+      <FolderSequenceBody buffer={props.buffer} child={props.child} isBusy={props.isBusy} isEditing={props.isEditing} loadErrors={props.loadErrors} loadingPaths={props.loadingPaths} onChangeSource={props.onChangeSource} page={props.page} pages={props.pages} path={props.path} spellCheck={props.spellCheck} />
+    </article>
+  );
+}
+
+function FolderSequenceItem(props: FolderSequenceItemProps) {
+  const { buffer, child, dropIndex, editingPath, folderPath, folders, index, isBusy, loadErrors, loadingPaths, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onSavePage, onTrackDrop, pages, spellCheck } = props;
+  const path = folderChildPath(folderPath, child.name);
+  const page = child.kind === "native" ? pages.find((candidate) => candidate.path === path) : undefined;
+  const isEditing = path === editingPath;
+  const missing = child.status === "missing";
+
+  return (
+    <li
+      className={`folder-sequence-item ${child.kind}${missing ? " missing" : ""}${isEditing ? " editing" : ""}${dropIndex === index ? " drop-before" : ""}`}
+      draggable={!isBusy && !isEditing}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => onTrackDrop(event, index)}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(FOLDER_CHILD_MIME, child.name);
+        onDragStartName(child.name);
+      }}
+      onDrop={(event) => { event.preventDefault(); onReorderAt(dropIndex ?? index); }}
+    >
+      <div className="folder-sequence-spine"><span>{String(index + 1).padStart(2, "0")}</span><i /></div>
+      <FolderSequenceCard
+        buffer={buffer}
+        child={child}
+        folders={folders}
+        isBusy={isBusy}
+        isEditing={isEditing}
+        loadErrors={loadErrors}
+        loadingPaths={loadingPaths}
+        onBeginEditing={onBeginEditing}
+        onChangeSource={onChangeSource}
+        onOpenChild={onOpenChild}
+        onOpenFolder={onOpenFolder}
+        onOpenPage={onOpenPage}
+        onRemoveMissing={onRemoveMissing}
+        onSavePage={onSavePage}
+        page={page}
+        pages={pages}
+        path={path}
+        spellCheck={spellCheck}
+      />
+    </li>
+  );
+}
+
+function FolderViewHeader({ folder, isBusy, onOpenFolder, onTitleChange, onTitleCommit, projectName, title }: {
+  folder: FractalFolder;
+  isBusy: boolean;
+  onOpenFolder: Props["onOpenFolder"];
+  onTitleChange: (title: string) => void;
+  onTitleCommit: () => void;
+  projectName: string;
+  title: string;
+}) {
+  const nativeCount = folder.children.filter((child) => child.kind === "native" && child.status === "present").length;
+  const folderCount = folder.children.filter((child) => child.kind === "folder" && child.status === "present").length;
+  return (
+    <header className="folder-view-header">
+      <div className="folder-view-eyebrow">
+        <TreeLocation currentKind="folder" disabled={isBusy} onNavigateFolder={onOpenFolder} onUp={folder.path ? () => onOpenFolder(directParent(folder.path)) : undefined} path={folder.path} projectName={projectName} upTitle={`Go up to ${directParent(folder.path) || "Pages"}`} />
+      </div>
+      <input
+        aria-label="Folder title"
+        disabled={isBusy}
+        onBlur={onTitleCommit}
+        onChange={(event) => onTitleChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") { onTitleChange(folder.title); event.currentTarget.blur(); }
+        }}
+        value={title}
+      />
+      <div className="folder-view-summary">
+        <span>{nativeCount} {nativeCount === 1 ? "page" : "pages"}</span>
+        <span>{folderCount} {folderCount === 1 ? "folder" : "folders"}</span>
+        <span>{folder.order ? "Custom order" : "Default order"}</span>
+      </div>
+    </header>
+  );
+}
+
+type FolderSequenceProps = FolderSequenceInteractions & {
+  addMenu: "top" | "bottom" | "empty" | null;
+  buffers: Record<string, DocumentBuffer>;
+  dropIndex: number | null;
+  editingPath: string | null;
+  folder: FractalFolder;
+  onBeginCreating: (kind: "page" | "folder") => void;
+  onSetAddMenu: (menu: "top" | "bottom" | "empty" | null) => void;
+};
+
+function FolderSequence(props: FolderSequenceProps) {
+  const { addMenu, buffers, dropIndex, editingPath, folder, folders, isBusy, loadErrors, loadingPaths, onBeginCreating, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onSavePage, onSetAddMenu, onTrackDrop, pages, spellCheck } = props;
+  const toggleAddMenu = (menu: "top" | "bottom" | "empty") => onSetAddMenu(addMenu === menu ? null : menu);
+  return (
+    <ol className="folder-sequence">
+      {folder.children.length ? <FolderAddControl isBusy={isBusy} open={addMenu === "top"} placement="top" onCreate={onBeginCreating} onOpen={() => toggleAddMenu("top")} /> : null}
+      {!folder.children.length ? <EmptyFolderControl isBusy={isBusy} open={addMenu === "empty"} onCreate={onBeginCreating} onOpen={() => toggleAddMenu("empty")} /> : null}
+      {folder.children.map((child, index) => <FolderSequenceItem
+        buffer={buffers[folderChildPath(folder.path, child.name)]}
+        child={child}
+        dropIndex={dropIndex}
+        editingPath={editingPath}
+        folderPath={folder.path}
+        folders={folders}
+        index={index}
+        isBusy={isBusy}
+        key={`${child.kind}:${child.name}`}
+        loadErrors={loadErrors}
+        loadingPaths={loadingPaths}
+        onBeginEditing={onBeginEditing}
+        onChangeSource={onChangeSource}
+        onDragEnd={onDragEnd}
+        onDragStartName={onDragStartName}
+        onOpenChild={onOpenChild}
+        onOpenFolder={onOpenFolder}
+        onOpenPage={onOpenPage}
+        onRemoveMissing={onRemoveMissing}
+        onReorderAt={onReorderAt}
+        onSavePage={onSavePage}
+        onTrackDrop={onTrackDrop}
+        pages={pages}
+        spellCheck={spellCheck}
+      />)}
+      {dropIndex === folder.children.length ? <li className="folder-sequence-end-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onReorderAt(folder.children.length); }} /> : null}
+      {folder.children.length ? <FolderAddControl isBusy={isBusy} open={addMenu === "bottom"} placement="bottom" onCreate={onBeginCreating} onOpen={() => toggleAddMenu("bottom")} /> : null}
+    </ol>
+  );
+}
+
+function FolderIssues({ issues }: { issues: FractalFolder["issues"] }) {
+  if (!issues.length) return null;
+  return <section className="folder-issues"><span>Folder issues</span>{issues.map((issue) => <p key={`${issue.name}:${issue.message}`}><strong>{issue.name}</strong>{issue.message}</p>)}</section>;
+}
+
+function FolderFindGroup({ group, onOpenPage }: { group: FolderFindGroup; onOpenPage: Props["onOpenPage"] }) {
+  return (
+    <section>
+      <header><strong>{group.title}</strong><code>{group.path || "Pages"}</code></header>
+      {group.pages.map((page) => <div className="folder-find-page" key={page.path}><button onClick={() => onOpenPage(page.path)} type="button"><strong>{page.title}</strong><small>{page.matches.length} {page.matches.length === 1 ? "match" : "matches"}</small></button>{page.matches.map((snippet, index) => <p key={`${page.path}:${index}`}>{snippet}</p>)}</div>)}
+    </section>
+  );
+}
+
+function FolderFindDrawer({ folderTitle, findCount, findGroups, findQuery, onChangeQuery, onClose, onOpenPage }: { folderTitle: string; findCount: number; findGroups: FolderFindGroup[]; findQuery: string; onChangeQuery: (query: string) => void; onClose: () => void; onOpenPage: Props["onOpenPage"] }) {
+  return (
+    <aside aria-label="Find in folder" className="folder-find-drawer">
+      <header><div><small>Find in folder</small><strong>{folderTitle}</strong></div><button aria-label="Close find" onClick={onClose} type="button">×</button></header>
+      <label><span>Search</span><input autoFocus onChange={(event) => onChangeQuery(event.currentTarget.value)} placeholder="Find text in this folder" value={findQuery} /></label>
+      <p className="folder-find-count">{findQuery ? `${findCount} ${findCount === 1 ? "match" : "matches"}` : "Type to search every page in export order."}</p>
+      <div className="folder-find-results">
+        {findQuery && !findCount ? <p>No matches in this folder.</p> : null}
+        {findGroups.map((group) => <FolderFindGroup group={group} key={group.path} onOpenPage={onOpenPage} />)}
+      </div>
+    </aside>
+  );
+}
+
+function FolderStatusBar({ borealisOpen, borealisWorkspace, folderWords, folderCharacters, focusMode, isBusy, isFindOpen, onExport, onFind, onToggleBorealis, onToggleFocus, pageCount }: {
+  borealisOpen: boolean;
+  borealisWorkspace: boolean;
+  folderCharacters: number;
+  folderWords: number;
+  focusMode: boolean;
+  isBusy: boolean;
+  isFindOpen: boolean;
+  onExport: () => void;
+  onFind: () => void;
+  onToggleBorealis: () => void;
+  onToggleFocus: () => void;
+  pageCount: number;
+}) {
+  return (
+    <footer className="document-status-bar folder-status-bar">
+      <div><span>{folderWords.toLocaleString()} words</span><span>{folderCharacters.toLocaleString()} characters</span><span>{pageCount.toLocaleString()} pages</span></div>
+      <div className="document-status-actions"><button aria-pressed={isFindOpen} onClick={onFind} type="button">Find</button><button disabled={isBusy} onClick={onExport} type="button">Export</button><BorealisTrigger isOpen={borealisOpen} isWorkspace={borealisWorkspace} onClick={onToggleBorealis} /><button aria-pressed={focusMode} onClick={onToggleFocus} type="button">{focusMode ? "Exit focus" : "Focus"}</button></div>
+    </footer>
+  );
+}
+
+function FolderCreateDialog({ createInputRef, createKind, createName, folderTitle, onChangeName, onClose, onSubmit }: {
+  createInputRef: RefObject<HTMLInputElement | null>;
+  createKind: "page" | "folder";
+  createName: string;
+  folderTitle: string;
+  onChangeName: (name: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <form aria-labelledby="folder-create-title" aria-modal="true" className="create-page-dialog" onSubmit={onSubmit} role="dialog">
+        <div className="dialog-header"><p className="dialog-kicker">Inside {folderTitle}</p><h2 id="folder-create-title">Create {createKind}</h2></div>
+        <label className="dialog-field"><span>{createKind === "page" ? "Title" : "Name"}</span><input onChange={(event) => onChangeName(event.currentTarget.value)} ref={createInputRef} value={createName} /></label>
+        <p className="dialog-note">{createKind === "page" ? "Fractal derives the filename from the title." : "The folder will appear in this sequence."}</p>
+        <div className="dialog-actions"><button className="ghost-action" onClick={onClose} type="button">Cancel</button><button className="primary-action" disabled={!createName.trim()} type="submit">Create</button></div>
+      </form>
+    </div>
+  );
+}
+
+function useFolderViewState(folder: FractalFolder) {
   const viewRef = useRef<HTMLElement>(null);
-  const [title, setTitle] = useState(props.folder.title);
+  const [title, setTitle] = useState(folder.title);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [draggedName, setDraggedName] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -178,8 +475,36 @@ function FolderView(props: Props) {
   const [createKind, setCreateKind] = useState<"page" | "folder" | null>(null);
   const [createName, setCreateName] = useState("");
   const createInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => setTitle(props.folder.title), [props.folder.path, props.folder.title]);
-  useEffect(() => setEditingPath(null), [props.folder.path]);
+  return {
+    addMenu,
+    createInputRef,
+    createKind,
+    createName,
+    draggedName,
+    dropIndex,
+    editingPath,
+    findQuery,
+    isExportOpen,
+    isFindOpen,
+    setAddMenu,
+    setCreateKind,
+    setCreateName,
+    setDraggedName,
+    setDropIndex,
+    setEditingPath,
+    setFindQuery,
+    setIsExportOpen,
+    setIsFindOpen,
+    setTitle,
+    title,
+    viewRef
+  };
+}
+
+function useFolderViewEffects(props: Props, state: ReturnType<typeof useFolderViewState>) {
+  const { addMenu, createInputRef, createKind, setAddMenu, setEditingPath, setIsFindOpen, setTitle, viewRef } = state;
+  useEffect(() => setTitle(props.folder.title), [props.folder.path, props.folder.title, setTitle]);
+  useEffect(() => setEditingPath(null), [props.folder.path, setEditingPath]);
   useEffect(() => {
     const openFind = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "f") return;
@@ -189,7 +514,7 @@ function FolderView(props: Props) {
     };
     window.addEventListener("keydown", openFind);
     return () => window.removeEventListener("keydown", openFind);
-  }, []);
+  }, [setIsFindOpen, viewRef]);
   useEffect(() => {
     if (!addMenu) return;
     const closeMenu = (event: globalThis.MouseEvent) => {
@@ -202,16 +527,15 @@ function FolderView(props: Props) {
       window.removeEventListener("pointerdown", closeMenu);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [addMenu]);
+  }, [addMenu, setAddMenu]);
   useEffect(() => {
     if (!createKind) return;
     const frame = requestAnimationFrame(() => { createInputRef.current?.focus(); createInputRef.current?.select(); });
     return () => cancelAnimationFrame(frame);
-  }, [createKind]);
+  }, [createKind, createInputRef]);
+}
 
-  const orderedNames = props.folder.children.map((child) => child.name);
-  const nativeCount = props.folder.children.filter((child) => child.kind === "native" && child.status === "present").length;
-  const folderCount = props.folder.children.filter((child) => child.kind === "folder" && child.status === "present").length;
+function useFolderViewData(props: Props, state: ReturnType<typeof useFolderViewState>) {
   const exportTree = useMemo(() => buildFolderExportTree(props.folder, props.folders, props.pages), [props.folder, props.folders, props.pages]);
   const orderedPagePaths = useMemo(() => {
     const paths: string[] = [];
@@ -220,11 +544,20 @@ function FolderView(props: Props) {
     return paths;
   }, [exportTree]);
   const scopedPages = orderedPagePaths.map((path) => props.pages.find((page) => page.path === path)).filter((page): page is FractalPage => Boolean(page));
-  const folderWords = scopedPages.reduce((total, page) => total + (page.text.trim() ? page.text.trim().split(/\s+/u).length : 0), 0);
-  const folderCharacters = scopedPages.reduce((total, page) => total + page.text.length, 0);
-  const findGroups = useMemo(() => buildFolderFindGroups(exportTree, props.pages, findQuery, props.folder.title, props.folder.path), [exportTree, findQuery, props.folder.path, props.folder.title, props.pages]);
-  const findCount = findGroups.reduce((total, group) => total + group.pages.reduce((subtotal, page) => subtotal + page.matches.length, 0), 0);
+  const findGroups = useMemo(() => buildFolderFindGroups(exportTree, props.pages, state.findQuery, props.folder.title, props.folder.path), [exportTree, props.folder.path, props.folder.title, props.pages, state.findQuery]);
+  return {
+    exportTree,
+    findCount: findGroups.reduce((total, group) => total + group.pages.reduce((subtotal, page) => subtotal + page.matches.length, 0), 0),
+    findGroups,
+    folderCharacters: scopedPages.reduce((total, page) => total + page.text.length, 0),
+    folderWords: scopedPages.reduce((total, page) => total + (page.text.trim() ? page.text.trim().split(/\s+/u).length : 0), 0),
+    orderedNames: props.folder.children.map((child) => child.name),
+    scopedPages
+  };
+}
 
+function useFolderViewActions(props: Props, state: ReturnType<typeof useFolderViewState>, data: ReturnType<typeof useFolderViewData>) {
+  const { createKind, createName, draggedName, editingPath, setAddMenu, setCreateKind, setCreateName, setDraggedName, setDropIndex, setEditingPath, setTitle, title } = state;
   function commitTitle() {
     const next = title.trim();
     if (!next) {
@@ -236,14 +569,14 @@ function FolderView(props: Props) {
 
   function reorderAt(index: number) {
     if (!draggedName) return;
-    const sourceIndex = orderedNames.indexOf(draggedName);
+    const sourceIndex = data.orderedNames.indexOf(draggedName);
     if (sourceIndex < 0) return;
-    const without = orderedNames.filter((name) => name !== draggedName);
+    const without = data.orderedNames.filter((name) => name !== draggedName);
     const insertion = Math.max(0, Math.min(index - (sourceIndex < index ? 1 : 0), without.length));
     const next = [...without.slice(0, insertion), draggedName, ...without.slice(insertion)];
     setDraggedName(null);
     setDropIndex(null);
-    if (next.some((name, position) => name !== orderedNames[position])) props.onReorder(next);
+    if (next.some((name, position) => name !== data.orderedNames[position])) props.onReorder(next);
   }
 
   function trackDrop(event: DragEvent, index: number) {
@@ -283,130 +616,56 @@ function FolderView(props: Props) {
     else props.onOpenPage(path);
   }
 
+  return { beginCreating, beginEditing, commitTitle, openChild, reorderAt, submitCreate, trackDrop };
+}
+
+function FolderView(props: Props) {
+  const state = useFolderViewState(props.folder);
+  useFolderViewEffects(props, state);
+  const data = useFolderViewData(props, state);
+  const actions = useFolderViewActions(props, state, data);
+  const { addMenu, createInputRef, createKind, createName, dropIndex, editingPath, findQuery, isExportOpen, isFindOpen, setAddMenu, setCreateKind, setCreateName, setDraggedName, setDropIndex, setFindQuery, setIsExportOpen, setIsFindOpen, setTitle, title, viewRef } = state;
+  const { findCount, findGroups, folderCharacters, folderWords, scopedPages } = data;
+  const { beginCreating, beginEditing, commitTitle, openChild, reorderAt, submitCreate, trackDrop } = actions;
+
   return (
     <section className="folder-view-shell" aria-label={`Folder ${props.folder.title}`} ref={viewRef}>
       <div aria-label={`Folder ${props.folder.title}`} className="folder-view">
-      <header className="folder-view-header">
-        <div className="folder-view-eyebrow">
-          <TreeLocation
-            currentKind="folder"
-            disabled={props.isBusy}
-            onNavigateFolder={props.onOpenFolder}
-            onUp={props.folder.path ? () => props.onOpenFolder(directParent(props.folder.path)) : undefined}
-            path={props.folder.path}
-            projectName={props.projectName}
-            upTitle={`Go up to ${directParent(props.folder.path) || "Pages"}`}
+        <FolderViewHeader folder={props.folder} isBusy={props.isBusy} onOpenFolder={props.onOpenFolder} onTitleChange={setTitle} onTitleCommit={commitTitle} projectName={props.projectName} title={title} />
+        <div className="folder-manuscript">
+          <FolderSequence
+            addMenu={addMenu}
+            buffers={props.buffers}
+            dropIndex={dropIndex}
+            editingPath={editingPath}
+            folder={props.folder}
+            folders={props.folders}
+            isBusy={props.isBusy}
+            loadErrors={props.loadErrors}
+            loadingPaths={props.loadingPaths}
+            onBeginCreating={beginCreating}
+            onBeginEditing={(path) => { void beginEditing(path); }}
+            onChangeSource={props.onChangeSource}
+            onDragEnd={() => { setDraggedName(null); setDropIndex(null); }}
+            onDragStartName={setDraggedName}
+            onOpenChild={openChild}
+            onOpenFolder={props.onOpenFolder}
+            onOpenPage={props.onOpenPage}
+            onRemoveMissing={props.onRemoveMissing}
+            onReorderAt={reorderAt}
+            onSavePage={props.onSavePage}
+            onSetAddMenu={setAddMenu}
+            onTrackDrop={trackDrop}
+            pages={props.pages}
+            spellCheck={props.spellCheck}
           />
+          <FolderIssues issues={props.folder.issues} />
         </div>
-        <input
-          aria-label="Folder title"
-          disabled={props.isBusy}
-          onBlur={commitTitle}
-          onChange={(event) => setTitle(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
-            if (event.key === "Escape") { setTitle(props.folder.title); event.currentTarget.blur(); }
-          }}
-          value={title}
-        />
-        <div className="folder-view-summary">
-          <span>{nativeCount} {nativeCount === 1 ? "page" : "pages"}</span>
-          <span>{folderCount} {folderCount === 1 ? "folder" : "folders"}</span>
-          <span>{props.folder.order ? "Custom order" : "Default order"}</span>
-        </div>
-      </header>
-
-      <div className="folder-manuscript">
-        <ol className="folder-sequence">
-          {props.folder.children.length ? <FolderAddControl isBusy={props.isBusy} open={addMenu === "top"} placement="top" onCreate={beginCreating} onOpen={() => setAddMenu((current) => current === "top" ? null : "top")} /> : null}
-          {!props.folder.children.length ? <EmptyFolderControl isBusy={props.isBusy} open={addMenu === "empty"} onCreate={beginCreating} onOpen={() => setAddMenu((current) => current === "empty" ? null : "empty")} /> : null}
-          {props.folder.children.map((child, index) => {
-            const path = folderChildPath(props.folder.path, child.name);
-            const page = child.kind === "native" ? props.pages.find((candidate) => candidate.path === path) : undefined;
-            const buffer = props.buffers[path];
-            const isEditing = path === editingPath;
-            const missing = child.status === "missing";
-            return (
-              <li
-                className={`folder-sequence-item ${child.kind}${missing ? " missing" : ""}${isEditing ? " editing" : ""}${dropIndex === index ? " drop-before" : ""}`}
-                draggable={!props.isBusy && !isEditing}
-                key={`${child.kind}:${child.name}`}
-                onDragEnd={() => { setDraggedName(null); setDropIndex(null); }}
-                onDragOver={(event) => trackDrop(event, index)}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(FOLDER_CHILD_MIME, child.name);
-                  setDraggedName(child.name);
-                }}
-                onDrop={(event) => { event.preventDefault(); reorderAt(dropIndex ?? index); }}
-              >
-                <div className="folder-sequence-spine"><span>{String(index + 1).padStart(2, "0")}</span><i /></div>
-                <article className="folder-sequence-card" onDoubleClick={(event) => openChild(event, child.kind, path, missing, isEditing)} title={!missing && !isEditing ? "Double-click to open" : undefined}>
-                  <header>
-                    <div>
-                      <small>{child.kind === "folder" ? "Folder" : missing ? "Missing page" : wordLabel(page?.text ?? "")}</small>
-                      <h2>{child.kind === "folder" ? props.folders.find((candidate) => candidate.path === path)?.title || child.name : page?.title?.trim() || child.name}</h2>
-                      <code>{path}</code>
-                    </div>
-                    <div className="folder-sequence-actions">
-                      {missing ? <button onClick={() => props.onRemoveMissing(child.kind, path)} type="button">Remove missing entry</button> : null}
-                      {child.kind === "folder" && !missing ? <button onClick={() => props.onOpenFolder(path)} type="button">Open folder</button> : null}
-                      {page && !missing ? <>
-                        <button onClick={() => void beginEditing(path)} type="button">{isEditing ? "Close editor" : "Edit here"}</button>
-                        <button onClick={() => props.onOpenPage(path)} type="button">Open page</button>
-                        {buffer?.dirty ? <button className="folder-save-page" onClick={() => props.onSavePage(path)} type="button">Save</button> : null}
-                      </> : null}
-                    </div>
-                  </header>
-                  {missing ? <p className="folder-missing-copy">Fractal kept this place because the item was removed outside the project engine.</p> : null}
-                  {page && !isEditing ? <p className="folder-page-preview">{page.text.trim() || "This page is empty."}</p> : null}
-                  {isEditing && props.loadingPaths.has(path) ? <p className="folder-inline-state">Loading page…</p> : null}
-                  {isEditing && props.loadErrors[path] ? <p className="folder-inline-state error">{props.loadErrors[path]}</p> : null}
-                  {isEditing && buffer ? (
-                    <div className="folder-document-editor">
-                      <InlineFolderEditor buffer={buffer} isBusy={props.isBusy} pages={props.pages} spellCheck={props.spellCheck} onChangeSource={(source, nativeSection) => props.onChangeSource(path, source, nativeSection)} />
-                      {buffer.error ? <p className="folder-inline-state error">{buffer.error}</p> : null}
-                    </div>
-                  ) : null}
-                </article>
-              </li>
-            );
-          })}
-          {dropIndex === props.folder.children.length ? <li className="folder-sequence-end-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); reorderAt(props.folder.children.length); }} /> : null}
-          {props.folder.children.length ? <FolderAddControl isBusy={props.isBusy} open={addMenu === "bottom"} placement="bottom" onCreate={beginCreating} onOpen={() => setAddMenu((current) => current === "bottom" ? null : "bottom")} /> : null}
-        </ol>
-
-        {props.folder.issues.length ? (
-          <section className="folder-issues"><span>Folder issues</span>{props.folder.issues.map((issue) => <p key={`${issue.name}:${issue.message}`}><strong>{issue.name}</strong>{issue.message}</p>)}</section>
-        ) : null}
       </div>
-      </div>
-      {isFindOpen ? (
-        <aside aria-label="Find in folder" className="folder-find-drawer">
-          <header><div><small>Find in folder</small><strong>{props.folder.title}</strong></div><button aria-label="Close find" onClick={() => setIsFindOpen(false)} type="button">×</button></header>
-          <label><span>Search</span><input autoFocus onChange={(event) => setFindQuery(event.currentTarget.value)} placeholder="Find text in this folder" value={findQuery} /></label>
-          <p className="folder-find-count">{findQuery ? `${findCount} ${findCount === 1 ? "match" : "matches"}` : "Type to search every page in export order."}</p>
-          <div className="folder-find-results">
-            {findQuery && !findCount ? <p>No matches in this folder.</p> : null}
-            {findGroups.map((group) => <section key={group.path}><header><strong>{group.title}</strong><code>{group.path || "Pages"}</code></header>{group.pages.map((page) => <div className="folder-find-page" key={page.path}><button onClick={() => props.onOpenPage(page.path)} type="button"><strong>{page.title}</strong><small>{page.matches.length} {page.matches.length === 1 ? "match" : "matches"}</small></button>{page.matches.map((snippet, index) => <p key={`${page.path}:${index}`}>{snippet}</p>)}</div>)}</section>)}
-          </div>
-        </aside>
-      ) : null}
-      <footer className="document-status-bar folder-status-bar">
-        <div><span>{folderWords.toLocaleString()} words</span><span>{folderCharacters.toLocaleString()} characters</span><span>{scopedPages.length.toLocaleString()} pages</span></div>
-        <div className="document-status-actions"><button aria-pressed={isFindOpen} onClick={() => setIsFindOpen((open) => !open)} type="button">Find</button><button disabled={props.isBusy} onClick={() => setIsExportOpen(true)} type="button">Export</button><BorealisTrigger isOpen={props.borealisOpen} isWorkspace={props.borealisWorkspace} onClick={props.onToggleBorealis} /><button aria-pressed={props.focusMode} onClick={props.onToggleFocus} type="button">{props.focusMode ? "Exit focus" : "Focus"}</button></div>
-      </footer>
+      {isFindOpen ? <FolderFindDrawer folderTitle={props.folder.title} findCount={findCount} findGroups={findGroups} findQuery={findQuery} onChangeQuery={setFindQuery} onClose={() => setIsFindOpen(false)} onOpenPage={props.onOpenPage} /> : null}
+      <FolderStatusBar borealisOpen={props.borealisOpen} borealisWorkspace={props.borealisWorkspace} folderCharacters={folderCharacters} folderWords={folderWords} focusMode={props.focusMode} isBusy={props.isBusy} isFindOpen={isFindOpen} onExport={() => setIsExportOpen(true)} onFind={() => setIsFindOpen((open) => !open)} onToggleBorealis={props.onToggleBorealis} onToggleFocus={props.onToggleFocus} pageCount={scopedPages.length} />
       {isExportOpen ? <FolderExportDialog folder={props.folder} folders={props.folders} pages={props.pages} onClose={() => setIsExportOpen(false)} onExport={props.onExport} /> : null}
-      {createKind ? (
-        <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setCreateKind(null)}>
-          <form aria-labelledby="folder-create-title" aria-modal="true" className="create-page-dialog" onSubmit={submitCreate} role="dialog">
-            <div className="dialog-header"><p className="dialog-kicker">Inside {props.folder.title}</p><h2 id="folder-create-title">Create {createKind}</h2></div>
-            <label className="dialog-field"><span>{createKind === "page" ? "Title" : "Name"}</span><input onChange={(event) => setCreateName(event.currentTarget.value)} ref={createInputRef} value={createName} /></label>
-            <p className="dialog-note">{createKind === "page" ? "Fractal derives the filename from the title." : "The folder will appear in this sequence."}</p>
-            <div className="dialog-actions"><button className="ghost-action" onClick={() => setCreateKind(null)} type="button">Cancel</button><button className="primary-action" disabled={!createName.trim()} type="submit">Create</button></div>
-          </form>
-        </div>
-      ) : null}
+      {createKind ? <FolderCreateDialog createInputRef={createInputRef} createKind={createKind} createName={createName} folderTitle={props.folder.title} onChangeName={setCreateName} onClose={() => setCreateKind(null)} onSubmit={submitCreate} /> : null}
     </section>
   );
 }

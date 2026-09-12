@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalConditionalWriteResult, FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
-import { createDocumentPersistence } from "./documentPersistence";
+import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -55,6 +55,60 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
 
 describe("document persistence", () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it("clears sent edits after a fully saved buffer", () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.source = NATIVE_SOURCE.replace("Before", "After");
+    buffer.nativeEdits = { content: "<p>After</p>" };
+    buffer.dirty = true;
+    buffer.revision = 1;
+    const savedProject = nativeProject(path, buffer.source, nativeParts({ contentHtml: "<p>After</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
+    const result: NativeSaveResult = { kind: "saved", project: savedProject, sent: buffer.nativeEdits, resultingPath: path };
+
+    expect(nextDocumentBuffer(buffer, buffer, result, savedProject, path, buffer.nativeEdits)).toMatchObject({
+      contentHash: "source-hash-2",
+      dirty: false,
+      error: null,
+      nativeEdits: {},
+      source: buffer.source
+    });
+  });
+
+  it("keeps a conflict dirty without replacing the local source", () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.source = NATIVE_SOURCE.replace("Before", "Local edit");
+    buffer.nativeEdits = { content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    const result: NativeSaveResult = { kind: "conflict", message: "page changed", project: initialProject, sent: buffer.nativeEdits, resultingPath: path };
+
+    expect(nextDocumentBuffer(buffer, buffer, result, initialProject, path, buffer.nativeEdits)).toMatchObject({
+      conflict: true,
+      dirty: true,
+      error: "This page changed on disk. Reload it or replace the external version.",
+      source: buffer.source
+    });
+  });
+
+  it("keeps unsent edits dirty after a partial failure", () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    const result: NativeSaveResult = { kind: "failed", message: "disk full", project: initialProject, sent: { title: "Renamed" }, resultingPath: "renamed.fractal.html" };
+
+    expect(nextDocumentBuffer(buffer, buffer, result, initialProject, result.resultingPath, result.sent)).toMatchObject({
+      dirty: true,
+      error: "disk full",
+      nativeEdits: { content: "<p>Local edit</p>" },
+      path: "renamed.fractal.html",
+      source: buffer.source
+    });
+  });
 
   it("leaves newer native edits dirty without replacing them", async () => {
     const path = "index.fractal.html";

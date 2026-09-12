@@ -1,10 +1,9 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clearPageDraft, readPageDraft } from "@/app/pageDrafts";
+import { clearPageDraft } from "@/app/pageDrafts";
 import { requestEditorFlush } from "@/features/editor/components/editorFlush";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalLoadedPage, FractalNativeSection, FractalProject } from "@/lib/fractal/types";
+import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import {
-  bufferFromLoadedPage,
   bufferFromProject,
   errorMessage,
   nativeEditsFromSource,
@@ -13,6 +12,7 @@ import {
 } from "./documents/documentBuffers";
 import { createDocumentPersistence } from "./documents/documentPersistence";
 import { useDocumentDrafts } from "./documents/useDocumentDrafts";
+import { useDocumentLoading } from "./documents/useDocumentLoading";
 import { useProjectFilePolling } from "./documents/useProjectFilePolling";
 
 export type { DocumentBuffer } from "./documents/documentBuffers";
@@ -25,7 +25,7 @@ type Options = {
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
 };
 
-export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPathChange, onProjectSnapshot, onRequestConfirmation }: Options) {
+function useWorkspaceDocumentState(initialProject: FractalProject) {
   const initialBuffer = bufferFromProject(initialProject);
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
@@ -36,9 +36,47 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const projectRef = useRef(project);
   const buffersRef = useRef(buffers);
   const previousRootRef = useRef(initialProject.rootPath);
-  const checkedDraftsRef = useRef(new Set<string>());
-  const loadingPromisesRef = useRef(new Map<string, Promise<boolean>>());
   const lastPollingNoticeRef = useRef(0);
+
+  return {
+    buffers,
+    buffersRef,
+    draftStorageError,
+    lastPollingNoticeRef,
+    loadErrors,
+    loadingPaths,
+    pollingNotice,
+    previousRootRef,
+    project,
+    projectRef,
+    setBuffers,
+    setDraftStorageError,
+    setLoadErrors,
+    setLoadingPaths,
+    setPollingNotice,
+    setProject
+  };
+}
+
+export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPathChange, onProjectSnapshot, onRequestConfirmation }: Options) {
+  const {
+    buffers,
+    buffersRef,
+    draftStorageError,
+    lastPollingNoticeRef,
+    loadErrors,
+    loadingPaths,
+    pollingNotice,
+    previousRootRef,
+    project,
+    projectRef,
+    setBuffers,
+    setDraftStorageError,
+    setLoadErrors,
+    setLoadingPaths,
+    setPollingNotice,
+    setProject
+  } = useWorkspaceDocumentState(initialProject);
 
   const commitBuffers = useCallback((updater: BufferUpdater) => {
     const next = updater(buffersRef.current);
@@ -80,129 +118,16 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setProject(initialProject);
   }, [initialProject]);
 
-  const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean) => {
-    const path = loaded.activePagePath;
-    if (!path || loaded.activePageSource == null) return false;
-    let source = loaded.activePageSource;
-    let dirty = false;
-    const draft = checkDraft ? await readPageDraft(loaded.rootPath, path) : null;
-    if (draft && draft.source !== source) {
-      const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === loaded.activePageContentHash);
-      const recover = await onRequestConfirmation(
-        baselineMatches
-          ? `Recover the unsaved draft for ${path}?`
-          : `The page changed on disk after this draft was created. Replace the disk version with the draft for ${path}?`,
-        baselineMatches ? "Recover draft" : "Replace with draft"
-      );
-      if (recover) {
-        source = draft.source;
-        dirty = true;
-      } else {
-        clearPageDraft(loaded.rootPath, path);
-      }
-    } else if (draft) {
-      clearPageDraft(loaded.rootPath, path);
-    }
-    const buffer = bufferFromProject(loaded, source, dirty);
-    if (!buffer) return false;
-    commitBuffers((current) => ({ ...current, [path]: buffer }));
-    setLoadErrors((current) => {
-      const next = { ...current };
-      delete next[path];
-      return next;
-    });
-    publishProject(loaded);
-    return true;
-  }, [commitBuffers, onRequestConfirmation, publishProject]);
-
-  const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean) => {
-    const path = loaded.path;
-    const rootPath = projectRef.current.rootPath;
-    let source = loaded.source;
-    let dirty = false;
-    const draft = checkDraft ? await readPageDraft(rootPath, path) : null;
-    if (draft && draft.source !== source) {
-      const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === loaded.contentHash);
-      const recover = await onRequestConfirmation(
-        baselineMatches
-          ? `Recover the unsaved draft for ${path}?`
-          : `The page changed on disk after this draft was created. Replace the disk version with the draft for ${path}?`,
-        baselineMatches ? "Recover draft" : "Replace with draft"
-      );
-      if (recover) {
-        source = draft.source;
-        dirty = true;
-      } else {
-        clearPageDraft(rootPath, path);
-      }
-    } else if (draft) {
-      clearPageDraft(rootPath, path);
-    }
-    const buffer = bufferFromLoadedPage(loaded, source, dirty);
-    commitBuffers((current) => ({ ...current, [path]: buffer }));
-    setLoadErrors((current) => {
-      const next = { ...current };
-      delete next[path];
-      return next;
-    });
-    const currentProject = projectRef.current;
-    publishProject({
-      ...currentProject,
-      pages: currentProject.pages.map((page) => page.path === path ? {
-        ...page,
-        contentHash: loaded.contentHash,
-        links: loaded.links
-      } : page),
-      ...(currentProject.activePagePath === path ? {
-        activePageNativeDocumentParts: loaded.nativeDocumentParts ?? null
-      } : {})
-    });
-    return true;
-  }, [commitBuffers, onRequestConfirmation, publishProject]);
-
-  useEffect(() => {
-    const path = initialProject.activePagePath;
-    if (!path || initialProject.activePageSource == null) return;
-    const key = `${initialProject.rootPath}\u0000${path}`;
-    if (checkedDraftsRef.current.has(key)) return;
-    checkedDraftsRef.current.add(key);
-    void installLoadedProject(initialProject, true);
-  }, [initialProject.activePagePath, initialProject.activePageSource, initialProject.rootPath, installLoadedProject]);
-
-  const openDocument = useCallback((path: string, knownProject?: FractalProject): Promise<boolean> => {
-    if (buffersRef.current[path]) return Promise.resolve(true);
-    const inFlight = loadingPromisesRef.current.get(path);
-    if (inFlight) return inFlight;
-    const projectAtStart = projectRef.current;
-    const loadPromise = (async () => {
-      setLoadingPaths((current) => new Set(current).add(path));
-      setLoadErrors((current) => {
-        const next = { ...current };
-        delete next[path];
-        return next;
-      });
-      try {
-        if (knownProject?.activePagePath === path && knownProject.activePageSource != null) {
-          return await installLoadedProject(knownProject, true);
-        }
-        const loaded = await fractalClient.readPage(projectAtStart, path);
-        if (projectRef.current.rootPath !== projectAtStart.rootPath) return false;
-        return await installLoadedPage(loaded, true);
-      } catch (error) {
-        setLoadErrors((current) => ({ ...current, [path]: errorMessage(error) }));
-        return false;
-      } finally {
-        loadingPromisesRef.current.delete(path);
-        setLoadingPaths((current) => {
-          const next = new Set(current);
-          next.delete(path);
-          return next;
-        });
-      }
-    })();
-    loadingPromisesRef.current.set(path, loadPromise);
-    return loadPromise;
-  }, [installLoadedPage, installLoadedProject]);
+  const { openDocument, reloadDocument } = useDocumentLoading({
+    buffersRef,
+    commitBuffers,
+    initialProject,
+    onRequestConfirmation,
+    projectRef,
+    publishProject,
+    setLoadErrors,
+    setLoadingPaths
+  });
 
   const updateSource = useCallback((path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => {
     commitBuffers((current) => {
@@ -220,28 +145,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       };
     });
   }, [commitBuffers]);
-
-  const reloadDocument = useCallback(async (path: string) => {
-    setLoadingPaths((current) => new Set(current).add(path));
-    try {
-      const loaded = await fractalClient.readPage(projectRef.current, path);
-      clearPageDraft(projectRef.current.rootPath, path);
-      return await installLoadedPage(loaded, false);
-    } catch (error) {
-      commitBuffers((current) => {
-        const buffer = current[path];
-        if (!buffer) return current;
-        return { ...current, [path]: { ...buffer, error: errorMessage(error) } };
-      });
-      return false;
-    } finally {
-      setLoadingPaths((current) => {
-        const next = new Set(current);
-        next.delete(path);
-        return next;
-      });
-    }
-  }, [commitBuffers, installLoadedPage]);
 
   const forgetDocument = useCallback((path: string) => {
     commitBuffers((current) => {
@@ -327,8 +230,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     autoSave,
     buffers,
     projectRoot: project.rootPath,
-    saveDocument: persistence.saveDocument
-    ,onStorageError: setDraftStorageError
+    saveDocument: persistence.saveDocument,
+    onStorageError: setDraftStorageError
   });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 

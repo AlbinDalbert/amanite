@@ -16,26 +16,6 @@ export type DerivedPageLinkTarget = {
 
 const ALPHANUMERIC = /[\p{L}\p{N}]/u;
 
-export function derivedPageLinkTargets(pagePath: string, pages: FractalPage[]) {
-  const grouped = new Map<string, DerivedPageLinkTarget[]>();
-  for (const page of pages) {
-    const title = page.title?.trim();
-    if (!title || page.path === pagePath) continue;
-    const key = title.toLocaleLowerCase();
-    grouped.set(key, [...(grouped.get(key) ?? []), { path: page.path, title }]);
-  }
-  return [...grouped.values()]
-    .filter((targets) => targets.length === 1)
-    .map(([target]) => target)
-    .filter((target): target is DerivedPageLinkTarget => Boolean(target))
-    .map((target) => ({
-      ...target,
-      firstCharacter: Array.from(target.title)[0]?.toLocaleLowerCase(),
-      normalizedTitle: target.title.toLocaleLowerCase()
-    }))
-    .sort((left, right) => Array.from(right.title).length - Array.from(left.title).length || left.path.localeCompare(right.path));
-}
-
 export function relativePageHref(from: string, target: string) {
   const fromParts = from.split("/");
   fromParts.pop();
@@ -46,6 +26,28 @@ export function relativePageHref(from: string, target: string) {
   }
   const href = [...fromParts.map(() => ".."), ...targetParts].join("/") || target.split("/").at(-1)!;
   return href.startsWith(".") ? href : `./${href}`;
+}
+
+export function derivedPageLinkTargets(pagePath: string, pages: FractalPage[]) {
+  const grouped = new Map<string, DerivedPageLinkTarget[]>();
+  for (const page of pages) {
+    const title = page.title?.trim();
+    if (!title || page.path === pagePath) continue;
+    const key = title.toLocaleLowerCase();
+    grouped.set(key, [...(grouped.get(key) ?? []), { path: page.path, title }]);
+  }
+  const uniqueTargets: DerivedPageLinkTarget[] = [];
+  for (const targets of grouped.values()) {
+    if (targets.length !== 1) continue;
+    const target = targets[0];
+    uniqueTargets.push({
+      ...target,
+      firstCharacter: Array.from(target.title)[0]?.toLocaleLowerCase(),
+      normalizedTitle: target.title.toLocaleLowerCase()
+    });
+  }
+  uniqueTargets.sort((left, right) => Array.from(right.title).length - Array.from(left.title).length || left.path.localeCompare(right.path));
+  return uniqueTargets;
 }
 
 export function findDerivedPageLinksForTargets(text: string, targets: DerivedPageLinkTarget[]): DerivedPageLinkMatch[] {

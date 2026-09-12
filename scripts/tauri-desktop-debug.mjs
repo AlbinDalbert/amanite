@@ -11,8 +11,8 @@ const defaultBinary = join(repoRoot, "src-tauri", "target", "debug", "amanite");
 const elementKey = "element-6066-11e4-a52e-4f735466cecf";
 const ctrlKey = "\uE009";
 
-function parseArgs(argv) {
-  const options = {
+function createDefaultOptions() {
+  return {
     doctor: false,
     keepOpen: false,
     port: Number(process.env.TAURI_WEBDRIVER_PORT || 4445),
@@ -20,43 +20,62 @@ function parseArgs(argv) {
     screenshotsDir: "",
     skipBuild: process.env.AMANITE_TAURI_WEBDRIVER_SKIP_BUILD === "1"
   };
+}
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
+function splitOption(arg) {
+  const separator = arg.indexOf("=");
+  return separator < 0
+    ? { flag: arg, value: undefined }
+    : { flag: arg.slice(0, separator), value: arg.slice(separator + 1) };
+}
 
-    if (arg === "--") {
-      continue;
-    }
+const booleanOptionHandlers = new Map([
+  ["--doctor", (options) => { options.doctor = true; }],
+  ["--keep-open", (options) => { options.keepOpen = true; }],
+  ["--skip-build", (options) => { options.skipBuild = true; }]
+]);
 
-    if (arg === "--doctor") {
-      options.doctor = true;
-    } else if (arg === "--keep-open") {
-      options.keepOpen = true;
-    } else if (arg === "--skip-build") {
-      options.skipBuild = true;
-    } else if (arg === "--port") {
-      options.port = Number(argv[++index]);
-    } else if (arg.startsWith("--port=")) {
-      options.port = Number(arg.slice("--port=".length));
-    } else if (arg === "--project-root") {
-      options.projectRoot = argv[++index] ?? "";
-    } else if (arg.startsWith("--project-root=")) {
-      options.projectRoot = arg.slice("--project-root=".length);
-    } else if (arg === "--screenshots-dir") {
-      options.screenshotsDir = argv[++index] ?? "";
-    } else if (arg.startsWith("--screenshots-dir=")) {
-      options.screenshotsDir = arg.slice("--screenshots-dir=".length);
-    } else if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
-    }
+const valueOptionHandlers = new Map([
+  ["--port", (options, value) => { options.port = Number(value); }],
+  ["--project-root", (options, value) => { options.projectRoot = value; }],
+  ["--screenshots-dir", (options, value) => { options.screenshotsDir = value; }]
+]);
+
+function applyKnownOption(options, argv, index, flag, inlineValue) {
+  const booleanHandler = booleanOptionHandlers.get(flag);
+  if (booleanHandler) {
+    booleanHandler(options);
+    return 1;
   }
 
-  if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
-    throw new Error(`Invalid --port value: ${options.port}`);
+  return applyValueOption(options, argv, index, flag, inlineValue);
+}
+
+function applyValueOption(options, argv, index, flag, inlineValue) {
+  const valueHandler = valueOptionHandlers.get(flag);
+  if (!valueHandler) throw new Error(`Unknown argument: ${argv[index]}`);
+  const value = [inlineValue, argv[index + 1], ""].find((candidate) => candidate !== undefined);
+  valueHandler(options, value);
+  return inlineValue === undefined ? 2 : 1;
+}
+
+function applyOption(options, argv, index) {
+  const arg = argv[index];
+  if (arg === "--") return 1;
+
+  const { flag, value: inlineValue } = splitOption(arg);
+  if (flag === "--help" || flag === "-h") {
+    printHelp();
+    process.exit(0);
   }
+  return applyKnownOption(options, argv, index, flag, inlineValue);
+}
+
+function parseArgs(argv) {
+  const options = createDefaultOptions();
+  for (let index = 0; index < argv.length;) index += applyOption(options, argv, index);
+
+  assertSmoke(Number.isInteger(options.port) && options.port >= 1 && options.port <= 65535, `Invalid --port value: ${options.port}`);
 
   return options;
 }
@@ -118,18 +137,30 @@ async function checkSetup() {
     ["cargo", commandExists("cargo")]
   ];
 
-  let ok = true;
   for (const [name, exists] of checks) {
     console.log(`${exists ? "✓" : "✗"} ${name}`);
-    ok &&= exists;
   }
 
   console.log("✓ embedded WebDriver path: tauri-plugin-wdio-webdriver feature");
   console.log("  (No external WebKitWebDriver / tauri-driver process required.)");
 
-  if (!ok) {
-    throw new Error("Missing required command(s). Install them before running desktop WebDriver.");
+  assertSmoke(checks.every(([, exists]) => exists), "Missing required command(s). Install them before running desktop WebDriver.");
+}
+
+async function webDriverAttempt(url, appProcess) {
+  if (appProcess.exitCode !== null) {
+    throw new Error(`Amanite exited before WebDriver was ready with code ${appProcess.exitCode}.`);
   }
+  try {
+    const response = await fetch(url);
+    return response.ok ? null : new Error(`${url} returned HTTP ${response.status}`);
+  } catch (error) {
+    return error;
+  }
+}
+
+function webDriverTimeoutMessage(url, lastError) {
+  return `${url}. Last error: ${lastError?.message ?? lastError}`;
 }
 
 async function waitForWebDriver(port, appProcess) {
@@ -138,26 +169,45 @@ async function waitForWebDriver(port, appProcess) {
   let lastError = null;
 
   while (Date.now() - started < 30_000) {
-    if (appProcess.exitCode !== null) {
-      throw new Error(`Amanite exited before WebDriver was ready with code ${appProcess.exitCode}.`);
-    }
-
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-      lastError = new Error(`${url} returned HTTP ${response.status}`);
-    } catch (error) {
-      lastError = error;
-    }
+    lastError = await webDriverAttempt(url, appProcess);
+    if (!lastError) return;
 
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
   }
 
-  throw new Error(
-    `Embedded Tauri WebDriver did not answer at ${url}. Last error: ${lastError?.message ?? lastError}`
-  );
+  throw new Error(`Embedded Tauri WebDriver did not answer at ${webDriverTimeoutMessage(url, lastError)}`);
+}
+
+function parseDriverResponse(response, text, method, path) {
+  const json = JSON.parse(text || "{}");
+  if (response.ok) return json;
+  const error = driverErrorMessage(json, text, response.statusText);
+  throw new Error(`${method} ${path} failed with HTTP ${response.status}: ${error}`);
+}
+
+function driverErrorMessage(json, text, statusText) {
+  return [json.value?.message, json.error, text, statusText].find(Boolean);
+}
+
+function elementId(json) {
+  return json.value?.[elementKey] ?? json.value?.ELEMENT;
+}
+
+async function findElementAttempt(client, selector) {
+  try {
+    const json = await client.request("POST", client.sessionPath("/element"), {
+      using: "css selector",
+      value: selector
+    });
+    const id = elementId(json);
+    return { id, error: id ? null : new Error(`No element id returned for ${selector}`) };
+  } catch (error) {
+    return { id: null, error };
+  }
+}
+
+function elementTimeoutMessage(selector, lastError) {
+  return `Timed out waiting for ${selector}: ${lastError?.message ?? lastError}`;
 }
 
 class DesktopWebDriverClient {
@@ -177,14 +227,7 @@ class DesktopWebDriverClient {
         signal: controller.signal
       });
       const text = await response.text();
-      const json = text ? JSON.parse(text) : {};
-
-      if (!response.ok) {
-        const error = json.value?.message || json.error || text || response.statusText;
-        throw new Error(`${method} ${path} failed with HTTP ${response.status}: ${error}`);
-      }
-
-      return json;
+      return parseDriverResponse(response, text, method, path);
     } finally {
       clearTimeout(timeout);
     }
@@ -226,26 +269,14 @@ class DesktopWebDriverClient {
     let lastError = null;
 
     while (Date.now() - started < timeout) {
-      try {
-        const json = await this.request("POST", this.sessionPath("/element"), {
-          using: "css selector",
-          value: selector
-        });
-        const id = json.value?.[elementKey] ?? json.value?.ELEMENT;
-
-        if (id) {
-          return id;
-        }
-
-        lastError = new Error(`No element id returned for ${selector}`);
-      } catch (error) {
-        lastError = error;
-      }
+      const attempt = await findElementAttempt(this, selector);
+      if (attempt.id) return attempt.id;
+      lastError = attempt.error;
 
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
     }
 
-    throw new Error(`Timed out waiting for ${selector}: ${lastError?.message ?? lastError}`);
+    throw new Error(elementTimeoutMessage(selector, lastError));
   }
 
   async click(selector, timeout) {
@@ -384,15 +415,19 @@ async function takeScreenshot(driver, screenshotsDir, name) {
   console.log(`screenshot: ${path}`);
 }
 
-async function runSmoke(driver, screenshotsDir, projectRoot) {
-  async function openRootExplorerMenu() {
-    await driver.executeScript(`
-      const explorer = document.querySelector('.file-explorer-surface');
-      explorer?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
-    `);
-    await driver.find(".file-context-menu");
-  }
+function assertSmoke(condition, message) {
+  if (!condition) throw new Error(message);
+}
 
+async function openRootExplorerMenu(driver) {
+  await driver.executeScript(`
+    const explorer = document.querySelector('.file-explorer-surface');
+    explorer?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
+  `);
+  await driver.find(".file-context-menu");
+}
+
+async function prepareSmokeProject(driver, screenshotsDir, projectRoot) {
   await driver.find("body");
   await driver.executeScript(`
     localStorage.removeItem("amanite.last-session.v1");
@@ -414,12 +449,8 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
       persistedAi: localStorage.getItem("amanite.ai.v1")
     };
   `);
-  if (securityState.inlineScriptRan) {
-    throw new Error(`Production CSP allowed an inline script: ${JSON.stringify(securityState)}`);
-  }
-  if (securityState.persistedAi?.includes("desktop-secret") || securityState.persistedAi?.includes("apiKey")) {
-    throw new Error(`The legacy API key remained in storage: ${securityState.persistedAi}`);
-  }
+  assertSmoke(!securityState.inlineScriptRan, `Production CSP allowed an inline script: ${JSON.stringify(securityState)}`);
+  assertSmoke(!securityState.persistedAi?.includes("desktop-secret") && !securityState.persistedAi?.includes("apiKey"), `The legacy API key remained in storage: ${securityState.persistedAi}`);
   await takeScreenshot(driver, screenshotsDir, "01-start-screen");
 
   const runSlug = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
@@ -429,11 +460,15 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
 
   await driver.setValue(".create-project-section input", projectName);
   await driver.click("button.primary-action");
-
   await driver.find(".workspace", 30_000);
   await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
   await driver.find('.editor-group-tab.folder.active button[role="tab"][title="Pages"]');
   await takeScreenshot(driver, screenshotsDir, "02-project-overview");
+
+  return { activeProjectRoot, projectName };
+}
+
+async function runWorkspaceSmoke(driver, screenshotsDir, projectName) {
   await driver.click(".folder-view-empty");
   await driver.click(".folder-empty-row .folder-add-menu button:first-child");
   await driver.setValue(".create-page-dialog input", "Index");
@@ -450,30 +485,24 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
       formattingLayer: Number(getComputedStyle(formatting).zIndex)
     };
   `);
-  if (compactSidebarState.actions || compactSidebarState.filter || compactSidebarState.notificationLayer <= compactSidebarState.formattingLayer) {
-    throw new Error(`Sidebar cleanup or notification layering regressed: ${JSON.stringify(compactSidebarState)}`);
-  }
+  assertSmoke(!compactSidebarState.actions && !compactSidebarState.filter && compactSidebarState.notificationLayer > compactSidebarState.formattingLayer, `Sidebar cleanup or notification layering regressed: ${JSON.stringify(compactSidebarState)}`);
   await driver.click(".brand-home");
   await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
   await driver.click('[title="index.fractal.html"]');
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
 
   const borealisPlacement = await driver.executeScript(`return document.querySelector('.ai-chat-trigger')?.parentElement?.className;`);
-  if (borealisPlacement !== "document-status-actions") {
-    throw new Error(`Borealis trigger is not in the document footer: ${borealisPlacement}`);
-  }
+  assertSmoke(borealisPlacement === "document-status-actions", `Borealis trigger is not in the document footer: ${borealisPlacement}`);
   await driver.click(".ai-chat-trigger");
   await driver.find(".ai-chat-panel");
   const chatEmptyState = await driver.text(".ai-chat-empty h2");
-  if (chatEmptyState !== "Connect Borealis" && chatEmptyState !== "Start here") {
-    throw new Error(`Borealis did not show its connection state: ${chatEmptyState}`);
-  }
+  assertSmoke(chatEmptyState === "Connect Borealis" || chatEmptyState === "Start here", `Borealis did not show its connection state: ${chatEmptyState}`);
   await takeScreenshot(driver, screenshotsDir, "02a-borealis");
   await driver.click('.ai-chat-header button[aria-label="Open Borealis in the workspace"]');
   await driver.find('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.borealis.active');
   await driver.find('.borealis-tab-panel .ai-chat-workspace');
   const staleBorealisTooltip = await driver.executeScript(`return Boolean(document.querySelector('.themed-tooltip'));`);
-  if (staleBorealisTooltip) throw new Error("The Borealis maximize tooltip remained after the popover closed.");
+  assertSmoke(!staleBorealisTooltip, "The Borealis maximize tooltip remained after the popover closed.");
   await takeScreenshot(driver, screenshotsDir, "02b-borealis-tab");
 
   await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.borealis .editor-group-tab-split');
@@ -481,15 +510,17 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab:not(.borealis) button[role="tab"]');
   await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
   const focusedBorealisGroup = await driver.executeScript(`return document.querySelector('.editor-group[data-group-id="right"]')?.classList.contains('focused');`);
-  if (!focusedBorealisGroup) throw new Error("The footer Borealis button did not focus its workspace tab.");
+  assertSmoke(focusedBorealisGroup, "The footer Borealis button did not focus its workspace tab.");
   await takeScreenshot(driver, screenshotsDir, "02c-borealis-split");
 
   await driver.click('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.borealis .editor-group-tab-close');
   await driver.click('.editor-group[data-group-id="left"] .ai-chat-trigger');
   await driver.find('.ai-chat-panel:not(.ai-chat-workspace)');
   await driver.click('.ai-chat-header button[title="Close Borealis"]');
+}
 
-  await openRootExplorerMenu();
+async function runFolderSmoke(driver, screenshotsDir, projectName) {
+  await openRootExplorerMenu(driver);
   await driver.click(".file-context-menu button:nth-of-type(2)");
   await driver.setValue('.create-page-dialog input', "Field Notes");
   await driver.click('.create-page-dialog .primary-action');
@@ -516,10 +547,10 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await takeScreenshot(driver, screenshotsDir, "03a-folder-view");
 
   const folderAddControlCount = await driver.executeScript(`return document.querySelectorAll('.editor-tab-panel.active .folder-add-row .folder-add-ghost').length;`);
-  if (folderAddControlCount !== 2) throw new Error(`Folder view has ${folderAddControlCount} add controls instead of two.`);
+  assertSmoke(folderAddControlCount === 2, `Folder view has ${folderAddControlCount} add controls instead of two.`);
   await driver.click('.editor-tab-panel.active .folder-add-row.top .folder-add-ghost');
   const firstFolderAddAction = await driver.text('.editor-tab-panel.active .folder-add-row.top .folder-add-menu button:first-child strong');
-  if (firstFolderAddAction !== "New page") throw new Error(`The first folder add action is ${firstFolderAddAction}.`);
+  assertSmoke(firstFolderAddAction === "New page", `The first folder add action is ${firstFolderAddAction}.`);
   await takeScreenshot(driver, screenshotsDir, "03aa-folder-add-menu");
   await driver.click('.editor-tab-panel.active .folder-add-row.top .folder-add-menu button:first-child');
   await driver.setValue('.create-page-dialog input', "Folder View Page");
@@ -541,10 +572,10 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
-  if (!openedNestedFolder) throw new Error("Could not find the new nested folder card for double-click.");
+  assertSmoke(openedNestedFolder, "Could not find the new nested folder card for double-click.");
   await driver.find('.folder-view[aria-label="Folder Nested View"]', 30_000);
   const emptyFolderEdgeControls = await driver.executeScript(`return document.querySelectorAll('.editor-tab-panel.active .folder-add-row').length;`);
-  if (emptyFolderEdgeControls !== 0) throw new Error(`Empty folder has ${emptyFolderEdgeControls} edge add controls.`);
+  assertSmoke(emptyFolderEdgeControls === 0, `Empty folder has ${emptyFolderEdgeControls} edge add controls.`);
   await driver.click('.editor-tab-panel.active .folder-view-empty');
   await driver.find('.editor-tab-panel.active .folder-empty-row .folder-add-menu');
 
@@ -556,7 +587,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
-  if (!openedFolderPage) throw new Error("Could not find the new page card for double-click.");
+  assertSmoke(openedFolderPage, "Could not find the new page card for double-click.");
   await driver.find('[aria-label="Body for field-notes/folder-view-page.fractal.html"]', 30_000);
 
   await driver.click('.workspace-nav-controls button[title="Back in left"]');
@@ -570,9 +601,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.editor-tab-panel.active .folder-status-bar button:nth-child(2)');
   await driver.find('.folder-export-dialog[aria-labelledby="folder-export-title"]');
   const folderExportSelection = await driver.text('.folder-export-selection > header small');
-  if (folderExportSelection !== "2 of 2 selected") {
-    throw new Error(`Folder export did not select the native page: ${folderExportSelection}`);
-  }
+  assertSmoke(folderExportSelection === "2 of 2 selected", `Folder export did not select the native page: ${folderExportSelection}`);
   await driver.click('.folder-export-selection > header > div:last-child button:nth-child(2)');
   await driver.find('.folder-export-dialog .export-error');
   await driver.click('.folder-export-selection > header > div:last-child button:nth-child(1)');
@@ -589,11 +618,11 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-actions button:nth-of-type(2)');
   await driver.find('.editor-tab-panel.active .rich-content-editable', 30_000);
   const folderEdit = await driver.text('.editor-tab-panel.active .rich-content-editable');
-  if (!folderEdit.includes("Edited from the folder view.")) {
-    throw new Error(`Folder edit did not reach the child page: ${folderEdit}`);
-  }
+  assertSmoke(folderEdit.includes("Edited from the folder view."), `Folder edit did not reach the child page: ${folderEdit}`);
+}
 
-  await openRootExplorerMenu();
+async function createSmokePage(driver, screenshotsDir) {
+  await openRootExplorerMenu(driver);
   await driver.click(".file-context-menu button:first-of-type");
   await driver.setValue(".create-page-dialog input", "My file");
   await driver.click(".create-page-dialog .primary-action");
@@ -611,16 +640,16 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   if (removedNativeControls.checklist || removedNativeControls.preview || removedNativeControls.titleHint) {
     throw new Error(`Removed native controls are still visible: ${JSON.stringify(removedNativeControls)}`);
   }
+}
 
+async function verifyDerivedLinkSmoke(driver) {
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Index");
   await driver.find('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]', 30_000);
   const derivedLinkShape = await driver.executeScript(`
     const derived = document.querySelector('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
     return { href: derived?.getAttribute('href'), role: derived?.getAttribute('role'), tagName: derived?.tagName };
   `);
-  if (derivedLinkShape.href || derivedLinkShape.role !== "link" || derivedLinkShape.tagName !== "SPAN") {
-    throw new Error(`Derived link became an anchor: ${JSON.stringify(derivedLinkShape)}`);
-  }
+  assertSmoke(!derivedLinkShape.href && derivedLinkShape.role === "link" && derivedLinkShape.tagName === "SPAN", `Derived link became an anchor: ${JSON.stringify(derivedLinkShape)}`);
   await driver.click('.editor-tab-panel.active .rich-content-editable .rich-derived-link[data-amanite-derived-target="index.fractal.html"]');
   await driver.find('.editor-group-tab.active button[title="index.fractal.html"]', 30_000);
 
@@ -633,9 +662,10 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
       explicit: Boolean(editor?.querySelector('a[href]'))
     };
   `);
-  if (!derivedAfterReload.derived || derivedAfterReload.explicit) {
-    throw new Error(`Derived link persisted as an explicit link: ${JSON.stringify(derivedAfterReload)}`);
-  }
+  assertSmoke(derivedAfterReload.derived && !derivedAfterReload.explicit, `Derived link persisted as an explicit link: ${JSON.stringify(derivedAfterReload)}`);
+}
+
+async function runInlinePageLinkSmoke(driver, screenshotsDir) {
   await driver.selectAll(".editor-tab-panel.active .rich-content-editable");
   await driver.sendKeys(".editor-tab-panel.active .rich-content-editable", "@Ind");
   await driver.find(".page-link-menu button", 30_000);
@@ -651,9 +681,17 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find('.editor-group-tab.active button[title="index.fractal.html"]', 30_000);
   await driver.click('[title="my-file.fractal.html"]');
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
+}
 
+async function runEditorBasicsSmoke(driver, screenshotsDir) {
+  await createSmokePage(driver, screenshotsDir);
+  await verifyDerivedLinkSmoke(driver);
+  await runInlinePageLinkSmoke(driver, screenshotsDir);
+}
+
+async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) {
-    await openRootExplorerMenu();
+    await openRootExplorerMenu(driver);
     await driver.click(".file-context-menu button:first-of-type");
     await driver.setValue(".create-page-dialog input", title);
     await driver.click(".create-page-dialog .primary-action");
@@ -715,12 +753,14 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".editor-tab-panel.active .editor-inspector-toggle");
   await driver.find(".fractal-inspector", 10_000);
   await takeScreenshot(driver, screenshotsDir, "05-inspector");
+}
 
+async function runSettingsSmoke(driver, screenshotsDir) {
   await driver.click(".sidebar-settings");
   await driver.find(".settings-screen");
   await driver.find('.ai-settings input[aria-label="OpenAI-compatible endpoint"]');
   const restoredApiKey = await driver.executeScript(`return document.querySelector('.ai-settings input[aria-label="API key"]')?.value;`);
-  if (restoredApiKey) throw new Error("The settings screen restored a persisted API key.");
+  assertSmoke(!restoredApiKey, "The settings screen restored a persisted API key.");
   await driver.find('.ai-settings select[aria-label="AI model"]');
   await takeScreenshot(driver, screenshotsDir, "06-ai-settings");
   await driver.click(".theme-option.moss");
@@ -729,9 +769,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     screen.scrollTop = screen.scrollHeight;
     return { clientHeight: screen.clientHeight, scrollHeight: screen.scrollHeight, scrollTop: screen.scrollTop };
   `);
-  if (!(settingsScroll.scrollHeight > settingsScroll.clientHeight && settingsScroll.scrollTop > 0)) {
-    throw new Error(`Settings screen did not scroll: ${JSON.stringify(settingsScroll)}`);
-  }
+  assertSmoke(settingsScroll.scrollHeight > settingsScroll.clientHeight && settingsScroll.scrollTop > 0, `Settings screen did not scroll: ${JSON.stringify(settingsScroll)}`);
   await takeScreenshot(driver, screenshotsDir, "06-settings");
   await driver.click(".settings-footer .ghost-action");
   await driver.click('.settings-check input[type="checkbox"]');
@@ -751,7 +789,9 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   }
   await driver.click(".editor-tab-panel.active .document-status-bar button:last-child");
   await driver.find(".app-shell:not(.focus-mode)");
+}
 
+async function runBufferSwitchSmoke(driver, screenshotsDir) {
   const editedPath = await driver.executeScript(`return document.querySelector('.workspace-tab-strip.focused .editor-group-tab.active button[title]')?.getAttribute('title');`);
   if (!editedPath) throw new Error("Focused editor group did not expose an active tab.");
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved during a page switch.");
@@ -767,7 +807,9 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.find(".save-state.saved");
   await driver.click('[title="my-file.fractal.html"]');
   await takeScreenshot(driver, screenshotsDir, "07-buffer-after-switch");
+}
 
+async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) {
   const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
   await driver.executeScript(`
     const tab = document.querySelector('.editor-group-tab [title="index.fractal.html"]')?.closest('.editor-group-tab');
@@ -779,7 +821,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     const draft = { pagePath, projectRoot, source, baseSourceHash: "", updatedAt: new Date().toISOString(), version: 1 };
     window.__TAURI_INTERNALS__.invoke("fractal_write_draft", { draft }).then(() => done({ ok: true }), (error) => done({ ok: false, error }));
   `, [activeProjectRoot, "index.fractal.html", recoverySource]);
-  if (!draftWrite?.ok) throw new Error(`Native draft write failed: ${JSON.stringify(draftWrite?.error)}`);
+  assertSmoke(draftWrite?.ok === true, `Native draft write failed: ${JSON.stringify(draftWrite?.error)}`);
   await driver.click('[title="index.fractal.html"]');
   await driver.find(".confirm-dialog");
   await driver.click(".confirm-dialog .primary-action");
@@ -791,8 +833,10 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.ctrlS();
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "08-recovered-draft");
+}
 
-  await openRootExplorerMenu();
+async function moveAndExportSmoke(driver, screenshotsDir, activeProjectRoot) {
+  await openRootExplorerMenu(driver);
   await driver.click(".file-context-menu button:first-of-type");
   await driver.setValue(".create-page-dialog input", "Move Me");
   await driver.click(".create-page-dialog .primary-action");
@@ -811,7 +855,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await driver.click(".create-page-dialog .primary-action");
   await driver.find('[title="field-notes/move-me.fractal.html"]', 30_000);
   const oldMovePathExists = await driver.executeScript(`return Boolean(document.querySelector('[title="move-me.fractal.html"]'));`);
-  if (oldMovePathExists) throw new Error("Page movement left the old path in the explorer.");
+  assertSmoke(!oldMovePathExists, "Page movement left the old path in the explorer.");
 
   const exportPath = join(screenshotsDir, "move-me-export.html");
   const exportResult = await driver.executeAsyncScript(`
@@ -824,11 +868,13 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
       projectRoot
     }).then((report) => done({ ok: true, report }), (error) => done({ ok: false, error }));
   `, [activeProjectRoot, "field-notes/move-me.fractal.html", exportPath]);
-  if (!exportResult?.ok) throw new Error(`Live export failed: ${JSON.stringify(exportResult?.error)}`);
+  assertSmoke(exportResult?.ok === true, `Live export failed: ${JSON.stringify(exportResult?.error)}`);
   const exportedSource = await readFile(exportPath, "utf8");
-  if (!exportedSource.includes("Move Me")) throw new Error("Live export did not contain the moved page.");
+  assertSmoke(exportedSource.includes("Move Me"), "Live export did not contain the moved page.");
   await takeScreenshot(driver, screenshotsDir, "08a-moved-page");
+}
 
+async function recreateMovedPageSmoke(driver, activeProjectRoot) {
   const movedPagePath = join(activeProjectRoot, "pages", "field-notes", "move-me.fractal.html");
   await driver.click('[title="field-notes/move-me.fractal.html"]');
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
@@ -840,9 +886,9 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     window.__TAURI_INTERNALS__.invoke("fractal_recreate_page", { projectRoot, pagePath, source })
       .then((result) => done({ ok: true, result }), (error) => done({ ok: false, error }));
   `, [activeProjectRoot, "field-notes/move-me.fractal.html", openPageSource]);
-  if (!recreation?.ok) throw new Error(`Missing open page recreation failed: ${JSON.stringify(recreation?.error)}`);
+  assertSmoke(recreation?.ok === true, `Missing open page recreation failed: ${JSON.stringify(recreation?.error)}`);
   const recreatedSource = await readFile(movedPagePath, "utf8");
-  if (!recreatedSource.includes("Move Me")) throw new Error("Recreated page did not contain the open buffer.");
+  assertSmoke(recreatedSource.includes("Move Me"), "Recreated page did not contain the open buffer.");
 
   await unlink(movedPagePath);
   await writeFile(movedPagePath, recreatedSource.replace("Move Me", "A different file reappeared."));
@@ -852,11 +898,16 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
     window.__TAURI_INTERNALS__.invoke("fractal_recreate_page", { projectRoot, pagePath, source })
       .then((result) => done({ ok: true, result }), (error) => done({ ok: false, error }));
   `, [activeProjectRoot, "field-notes/move-me.fractal.html", recreatedSource]);
-  if (guardedRecreation?.ok || guardedRecreation?.error?.code !== "conflict") {
-    throw new Error(`Recreation overwrote or misreported a reappeared file: ${JSON.stringify(guardedRecreation)}`);
-  }
-  await takeScreenshot(driver, screenshotsDir, "08b-recreated-page");
+  assertSmoke(guardedRecreation?.ok !== true && guardedRecreation?.error?.code === "conflict", `Recreation overwrote or misreported a reappeared file: ${JSON.stringify(guardedRecreation)}`);
+}
 
+async function runMoveSmoke(driver, screenshotsDir, activeProjectRoot) {
+  await moveAndExportSmoke(driver, screenshotsDir, activeProjectRoot);
+  await recreateMovedPageSmoke(driver, activeProjectRoot);
+  await takeScreenshot(driver, screenshotsDir, "08b-recreated-page");
+}
+
+async function runReopenSmoke(driver, screenshotsDir, activeProjectRoot, projectName) {
   await driver.click('.brand > button[title="Close project"]');
   await driver.find(".start-screen", 30_000);
   await driver.click(`.project-list-option[title="${activeProjectRoot}"]`);
@@ -865,6 +916,20 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   const reopenedOnDocument = await driver.executeScript(`return Boolean(document.querySelector('.editor-tab-panel.active .rich-content-editable'));`);
   if (reopenedOnDocument) throw new Error("Reopened project started on a document instead of the project overview.");
   await takeScreenshot(driver, screenshotsDir, "09-reopened-project-overview");
+}
+
+async function runSmoke(driver, screenshotsDir, projectRoot) {
+  const { activeProjectRoot, projectName } = await prepareSmokeProject(driver, screenshotsDir, projectRoot);
+  await runWorkspaceSmoke(driver, screenshotsDir, projectName);
+  await runFolderSmoke(driver, screenshotsDir, projectName);
+
+  await runEditorBasicsSmoke(driver, screenshotsDir);
+  await runSplitSmoke(driver, screenshotsDir, activeProjectRoot);
+  await runSettingsSmoke(driver, screenshotsDir);
+  await runBufferSwitchSmoke(driver, screenshotsDir);
+  await runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot);
+  await runMoveSmoke(driver, screenshotsDir, activeProjectRoot);
+  await runReopenSmoke(driver, screenshotsDir, activeProjectRoot, projectName);
 }
 
 function startApp({ appBinary, artifactsDir, port, projectRoot }) {
@@ -927,70 +992,51 @@ async function waitForEnter() {
   await new Promise((resolvePromise) => process.stdin.once("data", resolvePromise));
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
-  await checkSetup();
-
-  if (options.doctor) {
-    return;
-  }
-
-  const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const artifactsDir = resolve(
-    repoRoot,
-    options.screenshotsDir || join("artifacts", "tauri-webdriver", runId)
-  );
-  const projectRoot = resolve(
-    repoRoot,
-    options.projectRoot || join("artifacts", "tauri-webdriver", runId, "projects")
-  );
-
-  await mkdir(artifactsDir, { recursive: true });
-  await mkdir(projectRoot, { recursive: true });
-
-  if (!options.skipBuild) {
-    await runChecked("pnpm", [
-      "exec",
-      "tauri",
-      "build",
-      "--debug",
-      "--no-bundle",
-      "--features",
-      "webdriver"
-    ]);
-  }
-
-  const appBinary = process.env.AMANITE_TAURI_APP_BINARY || defaultBinary;
-  const { child: appProcess, getNativeOutput, log } = startApp({
-    appBinary,
-    artifactsDir,
-    port: options.port,
-    projectRoot
-  });
-
-  let driver = null;
-
-  const cleanup = async () => {
-    if (driver && appProcess.exitCode === null) {
-      try {
-        await driver.deleteSession();
-      } catch {
-        // The app may already be gone.
-      }
-    }
-
-    if (appProcess.exitCode === null) {
-      appProcess.kill("SIGTERM");
-      setTimeout(() => {
-        if (appProcess.exitCode === null) {
-          appProcess.kill("SIGKILL");
-        }
-      }, 2_000).unref();
-    }
-
-    log.end();
+function runDirectories(options, runId) {
+  return {
+    artifactsDir: resolve(repoRoot, options.screenshotsDir || join("artifacts", "tauri-webdriver", runId)),
+    projectRoot: resolve(repoRoot, options.projectRoot || join("artifacts", "tauri-webdriver", runId, "projects"))
   };
+}
 
+async function buildWebDriverApp(options) {
+  if (options.skipBuild) return;
+  await runChecked("pnpm", ["exec", "tauri", "build", "--debug", "--no-bundle", "--features", "webdriver"]);
+}
+
+async function closeSmokeSession(driver, appProcess, getNativeOutput) {
+  await driver.find('.window-control.close');
+  await driver.click('.window-control.close').catch(() => undefined);
+  const exitCode = await waitForProcessExit(appProcess);
+  assertSmoke(exitCode === 0, `Amanite exited with code ${exitCode}.`);
+  assertSmoke(!/corrupted (?:unsorted chunks|double-linked list)|free\(\):/i.test(getNativeOutput()), "Amanite printed allocator corruption during shutdown.");
+}
+
+async function deleteDriverSession(driver, appProcess) {
+  if (!driver || appProcess.exitCode !== null) return;
+  try {
+    await driver.deleteSession();
+  } catch {
+    // The app may already be gone.
+  }
+}
+
+function stopAppProcess(appProcess) {
+  if (appProcess.exitCode === null) {
+    appProcess.kill("SIGTERM");
+    setTimeout(() => {
+      if (appProcess.exitCode === null) appProcess.kill("SIGKILL");
+    }, 2_000).unref();
+  }
+}
+
+async function cleanupDesktop(driver, appProcess, log) {
+  await deleteDriverSession(driver, appProcess);
+  stopAppProcess(appProcess);
+  log.end();
+}
+
+function installSignalCleanup(cleanup) {
   process.once("SIGINT", async () => {
     await cleanup();
     process.exit(130);
@@ -999,27 +1045,36 @@ async function main() {
     await cleanup();
     process.exit(143);
   });
+}
+
+async function runDesktopSession(options, artifactsDir, projectRoot) {
+  const appBinary = process.env.AMANITE_TAURI_APP_BINARY || defaultBinary;
+  const { child: appProcess, getNativeOutput, log } = startApp({ appBinary, artifactsDir, port: options.port, projectRoot });
+  let driver = null;
+  const cleanup = () => cleanupDesktop(driver, appProcess, log);
+  installSignalCleanup(cleanup);
 
   try {
     await waitForWebDriver(options.port, appProcess);
     driver = new DesktopWebDriverClient(options.port);
     await driver.createSession();
     await runSmoke(driver, artifactsDir, projectRoot);
-
-    if (options.keepOpen) {
-      await waitForEnter();
-    } else {
-      await driver.find('.window-control.close');
-      await driver.click('.window-control.close').catch(() => undefined);
-      const exitCode = await waitForProcessExit(appProcess);
-      if (exitCode !== 0) throw new Error(`Amanite exited with code ${exitCode}.`);
-      if (/corrupted (?:unsorted chunks|double-linked list)|free\(\):/i.test(getNativeOutput())) {
-        throw new Error("Amanite printed allocator corruption during shutdown.");
-      }
-    }
+    if (options.keepOpen) await waitForEnter();
+    else await closeSmokeSession(driver, appProcess, getNativeOutput);
   } finally {
     await cleanup();
   }
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  await checkSetup();
+  if (options.doctor) return;
+  const directories = runDirectories(options, new Date().toISOString().replace(/[:.]/g, "-"));
+  await mkdir(directories.artifactsDir, { recursive: true });
+  await mkdir(directories.projectRoot, { recursive: true });
+  await buildWebDriverApp(options);
+  await runDesktopSession(options, directories.artifactsDir, directories.projectRoot);
 }
 
 main().catch((error) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FractalFolder, FractalPage } from "@/lib/fractal/types";
-import { buildFolderExportTree, pagePathsIn } from "./FolderExportDialog";
+import { buildFolderExportTree, pagePathsIn } from "./folderExportTreeBuilder";
 
 function folder(path: string, title: string, children: FractalFolder["children"]): FractalFolder {
   return { children, issues: [], order: null, path, title };
