@@ -1,6 +1,6 @@
 # Amanite document data-flow plan
 
-Status: D0 through D5 complete. D6 is in progress.
+Status: D0 through D6 complete. D7 is in progress.
 
 This plan improves loading, editing, tab activation, recovery, and persistence
 within the existing Tauri, React, Lexical, and Fractal stack. GPUI work is paused.
@@ -173,8 +173,8 @@ undo/history behavior explicit. Bound live DOM work before minimizing memory.
 | D3 | Replace source feedback with revisions and snapshots | D2 | Complete |
 | D4 | Schedule recovery and autosave per revision | D3 | Complete |
 | D5 | Separate catalog, navigation, and derived queries | D3 | Complete |
-| D6 | Retain Rust project state with explicit freshness | D1, D5 contracts | In progress |
-| D7 | Centralize receipt reconciliation and mutation scope | D4, D5, D6 | Not started |
+| D6 | Retain Rust project state with explicit freshness | D1, D5 contracts | Complete |
+| D7 | Centralize receipt reconciliation and mutation scope | D4, D5, D6 | In progress |
 | D8 | Complete parity, performance, and documentation review | D1 through D7 | Not started |
 
 Use small reviewable changes. Keep the app runnable at each stage. Transitional

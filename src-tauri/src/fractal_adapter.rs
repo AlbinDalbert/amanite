@@ -1,5 +1,7 @@
 use crate::catalog;
+use crate::project_session::{ProjectSessionStore, SessionMetadata};
 use serde::Serialize;
+use std::sync::OnceLock;
 use std::{
     fs,
     path::{Component, Path, PathBuf},
@@ -50,6 +52,12 @@ pub(crate) struct FractalProject {
     active_page_backlinks: Vec<fractal::Backlink>,
     active_page_content_hash: Option<String>,
     active_page_native_document_parts: Option<FractalNativeDocumentParts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_freshness: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_generation: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -61,6 +69,12 @@ pub(crate) struct FractalLoadedPage {
     backlinks: Vec<fractal::Backlink>,
     content_hash: String,
     native_document_parts: Option<FractalNativeDocumentParts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_freshness: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_generation: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -71,6 +85,17 @@ struct FractalPage {
     title: Option<String>,
     text: String,
     links: Vec<fractal::Link>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FractalSearchResult {
+    path: String,
+    title: Option<String>,
+    snippet: String,
+    catalog_version: u64,
+    catalog_freshness: &'static str,
+    session_generation: u64,
 }
 
 impl From<fractal::Page> for FractalPage {
@@ -116,6 +141,12 @@ pub(crate) struct FractalPageContentState {
     path: String,
     content_hash: Option<String>,
     native_document_hashes: Option<FractalNativeDocumentHashes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_freshness: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_generation: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -209,6 +240,12 @@ impl From<&str> for FractalCommandError {
 
 pub(crate) type FractalResult<T> = Result<T, FractalCommandError>;
 
+static PROJECT_SESSIONS: OnceLock<ProjectSessionStore> = OnceLock::new();
+
+fn project_sessions() -> &'static ProjectSessionStore {
+    PROJECT_SESSIONS.get_or_init(ProjectSessionStore::default)
+}
+
 #[derive(Serialize)]
 pub(crate) struct FractalMutationResult {
     project: FractalProject,
@@ -237,65 +274,88 @@ pub(crate) struct FractalRepairResult {
     inspection: fractal::ProjectInspection,
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_inspect_project(
+#[tauri::command]
+pub(crate) async fn fractal_inspect_project(
     project_root: String,
 ) -> FractalResult<fractal::ProjectInspection> {
-    Ok(fractal::Project::inspect(project_root)?)
+    tauri::async_runtime::spawn_blocking(move || Ok(fractal::Project::inspect(project_root)?))
+        .await
+        .map_err(|error| FractalCommandError::io(format!("Could not inspect project: {error}")))?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_recover_project(
+#[tauri::command]
+pub(crate) async fn fractal_recover_project(
     project_root: String,
 ) -> FractalResult<FractalRecoveryResult> {
-    let report = fractal::Project::recover(&project_root)?;
-    let inspection = fractal::Project::inspect(&project_root)?;
-    let project = if inspection.openable {
-        Some(read_project(PathBuf::from(&project_root), None)?)
-    } else {
-        None
-    };
-    Ok(FractalRecoveryResult {
-        project,
-        report,
-        inspection,
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = fractal::Project::recover(&project_root)?;
+        let inspection = fractal::Project::inspect(&project_root)?;
+        let project = if inspection.openable {
+            let root = project_root.clone();
+            Some(
+                project_sessions().with_refreshed(&root, |project, metadata| {
+                    project_snapshot_with_metadata(project, None, metadata)
+                })?,
+            )
+        } else {
+            None
+        };
+        Ok(FractalRecoveryResult {
+            project,
+            report,
+            inspection,
+        })
     })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not recover project: {error}")))?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_repair_project(project_root: String) -> FractalResult<FractalRepairResult> {
-    let mut project = fractal::Project::open(&project_root)?;
-    let report = project.repair()?;
-    let snapshot = project_snapshot(&project, None)?;
-    let inspection = fractal::Project::inspect(&project_root)?;
-    Ok(FractalRepairResult {
-        project: snapshot,
-        report,
-        inspection,
+#[tauri::command]
+pub(crate) async fn fractal_repair_project(
+    project_root: String,
+) -> FractalResult<FractalRepairResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let report = project.repair()?;
+            let snapshot = project_snapshot_with_metadata(project, None, metadata)?;
+            let inspection = fractal::Project::inspect(&project_root)?;
+            Ok(FractalRepairResult {
+                project: snapshot,
+                report,
+                inspection,
+            })
+        })
     })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not repair project: {error}")))?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_recreate_page(
+#[tauri::command]
+pub(crate) async fn fractal_recreate_page(
     project_root: String,
     page_path: String,
     source: String,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let draft = fractal::NativePageDraft::from_source(&source)?;
-    let parent = relative_page_path(&page_path)
-        .map_err(FractalCommandError::from)?
-        .parent()
-        .unwrap_or_else(|| Path::new(""))
-        .to_path_buf();
-    let destination = parent.join(format!(
-        "{}.fractal.html",
-        catalog::project_directory_name(&draft.title).map_err(FractalCommandError::from)?
-    ));
-    let receipt = project.recreate_page_from_source(&destination, &source)?;
-    let created =
-        created_page_path(&receipt).ok_or("Fractal did not report the recreated page.")?;
-    mutation_result(project, Some(&created), receipt)
+    tauri::async_runtime::spawn_blocking(move || {
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let draft = fractal::NativePageDraft::from_source(&source)?;
+            let parent = relative_page_path(&page_path)
+                .map_err(FractalCommandError::from)?
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_path_buf();
+            let destination = parent.join(format!(
+                "{}.fractal.html",
+                catalog::project_directory_name(&draft.title).map_err(FractalCommandError::from)?
+            ));
+            let receipt = project.recreate_page_from_source(&destination, &source)?;
+            let created =
+                created_page_path(&receipt).ok_or("Fractal did not report the recreated page.")?;
+            mutation_result_with_metadata(project, Some(&created), receipt, metadata)
+        })
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not recreate page: {error}")))?
 }
 
 fn project_snapshot(
@@ -339,28 +399,22 @@ fn project_snapshot(
         active_page_backlinks,
         active_page_content_hash,
         active_page_native_document_parts,
+        catalog_version: None,
+        catalog_freshness: None,
+        session_generation: None,
     })
 }
 
-fn read_project(root: PathBuf, active_path: Option<&str>) -> FractalResult<FractalProject> {
-    let root = root.canonicalize().map_err(|error| FractalCommandError {
-        code: fractal::FractalErrorCode::Io,
-        message: format!("Could not open project {}: {error}", root.display()),
-    })?;
-    let project = fractal::Project::open(&root)?;
-    project_snapshot(&project, active_path)
-}
-
-pub(crate) fn validated_project_root(project_root: &str) -> Result<PathBuf, String> {
-    let root = PathBuf::from(project_root)
-        .canonicalize()
-        .map_err(|error| format!("Could not open project: {error}"))?;
-    if !root.join("fractal.json").is_file() || !root.join("pages").is_dir() {
-        return Err(
-            "Could not open Fractal project: missing fractal.json or pages directory.".into(),
-        );
-    }
-    Ok(root)
+fn project_snapshot_with_metadata(
+    project: &fractal::Project,
+    active_path: Option<&str>,
+    metadata: SessionMetadata,
+) -> FractalResult<FractalProject> {
+    let mut snapshot = project_snapshot(project, active_path)?;
+    snapshot.catalog_version = Some(metadata.catalog_version);
+    snapshot.catalog_freshness = Some(metadata.freshness.as_str());
+    snapshot.session_generation = Some(metadata.generation);
+    Ok(snapshot)
 }
 
 fn relative_folder_path(value: &str) -> Result<PathBuf, String> {
@@ -404,10 +458,6 @@ pub(crate) fn validated_page_target(
         return Err("Choose a page inside this project.".into());
     }
     Ok(target)
-}
-
-fn open_mutable_project(root: &str) -> FractalResult<fractal::Project> {
-    Ok(fractal::Project::open(root)?)
 }
 
 fn page_path_from_project_path(path: &fractal::ProjectPath) -> Option<String> {
@@ -468,20 +518,22 @@ fn page_path_after_receipt(
     Some(current)
 }
 
-fn mutation_result(
-    project: fractal::Project,
+fn mutation_result_with_metadata(
+    project: &fractal::Project,
     active_page_path: Option<&str>,
     receipt: fractal::MutationReceipt,
+    metadata: SessionMetadata,
 ) -> FractalResult<FractalMutationResult> {
     let active_page_path = page_path_after_receipt(active_page_path, &receipt);
     Ok(FractalMutationResult {
-        project: project_snapshot(&project, active_page_path.as_deref())?,
+        project: project_snapshot_with_metadata(project, active_page_path.as_deref(), metadata)?,
         receipt,
     })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_list_projects(app: AppHandle) -> FractalResult<FractalProjectCatalog> {
+pub(crate) fn fractal_list_projects_blocking(
+    app: AppHandle,
+) -> FractalResult<FractalProjectCatalog> {
     let root = catalog::projects_root(&app).map_err(FractalCommandError::from)?;
     let (projects, issues) =
         catalog::list_project_summaries(&root).map_err(FractalCommandError::from)?;
@@ -492,40 +544,68 @@ pub(crate) fn fractal_list_projects(app: AppHandle) -> FractalResult<FractalProj
     })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_create_project(
+#[tauri::command]
+pub(crate) async fn fractal_list_projects(app: AppHandle) -> FractalResult<FractalProjectCatalog> {
+    tauri::async_runtime::spawn_blocking(move || fractal_list_projects_blocking(app))
+        .await
+        .map_err(|error| FractalCommandError::io(format!("Could not list projects: {error}")))?
+}
+
+#[tauri::command]
+pub(crate) async fn fractal_create_project(
     app: AppHandle,
     project_name: String,
 ) -> FractalResult<FractalProject> {
-    let library = catalog::projects_root(&app).map_err(FractalCommandError::from)?;
-    fs::create_dir_all(&library).map_err(|error| FractalCommandError {
-        code: fractal::FractalErrorCode::Io,
-        message: format!("Could not create project library: {error}"),
-    })?;
-    let root = library
-        .join(catalog::project_directory_name(&project_name).map_err(FractalCommandError::from)?);
-    fractal::Project::init(&root, project_name.trim())?;
-    read_project(root, None)
+    tauri::async_runtime::spawn_blocking(move || {
+        let library = catalog::projects_root(&app).map_err(FractalCommandError::from)?;
+        fs::create_dir_all(&library).map_err(|error| FractalCommandError {
+            code: fractal::FractalErrorCode::Io,
+            message: format!("Could not create project library: {error}"),
+        })?;
+        let root = library.join(
+            catalog::project_directory_name(&project_name).map_err(FractalCommandError::from)?,
+        );
+        fractal::Project::init(&root, project_name.trim())?;
+        let root_string = root.to_string_lossy().into_owned();
+        project_sessions().with_refreshed(&root_string, |project, metadata| {
+            project_snapshot_with_metadata(project, None, metadata)
+        })
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not create project: {error}")))?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_open_project(
+#[tauri::command]
+pub(crate) async fn fractal_open_project(
     app: AppHandle,
     directory_name: String,
 ) -> FractalResult<FractalProject> {
-    read_project(
-        catalog::selected_project_root(
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = catalog::selected_project_root(
             &catalog::projects_root(&app).map_err(FractalCommandError::from)?,
             &directory_name,
         )
-        .map_err(FractalCommandError::from)?,
-        None,
-    )
+        .map_err(FractalCommandError::from)?;
+        let root_string = root.to_string_lossy().into_owned();
+        project_sessions().with_refreshed(&root_string, |project, metadata| {
+            project_snapshot_with_metadata(project, None, metadata)
+        })
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not open project: {error}")))?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_open_project_path(project_root: String) -> FractalResult<FractalProject> {
-    read_project(PathBuf::from(project_root), None)
+#[tauri::command]
+pub(crate) async fn fractal_open_project_path(
+    project_root: String,
+) -> FractalResult<FractalProject> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_sessions().with_refreshed(&project_root, |project, metadata| {
+            project_snapshot_with_metadata(project, None, metadata)
+        })
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not open project: {error}")))?
 }
 
 #[tauri::command]
@@ -534,7 +614,9 @@ pub(crate) async fn fractal_open_page(
     page_path: String,
 ) -> FractalResult<FractalProject> {
     tauri::async_runtime::spawn_blocking(move || {
-        read_project(PathBuf::from(project_root), Some(&page_path))
+        project_sessions().with_cached(&project_root, |project, metadata| {
+            project_snapshot_with_metadata(project, Some(&page_path), metadata)
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -549,23 +631,21 @@ pub(crate) async fn fractal_read_page(
     page_path: String,
 ) -> FractalResult<FractalLoadedPage> {
     tauri::async_runtime::spawn_blocking(move || {
-        let root = PathBuf::from(project_root)
-            .canonicalize()
-            .map_err(|error| FractalCommandError {
-                code: fractal::FractalErrorCode::Io,
-                message: format!("Could not open project: {error}"),
-            })?;
-        let project = fractal::Project::open(&root)?;
-        let page = project.page(&page_path)?;
-        let path = page.path.clone();
-        let native_document_parts = project.native_document_parts(&path).ok().map(Into::into);
-        Ok(FractalLoadedPage {
-            path: path.clone(),
-            source: project.source(&path)?,
-            links: page.links,
-            backlinks: project.backlinks(&path)?,
-            content_hash: project.content_hash(&path)?,
-            native_document_parts,
+        project_sessions().with_cached(&project_root, |project, metadata| {
+            let page = project.page(&page_path)?;
+            let path = page.path.clone();
+            let native_document_parts = project.native_document_parts(&path).ok().map(Into::into);
+            Ok(FractalLoadedPage {
+                path: path.clone(),
+                source: project.source(&path)?,
+                links: page.links,
+                backlinks: project.backlinks(&path)?,
+                content_hash: project.content_hash(&path)?,
+                native_document_parts,
+                catalog_version: Some(metadata.catalog_version),
+                catalog_freshness: Some(metadata.freshness.as_str()),
+                session_generation: Some(metadata.generation),
+            })
         })
     })
     .await
@@ -583,9 +663,11 @@ pub(crate) async fn fractal_set_page_title(
     expected_hash: String,
 ) -> FractalResult<FractalMutationResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        let receipt = project.set_page_title_if_unchanged(&page_path, &title, &expected_hash)?;
-        mutation_result(project, Some(&page_path), receipt)
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let receipt =
+                project.set_page_title_if_unchanged(&page_path, &title, &expected_hash)?;
+            mutation_result_with_metadata(project, Some(&page_path), receipt, metadata)
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -602,9 +684,10 @@ pub(crate) async fn fractal_set_page_content(
     expected_hash: String,
 ) -> FractalResult<FractalMutationResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        let receipt = project.set_page_content(&page_path, &content_html, &expected_hash)?;
-        mutation_result(project, Some(&page_path), receipt)
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let receipt = project.set_page_content(&page_path, &content_html, &expected_hash)?;
+            mutation_result_with_metadata(project, Some(&page_path), receipt, metadata)
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -621,9 +704,10 @@ pub(crate) async fn fractal_set_page_style(
     expected_hash: String,
 ) -> FractalResult<FractalMutationResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        let receipt = project.set_page_style(&page_path, &style_css, &expected_hash)?;
-        mutation_result(project, Some(&page_path), receipt)
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let receipt = project.set_page_style(&page_path, &style_css, &expected_hash)?;
+            mutation_result_with_metadata(project, Some(&page_path), receipt, metadata)
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -640,9 +724,10 @@ pub(crate) async fn fractal_set_page_metadata(
     expected_hash: String,
 ) -> FractalResult<FractalMutationResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = open_mutable_project(&project_root)?;
-        let receipt = project.set_page_metadata(&page_path, &metadata_html, &expected_hash)?;
-        mutation_result(project, Some(&page_path), receipt)
+        project_sessions().with_mutation(&project_root, |project, metadata| {
+            let receipt = project.set_page_metadata(&page_path, &metadata_html, &expected_hash)?;
+            mutation_result_with_metadata(project, Some(&page_path), receipt, metadata)
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -651,24 +736,48 @@ pub(crate) async fn fractal_set_page_metadata(
     })?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_repair_page_structure(
+pub(crate) fn fractal_repair_page_structure_blocking(
     project_root: String,
     page_path: String,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let receipt = project.repair_page_structure(&page_path)?;
-    mutation_result(project, Some(&page_path), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let receipt = project.repair_page_structure(&page_path)?;
+        mutation_result_with_metadata(project, Some(&page_path), receipt, metadata)
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn fractal_repair_page_structure(
+    project_root: String,
+    page_path: String,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_repair_page_structure_blocking(project_root, page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not repair page: {error}")))?
 }
 
 #[tauri::command]
 pub(crate) async fn fractal_search_project(
     project_root: String,
     query: String,
-) -> FractalResult<Vec<fractal::SearchResult>> {
+) -> FractalResult<Vec<FractalSearchResult>> {
     tauri::async_runtime::spawn_blocking(move || {
-        let project = open_mutable_project(&project_root)?;
-        Ok(project.search(&query))
+        project_sessions().with_cached(&project_root, |project, metadata| {
+            Ok(project
+                .search(&query)
+                .into_iter()
+                .map(|result| FractalSearchResult {
+                    path: result.path,
+                    title: result.title,
+                    snippet: result.snippet,
+                    catalog_version: metadata.catalog_version,
+                    catalog_freshness: metadata.freshness.as_str(),
+                    session_generation: metadata.generation,
+                })
+                .collect())
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -683,30 +792,35 @@ pub(crate) async fn fractal_page_content_states(
     page_paths: Vec<String>,
 ) -> FractalResult<Vec<FractalPageContentState>> {
     tauri::async_runtime::spawn_blocking(move || {
-        let root = validated_project_root(&project_root).map_err(FractalCommandError::from)?;
-        let project = fractal::Project::open(&root)?;
-        let pages = project
-            .pages()
-            .into_iter()
-            .map(|page| (page.path.clone(), page))
-            .collect::<std::collections::BTreeMap<_, _>>();
-        page_paths
-            .into_iter()
-            .map(|path| {
-                relative_page_path(&path).map_err(FractalCommandError::from)?;
-                let page = pages.get(&path);
-                let native_document_hashes = page
-                    .and_then(|_| project.native_document_parts(&path).ok())
-                    .map(|parts| {
-                        FractalNativeDocumentHashes::from(&FractalNativeDocumentParts::from(parts))
-                    });
-                Ok(FractalPageContentState {
-                    content_hash: page.map(|page| page.content_hash.clone()),
-                    native_document_hashes,
-                    path,
+        project_sessions().with_refreshed(&project_root, |project, metadata| {
+            let pages = project
+                .pages()
+                .into_iter()
+                .map(|page| (page.path.clone(), page))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            page_paths
+                .into_iter()
+                .map(|path| {
+                    relative_page_path(&path).map_err(FractalCommandError::from)?;
+                    let page = pages.get(&path);
+                    let native_document_hashes = page
+                        .and_then(|_| project.native_document_parts(&path).ok())
+                        .map(|parts| {
+                            FractalNativeDocumentHashes::from(&FractalNativeDocumentParts::from(
+                                parts,
+                            ))
+                        });
+                    Ok(FractalPageContentState {
+                        content_hash: page.map(|page| page.content_hash.clone()),
+                        native_document_hashes,
+                        path,
+                        catalog_version: Some(metadata.catalog_version),
+                        catalog_freshness: Some(metadata.freshness.as_str()),
+                        session_generation: Some(metadata.generation),
+                    })
                 })
-            })
-            .collect()
+                .collect()
+        })
     })
     .await
     .map_err(|error| FractalCommandError {
@@ -715,29 +829,42 @@ pub(crate) async fn fractal_page_content_states(
     })?
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_export_html(
+pub(crate) fn fractal_export_html_blocking(
     project_root: String,
     page_path: String,
     output: String,
     include_derived_links: bool,
 ) -> FractalResult<FractalHtmlExportReport> {
-    let project = open_mutable_project(&project_root)?;
-    let report = project.export_html(
-        &page_path,
-        &output,
-        fractal::HtmlExportOptions {
-            include_derived_links,
-        },
-    )?;
-    Ok(FractalHtmlExportReport {
-        output: report.output.to_string_lossy().into_owned(),
-        references: report.references,
+    project_sessions().with_cached(&project_root, |project, _metadata| {
+        let report = project.export_html(
+            &page_path,
+            &output,
+            fractal::HtmlExportOptions {
+                include_derived_links,
+            },
+        )?;
+        Ok(FractalHtmlExportReport {
+            output: report.output.to_string_lossy().into_owned(),
+            references: report.references,
+        })
     })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_export_folder_html(
+#[tauri::command]
+pub(crate) async fn fractal_export_html(
+    project_root: String,
+    page_path: String,
+    output: String,
+    include_derived_links: bool,
+) -> FractalResult<FractalHtmlExportReport> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_export_html_blocking(project_root, page_path, output, include_derived_links)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not export page: {error}")))?
+}
+
+pub(crate) fn fractal_export_folder_html_blocking(
     project_root: String,
     folder_path: String,
     output: String,
@@ -746,236 +873,387 @@ pub(crate) fn fractal_export_folder_html(
     include_derived_links: bool,
     force: bool,
 ) -> FractalResult<FractalFolderHtmlExportReport> {
-    let project = open_mutable_project(&project_root)?;
-    let folder = if folder_path.trim().is_empty() {
-        PathBuf::from(".")
-    } else {
-        relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
-    };
-    let report = project.export_folder_html(
-        folder,
-        &output,
-        fractal::FolderHtmlExportOptions {
-            selections: selections.into_iter().map(PathBuf::from).collect(),
-            number_sections,
-            include_derived_links,
-            force,
-        },
-    )?;
-    Ok(FractalFolderHtmlExportReport {
-        output: report.output.to_string_lossy().into_owned(),
-        pages: report.pages,
-        skipped: report.skipped,
-        references: report.references,
+    project_sessions().with_cached(&project_root, |project, _metadata| {
+        let folder = if folder_path.trim().is_empty() {
+            PathBuf::from(".")
+        } else {
+            relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
+        };
+        let report = project.export_folder_html(
+            folder,
+            &output,
+            fractal::FolderHtmlExportOptions {
+                selections: selections.into_iter().map(PathBuf::from).collect(),
+                number_sections,
+                include_derived_links,
+                force,
+            },
+        )?;
+        Ok(FractalFolderHtmlExportReport {
+            output: report.output.to_string_lossy().into_owned(),
+            pages: report.pages,
+            skipped: report.skipped,
+            references: report.references,
+        })
     })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_create_page(
+#[tauri::command]
+pub(crate) async fn fractal_export_folder_html(
+    project_root: String,
+    folder_path: String,
+    output: String,
+    selections: Vec<String>,
+    number_sections: bool,
+    include_derived_links: bool,
+    force: bool,
+) -> FractalResult<FractalFolderHtmlExportReport> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_export_folder_html_blocking(
+            project_root,
+            folder_path,
+            output,
+            selections,
+            number_sections,
+            include_derived_links,
+            force,
+        )
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not export folder: {error}")))?
+}
+
+pub(crate) fn fractal_create_page_blocking(
     project_root: String,
     title: String,
     folder_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let receipt = if let Some(folder_path) = folder_path.filter(|path| !path.trim().is_empty()) {
-        let folder = relative_folder_path(&folder_path).map_err(FractalCommandError::from)?;
-        let file_name = format!(
-            "{}.fractal.html",
-            catalog::project_directory_name(&title).map_err(FractalCommandError::from)?
-        );
-        project.create_page_at(folder.join(file_name), &title)
-    } else {
-        project.create_page(&title)
-    }?;
-    let path =
-        created_page_path(&receipt).ok_or("Fractal did not report the created native page.")?;
-    mutation_result(project, Some(&path), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let receipt = if let Some(folder_path) = folder_path.filter(|path| !path.trim().is_empty())
+        {
+            let folder = relative_folder_path(&folder_path).map_err(FractalCommandError::from)?;
+            let file_name = format!(
+                "{}.fractal.html",
+                catalog::project_directory_name(&title).map_err(FractalCommandError::from)?
+            );
+            project.create_page_at(folder.join(file_name), &title)
+        } else {
+            project.create_page(&title)
+        }?;
+        let path =
+            created_page_path(&receipt).ok_or("Fractal did not report the created native page.")?;
+        mutation_result_with_metadata(project, Some(&path), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_duplicate_page(
+#[tauri::command]
+pub(crate) async fn fractal_create_page(
+    project_root: String,
+    title: String,
+    folder_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_create_page_blocking(project_root, title, folder_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not create page: {error}")))?
+}
+
+pub(crate) fn fractal_duplicate_page_blocking(
     project_root: String,
     page_path: String,
     title: String,
     folder_path: Option<String>,
 ) -> FractalResult<FractalMutationBatchResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let source = project.native_document_parts(&page_path)?;
-    let file_name = format!(
-        "{}.fractal.html",
-        catalog::project_directory_name(&title).map_err(FractalCommandError::from)?
-    );
-    let destination = match folder_path.filter(|path| !path.trim().is_empty()) {
-        Some(folder) => relative_folder_path(&folder)
-            .map_err(FractalCommandError::from)?
-            .join(file_name),
-        None => PathBuf::from(file_name),
-    };
-    let created = project.create_page_at(&destination, &title)?;
-    let duplicate_path =
-        created_page_path(&created).ok_or("Fractal did not report the created duplicate page.")?;
-    let mut receipts = vec![created];
-    let steps = [
-        ("content", source.content_html),
-        ("style", source.style_css),
-        ("metadata", source.metadata_html),
-    ];
-    let mut failure = None;
-    for (section, value) in steps {
-        let parts = project.native_document_parts(&duplicate_path)?;
-        let result = match section {
-            "content" if parts.content_html != value => {
-                project.set_page_content(&duplicate_path, &value, &parts.content_hash)
-            }
-            "style" if parts.style_css != value => {
-                project.set_page_style(&duplicate_path, &value, &parts.style_hash)
-            }
-            "metadata" if parts.metadata_html != value => {
-                project.set_page_metadata(&duplicate_path, &value, &parts.metadata_hash)
-            }
-            _ => continue,
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let source = project.native_document_parts(&page_path)?;
+        let file_name = format!(
+            "{}.fractal.html",
+            catalog::project_directory_name(&title).map_err(FractalCommandError::from)?
+        );
+        let destination = match folder_path.filter(|path| !path.trim().is_empty()) {
+            Some(folder) => relative_folder_path(&folder)
+                .map_err(FractalCommandError::from)?
+                .join(file_name),
+            None => PathBuf::from(file_name),
         };
-        match result {
-            Ok(receipt) => receipts.push(receipt),
-            Err(error) => {
-                failure = Some(error.into());
-                break;
+        let created = project.create_page_at(&destination, &title)?;
+        let duplicate_path = created_page_path(&created)
+            .ok_or("Fractal did not report the created duplicate page.")?;
+        let mut receipts = vec![created];
+        let steps = [
+            ("content", source.content_html),
+            ("style", source.style_css),
+            ("metadata", source.metadata_html),
+        ];
+        let mut failure = None;
+        for (section, value) in steps {
+            let parts = project.native_document_parts(&duplicate_path)?;
+            let result = match section {
+                "content" if parts.content_html != value => {
+                    project.set_page_content(&duplicate_path, &value, &parts.content_hash)
+                }
+                "style" if parts.style_css != value => {
+                    project.set_page_style(&duplicate_path, &value, &parts.style_hash)
+                }
+                "metadata" if parts.metadata_html != value => {
+                    project.set_page_metadata(&duplicate_path, &value, &parts.metadata_hash)
+                }
+                _ => continue,
+            };
+            match result {
+                Ok(receipt) => receipts.push(receipt),
+                Err(error) => {
+                    failure = Some(error.into());
+                    break;
+                }
             }
         }
-    }
-    Ok(FractalMutationBatchResult {
-        project: project_snapshot(&project, Some(&duplicate_path))?,
-        receipts,
-        failure,
+        Ok(FractalMutationBatchResult {
+            project: project_snapshot_with_metadata(project, Some(&duplicate_path), metadata)?,
+            receipts,
+            failure,
+        })
     })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_create_folder(
+#[tauri::command]
+pub(crate) async fn fractal_duplicate_page(
+    project_root: String,
+    page_path: String,
+    title: String,
+    folder_path: Option<String>,
+) -> FractalResult<FractalMutationBatchResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_duplicate_page_blocking(project_root, page_path, title, folder_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not duplicate page: {error}")))?
+}
+
+pub(crate) fn fractal_create_folder_blocking(
     project_root: String,
     parent: String,
     title: String,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let receipt = project.create_folder(parent, &title)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let receipt = project.create_folder(parent, &title)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_set_folder_title(
+#[tauri::command]
+pub(crate) async fn fractal_create_folder(
+    project_root: String,
+    parent: String,
+    title: String,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_create_folder_blocking(project_root, parent, title, active_page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not create folder: {error}")))?
+}
+
+pub(crate) fn fractal_set_folder_title_blocking(
     project_root: String,
     folder_path: String,
     title: String,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let folder = if folder_path.trim().is_empty() {
-        PathBuf::from(".")
-    } else {
-        relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
-    };
-    let receipt = project.set_folder_title(folder, &title)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let folder = if folder_path.trim().is_empty() {
+            PathBuf::from(".")
+        } else {
+            relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
+        };
+        let receipt = project.set_folder_title(folder, &title)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_reorder_folder(
+#[tauri::command]
+pub(crate) async fn fractal_set_folder_title(
+    project_root: String,
+    folder_path: String,
+    title: String,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_set_folder_title_blocking(project_root, folder_path, title, active_page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not rename folder: {error}")))?
+}
+
+pub(crate) fn fractal_reorder_folder_blocking(
     project_root: String,
     folder_path: String,
     order: Vec<String>,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let folder = if folder_path.trim().is_empty() {
-        PathBuf::from(".")
-    } else {
-        relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
-    };
-    let receipt = project.reorder_folder(folder, order)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let folder = if folder_path.trim().is_empty() {
+            PathBuf::from(".")
+        } else {
+            relative_folder_path(&folder_path).map_err(FractalCommandError::from)?
+        };
+        let receipt = project.reorder_folder(folder, order)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_delete_folder(
+#[tauri::command]
+pub(crate) async fn fractal_reorder_folder(
+    project_root: String,
+    folder_path: String,
+    order: Vec<String>,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_reorder_folder_blocking(project_root, folder_path, order, active_page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not reorder folder: {error}")))?
+}
+
+pub(crate) fn fractal_delete_folder_blocking(
     project_root: String,
     folder_path: String,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
     let relative = relative_folder_path(&folder_path).map_err(FractalCommandError::from)?;
-    let mut project = open_mutable_project(&project_root)?;
-    let receipt = project.delete_folder(&relative)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let receipt = project.delete_folder(&relative)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_move_page(
+#[tauri::command]
+pub(crate) async fn fractal_delete_folder(
+    project_root: String,
+    folder_path: String,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_delete_folder_blocking(project_root, folder_path, active_page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not delete folder: {error}")))?
+}
+
+pub(crate) fn fractal_move_page_blocking(
     project_root: String,
     page_path: String,
     destination_folder: String,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let file_name = Path::new(&page_path)
-        .file_name()
-        .ok_or("Choose a valid native page.")?;
-    let destination = if destination_folder.trim().is_empty() {
-        PathBuf::from(file_name)
-    } else {
-        relative_folder_path(&destination_folder)
-            .map_err(FractalCommandError::from)?
-            .join(file_name)
-    };
-    let receipt = project.move_page(&page_path, destination)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let file_name = Path::new(&page_path)
+            .file_name()
+            .ok_or("Choose a valid native page.")?;
+        let destination = if destination_folder.trim().is_empty() {
+            PathBuf::from(file_name)
+        } else {
+            relative_folder_path(&destination_folder)
+                .map_err(FractalCommandError::from)?
+                .join(file_name)
+        };
+        let receipt = project.move_page(&page_path, destination)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_delete_page(
+#[tauri::command]
+pub(crate) async fn fractal_move_page(
+    project_root: String,
+    page_path: String,
+    destination_folder: String,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_move_page_blocking(
+            project_root,
+            page_path,
+            destination_folder,
+            active_page_path,
+        )
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not move page: {error}")))?
+}
+
+pub(crate) fn fractal_delete_page_blocking(
     project_root: String,
     page_path: String,
     active_page_path: Option<String>,
 ) -> FractalResult<FractalMutationResult> {
-    let mut project = open_mutable_project(&project_root)?;
-    let receipt = project.delete_page(&page_path)?;
-    mutation_result(project, active_page_path.as_deref(), receipt)
+    project_sessions().with_mutation(&project_root, |project, metadata| {
+        let receipt = project.delete_page(&page_path)?;
+        mutation_result_with_metadata(project, active_page_path.as_deref(), receipt, metadata)
+    })
 }
 
-#[tauri::command(async)]
-pub(crate) fn fractal_validate_project(
+#[tauri::command]
+pub(crate) async fn fractal_delete_page(
+    project_root: String,
+    page_path: String,
+    active_page_path: Option<String>,
+) -> FractalResult<FractalMutationResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fractal_delete_page_blocking(project_root, page_path, active_page_path)
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not delete page: {error}")))?
+}
+
+pub(crate) fn fractal_validate_project_blocking(
     project_root: String,
 ) -> FractalResult<FractalCommandResult> {
-    let project = open_mutable_project(&project_root)?;
-    let report = project.validate();
-    let details = (!report.issues.is_empty()).then(|| {
-        report
-            .issues
-            .iter()
-            .map(|issue| match &issue.path {
-                Some(path) => format!("{path}: {}", issue.message),
-                None => issue.message.clone(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    });
-    Ok(FractalCommandResult {
-        ok: report.valid,
-        message: if report.valid {
-            "Project is valid."
-        } else {
-            "Project has validation issues."
-        }
-        .into(),
-        details,
+    project_sessions().with_cached(&project_root, |project, _metadata| {
+        let report = project.validate();
+        let details = (!report.issues.is_empty()).then(|| {
+            report
+                .issues
+                .iter()
+                .map(|issue| match &issue.path {
+                    Some(path) => format!("{path}: {}", issue.message),
+                    None => issue.message.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+        Ok(FractalCommandResult {
+            ok: report.valid,
+            message: if report.valid {
+                "Project is valid."
+            } else {
+                "Project has validation issues."
+            }
+            .into(),
+            details,
+        })
     })
+}
+
+#[tauri::command]
+pub(crate) async fn fractal_validate_project(
+    project_root: String,
+) -> FractalResult<FractalCommandResult> {
+    tauri::async_runtime::spawn_blocking(move || fractal_validate_project_blocking(project_root))
+        .await
+        .map_err(|error| FractalCommandError::io(format!("Could not validate project: {error}")))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        fractal_create_folder, fractal_create_page, fractal_export_folder_html,
-        fractal_export_html, fractal_move_page, fractal_reorder_folder, fractal_set_folder_title,
-        relative_folder_path, relative_page_path,
+        fractal_create_folder_blocking, fractal_create_page_blocking,
+        fractal_export_folder_html_blocking, fractal_export_html_blocking,
+        fractal_move_page_blocking, fractal_reorder_folder_blocking,
+        fractal_set_folder_title_blocking, relative_folder_path, relative_page_path,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -1003,7 +1281,8 @@ mod tests {
         let root_string = root.to_string_lossy().into_owned();
 
         let created =
-            fractal_create_folder(root_string.clone(), "".into(), "Notes".into(), None).unwrap();
+            fractal_create_folder_blocking(root_string.clone(), "".into(), "Notes".into(), None)
+                .unwrap();
 
         assert_eq!(
             created.receipt.operation,
@@ -1014,9 +1293,10 @@ mod tests {
             .folders
             .iter()
             .any(|folder| folder.path == "notes"));
-        let missing = fractal_create_folder(root_string, "missing".into(), "Child".into(), None)
-            .err()
-            .unwrap();
+        let missing =
+            fractal_create_folder_blocking(root_string, "missing".into(), "Child".into(), None)
+                .err()
+                .unwrap();
         assert_eq!(missing.code, fractal::FractalErrorCode::NotFound);
     }
 
@@ -1034,7 +1314,7 @@ mod tests {
             .unwrap();
         let root_string = root.to_string_lossy().into_owned();
 
-        let titled = fractal_set_folder_title(
+        let titled = fractal_set_folder_title_blocking(
             root_string.clone(),
             "notes".into(),
             "Field notes".into(),
@@ -1052,7 +1332,7 @@ mod tests {
             "Field notes"
         );
 
-        let reordered = fractal_reorder_folder(
+        let reordered = fractal_reorder_folder_blocking(
             root_string,
             "field-notes".into(),
             vec!["two.fractal.html".into(), "one.fractal.html".into()],
@@ -1080,7 +1360,7 @@ mod tests {
         project.create_page("Reference").unwrap();
         let output = temporary.path().join("source.html");
 
-        let report = fractal_export_html(
+        let report = fractal_export_html_blocking(
             root.to_string_lossy().into_owned(),
             "source.fractal.html".into(),
             output.to_string_lossy().into_owned(),
@@ -1106,7 +1386,7 @@ mod tests {
             .unwrap();
         let output = temporary.path().join("book.html");
 
-        let report = fractal_export_folder_html(
+        let report = fractal_export_folder_html_blocking(
             root.to_string_lossy().into_owned(),
             "book".into(),
             output.to_string_lossy().into_owned(),
@@ -1131,7 +1411,7 @@ mod tests {
         project.create_folder("", "Archive").unwrap();
         project.create_page("Field Notes").unwrap();
 
-        let moved = fractal_move_page(
+        let moved = fractal_move_page_blocking(
             root.to_string_lossy().into_owned(),
             "field-notes.fractal.html".into(),
             "archive".into(),
@@ -1155,7 +1435,7 @@ mod tests {
         let temporary = tempdir().unwrap();
         let root = temporary.path().join("project");
         fractal::Project::init(&root, "Test").unwrap();
-        let result = fractal_create_page(
+        let result = fractal_create_page_blocking(
             root.to_string_lossy().into_owned(),
             "First Page".into(),
             None,
@@ -1176,5 +1456,8 @@ mod tests {
         assert_eq!(value["receipt"]["changes"][0]["entry"], "file");
         assert!(value["receipt"]["changes"][0]["after_hash"].is_string());
         assert_eq!(value["receipt"]["warnings"], serde_json::json!([]));
+        assert_eq!(value["project"]["catalogVersion"], 2);
+        assert_eq!(value["project"]["catalogFreshness"], "mutated");
+        assert!(value["project"]["sessionGeneration"].is_number());
     }
 }

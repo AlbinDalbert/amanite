@@ -14,11 +14,14 @@ export type FractalBacklink = {
 };
 
 export type FractalSearchResult = {
+  catalogFreshness?: "cached" | "mutated" | "refreshed";
+  catalogVersion?: number;
   path: string;
   title?: string | null;
   snippet: string;
   freshness?: "saved" | "live";
   revision?: number;
+  sessionGeneration?: number;
 };
 
 export type FractalNativeDocumentParts = {
@@ -72,12 +75,13 @@ export type FractalFolder = {
 };
 
 export type FractalProjectCatalogSnapshot = {
+  catalogFreshness?: "cached" | "mutated" | "refreshed";
+  catalogVersion?: number;
   name: string;
   version: number;
   rootPath: string;
   pages: FractalPage[];
   folders: FractalFolder[];
-  catalogVersion?: number;
 };
 
 export type FractalProject = FractalProjectCatalogSnapshot & {
@@ -126,9 +130,12 @@ export type FractalCommandResult = {
 };
 
 export type FractalPageContentState = {
+  catalogFreshness?: "cached" | "mutated" | "refreshed";
+  catalogVersion?: number;
   path: string;
   contentHash: string | null;
   nativeDocumentHashes?: FractalNativeDocumentHashes | null;
+  sessionGeneration?: number;
 };
 
 export type FractalHtmlExportReport = {
@@ -156,12 +163,15 @@ export type FractalFolderHtmlExportReport = {
 };
 
 export type FractalLoadedPage = {
+  catalogFreshness?: "cached" | "mutated" | "refreshed";
+  catalogVersion?: number;
   path: string;
   source: string;
   links: FractalLink[];
   backlinks: FractalBacklink[];
   contentHash: string;
   nativeDocumentParts?: FractalNativeDocumentParts | null;
+  sessionGeneration?: number;
 };
 
 export type FractalConditionalWriteResult =

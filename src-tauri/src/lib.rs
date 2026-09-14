@@ -3,6 +3,7 @@ mod catalog;
 mod drafts;
 mod fractal_adapter;
 mod platform;
+mod project_session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
