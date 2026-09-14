@@ -3,6 +3,7 @@ import { clearPageDraft } from "@/app/pageDrafts";
 import { requestEditorFlush } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
+import { mapPagePath, reconcileMutationResult } from "@/lib/fractal/reconcile";
 import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import {
   bufferFromProject,
@@ -89,6 +90,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setProject
   } = useWorkspaceDocumentState(initialProject, requestedGeneration);
   const reportedRevisionRef = useRef(new Set<string>());
+  const pathAliasesRef = useRef(new Map<string, string>());
   const [liveModels, setLiveModels] = useState<Record<string, EditorModelSnapshot>>({});
   const liveModelsRef = useRef(liveModels);
   const [documentQueries] = useState(() => new DocumentQueryIndex(initialProject.pages));
@@ -107,15 +109,27 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     onProjectSnapshot(tagged);
   }, [onProjectSnapshot, projectGeneration]);
 
+  const rememberPathChange = useCallback((from: string, to: string) => {
+    for (const [alias, target] of pathAliasesRef.current) {
+      if (target === from) pathAliasesRef.current.set(alias, to);
+    }
+    pathAliasesRef.current.set(from, to);
+  }, []);
+
+  const notifyDocumentPathChange = useCallback((from: string, to: string) => {
+    rememberPathChange(from, to);
+    onDocumentPathChange(from, to);
+  }, [onDocumentPathChange, rememberPathChange]);
+
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
     flushDocument: (buffer) => requestEditorFlush(buffer.documentId, buffer.revision),
-    onDocumentPathChange,
+    onDocumentPathChange: notifyDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
     publishProject
-  }), [commitBuffers, onDocumentPathChange, publishProject, setDraftStorageError]);
+  }), [commitBuffers, notifyDocumentPathChange, publishProject, setDraftStorageError]);
 
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath || previousGenerationRef.current !== projectGeneration) {
@@ -126,6 +140,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       const tagged = { ...initialProject, sessionGeneration: projectGeneration };
       projectRef.current = tagged;
       buffersRef.current = nextBuffers;
+      pathAliasesRef.current.clear();
       setProject(tagged);
       setBuffers(nextBuffers);
       setLoadingPaths(new Set());
@@ -233,6 +248,9 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   }, [commitBuffers, setDraftStorageError]);
 
   const forgetDocument = useCallback((path: string) => {
+    for (const [alias, target] of pathAliasesRef.current) {
+      if (alias === path || target === path) pathAliasesRef.current.delete(alias);
+    }
     commitBuffers((current) => {
       const next = { ...current };
       delete next[path];
@@ -241,6 +259,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   }, [commitBuffers]);
 
   const renameDocument = useCallback((from: string, to: string) => {
+    rememberPathChange(from, to);
     commitBuffers((current) => {
       const buffer = current[from];
       if (!buffer) return current;
@@ -248,7 +267,30 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       delete next[from];
       return next;
     });
-  }, [commitBuffers]);
+  }, [commitBuffers, rememberPathChange]);
+
+  const resolveDocumentPath = useCallback((path: string) => {
+    let current = path;
+    const seen = new Set<string>();
+    while (!seen.has(current)) {
+      seen.add(current);
+      if (buffersRef.current[current]) return current;
+      const next = pathAliasesRef.current.get(current);
+      if (!next) break;
+      current = next;
+    }
+    return buffersRef.current[current] ? current : null;
+  }, [buffersRef]);
+
+  const pagePathsInFolder = useCallback((folderPath: string) => {
+    const normalized = folderPath.trim().replace(/^\/+|\/+$/g, "");
+    const prefix = normalized ? `${normalized}/` : "";
+    return projectRef.current.pages
+      .map((page) => page.path)
+      .filter((path) => !prefix || path.startsWith(prefix));
+  }, [projectRef]);
+
+  const saveFolder = useCallback((folderPath: string) => persistence.savePaths(pagePathsInFolder(folderPath)), [pagePathsInFolder, persistence.savePaths]);
 
   const updateModel = useCallback((path: string, snapshot: EditorModelSnapshot) => {
     const buffer = buffersRef.current[path];
@@ -265,29 +307,48 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     if (!buffer?.missing) return false;
     try {
       const result = await fractalClient.recreatePage(projectRef.current, path, buffer.source);
-      const resultingPath = result.project.activePagePath ?? path;
+      const reconciled = reconcileMutationResult(projectRef.current, result);
+      const mappedPath = mapPagePath(path, reconciled.scope.mappings);
+      const resultingPath = mappedPath === path ? reconciled.result.project.activePagePath ?? path : mappedPath;
       if (resultingPath !== path) renameDocument(path, resultingPath);
-      publishProject(result.project);
-      await clearPageDraft(result.project.rootPath, path);
+      if (resultingPath !== path) notifyDocumentPathChange(path, resultingPath);
+      publishProject(reconciled.result.project);
+      await clearPageDraft(reconciled.result.project.rootPath, path);
       return reloadDocument(resultingPath);
     } catch (error) {
       commitBuffers((current) => current[path] ? { ...current, [path]: { ...current[path], error: errorMessage(error), conflict: true } } : current);
       return false;
     }
-  }, [commitBuffers, publishProject, reloadDocument, renameDocument]);
+  }, [commitBuffers, notifyDocumentPathChange, publishProject, reloadDocument, renameDocument]);
 
   const refreshChangedDocuments = useCallback(async (snapshot: FractalProject, ignoredPaths: string[] = []) => {
     const ignored = new Set(ignoredPaths);
     const pageHashes = new Map(snapshot.pages.map((page) => [page.path, page.contentHash]));
     const changed = Object.values(buffersRef.current).filter((buffer) =>
       !ignored.has(buffer.path)
-      && pageHashes.has(buffer.path)
-      && pageHashes.get(buffer.path) !== buffer.contentHash
+      && (!pageHashes.has(buffer.path) || pageHashes.get(buffer.path) !== buffer.contentHash)
     );
     let refreshed = true;
     for (const checked of changed) {
       const latest = buffersRef.current[checked.path];
       if (!latest) continue;
+      if (!pageHashes.has(checked.path)) {
+        refreshed = false;
+        commitBuffers((current) => {
+          const buffer = current[checked.path];
+          if (!buffer || (buffer.missing && buffer.error)) return current;
+          return {
+            ...current,
+            [checked.path]: {
+              ...buffer,
+              conflict: true,
+              missing: true,
+              error: "This page is absent from the refreshed project catalog. Resolve the local document before closing it."
+            }
+          };
+        });
+        continue;
+      }
       if (latest.dirty || latest.operation) {
         refreshed = false;
         commitBuffers((current) => {
@@ -353,12 +414,16 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     project,
     pollingNotice,
     publishProject,
+    pagePathsInFolder,
     refreshChangedDocuments,
     renameDocument,
     reloadDocument,
     recreateDocument,
     saveAll: persistence.saveAll,
+    saveFolder,
+    savePaths: persistence.savePaths,
     saveDocument: persistence.saveDocument,
+    resolveDocumentPath,
     dismissPollingNotice: () => setPollingNotice(null),
     markRevision,
     updateSnapshot,

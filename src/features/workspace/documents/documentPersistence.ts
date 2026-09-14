@@ -1,7 +1,8 @@
-import { clearPageDraft } from "@/app/pageDrafts";
+import { clearPageDraft, reconcilePageDrafts } from "@/app/pageDrafts";
 import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
 import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
-import { mapPagePath, receiptMappings } from "@/lib/fractal/reconcile";
+import { mapPagePath, mutationScope, reconcileMutationResult, reconcileProjectSnapshot } from "@/lib/fractal/reconcile";
+import type { FractalMutationReceipt } from "@/lib/fractal/types";
 import {
   errorMessage,
   type BufferUpdater,
@@ -55,8 +56,8 @@ function applySection(
 }
 
 export type NativeSaveResult =
-  | { kind: "saved"; outcome?: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
-  | { kind: "conflict"; outcome?: "conflict"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
+  | { kind: "saved"; outcome?: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string; receipts?: FractalMutationReceipt[] }
+  | { kind: "conflict"; outcome?: "conflict"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string; receipts?: FractalMutationReceipt[] }
   | {
     kind: "failed";
     outcome?: "failed" | "mutation_committed" | "indeterminate" | "recovery_required";
@@ -65,6 +66,7 @@ export type NativeSaveResult =
     project: FractalProject;
     sent: FractalNativeSectionEdits;
     resultingPath: string;
+    receipts?: FractalMutationReceipt[];
   };
 
 async function saveNativeDocument(
@@ -86,6 +88,7 @@ async function saveNativeDocument(
   // stale local content write into an unconditional overwrite.
   const expectedParts = parts;
   const sent: FractalNativeSectionEdits = {};
+  const receipts: FractalMutationReceipt[] = [];
   let resultingPath = buffer.path;
   const projectAfterCommittedSections = () => Object.keys(sent).length ? workingProject : project;
   for (const section of nativeSectionOrder) {
@@ -94,20 +97,30 @@ async function saveNativeDocument(
     try {
       const result = await applySection(workingProject, section, value, sectionHash(expectedParts, section));
       if (result.status === "conflict") {
-        return { kind: "conflict", outcome: "conflict", message: result.error.message, project: projectAfterCommittedSections(), sent, resultingPath };
+        return { kind: "conflict", outcome: "conflict", message: result.error.message, project: projectAfterCommittedSections(), sent, resultingPath, receipts };
       }
       sent[section] = value;
-      resultingPath = mapPagePath(resultingPath, receiptMappings(result.result.receipt));
-      workingProject = result.result.project;
+      const reconciled = reconcileMutationResult(workingProject, result.result);
+      receipts.push(reconciled.result.receipt);
+      resultingPath = mapPagePath(resultingPath, reconciled.scope.mappings);
+      workingProject = reconciled.result.project;
     } catch (error) {
       const code = isFractalCommandError(error) ? error.code : undefined;
       const outcome = code === "mutation_committed" || code === "indeterminate" || code === "recovery_required"
         ? code
         : "failed";
-      return { kind: "failed", outcome, code, message: errorMessage(error), project: projectAfterCommittedSections(), sent, resultingPath };
+      let reconciledProject = projectAfterCommittedSections();
+      if (outcome === "mutation_committed" || outcome === "indeterminate" || outcome === "recovery_required") {
+        try {
+          reconciledProject = await fractalClient.openProjectPath(project.rootPath);
+        } catch {
+          // Keep the local buffer and the last known project when inspection cannot complete.
+        }
+      }
+      return { kind: "failed", outcome, code, message: errorMessage(error), project: reconciledProject, sent, resultingPath, receipts };
     }
   }
-  return { kind: "saved", outcome: "saved", project: projectAfterCommittedSections(), sent, resultingPath };
+  return { kind: "saved", outcome: "saved", project: projectAfterCommittedSections(), sent, resultingPath, receipts };
 }
 
 function mergeSavedProject(
@@ -119,10 +132,9 @@ function mergeSavedProject(
   useSavedSource: boolean
 ) {
   const wasActive = currentProject.activePagePath === path;
+  const reconciled = reconcileProjectSnapshot(currentProject, savedProject);
   return {
-    ...currentProject,
-    pages: savedProject.pages,
-    folders: savedProject.folders,
+    ...reconciled,
     ...(wasActive ? {
       activePagePath: resultingPath,
       activePageSource: useSavedSource ? savedProject.activePageSource : source,
@@ -248,10 +260,19 @@ type SavePassResult = {
   success: boolean;
 };
 
-function publishSaveResult(context: SaveContext, currentPath: string, start: DocumentBuffer, result: NativeSaveResult) {
+async function publishSaveResult(context: SaveContext, currentPath: string, start: DocumentBuffer, result: NativeSaveResult) {
   const savedProject = result.project;
   const sent = result.sent;
   const resultingPath = result.resultingPath;
+  const receipts = result.receipts ?? [];
+  const scope = mutationScope(receipts);
+  if (receipts.length) {
+    try {
+      await reconcilePageDrafts(context.projectRef.current.rootPath, scope.mappings);
+    } catch (error) {
+      context.onDraftStorageError?.(errorMessage(error));
+    }
+  }
   let nextBufferDirty = false;
   if (resultingPath !== currentPath) context.registerSavePath(resultingPath);
   context.commitBuffers((current) => {
@@ -310,7 +331,7 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
 
   try {
     const result = await saveNativeDocument(context.projectRef.current, start, force);
-    const update = publishSaveResult(context, path, start, result);
+    const update = await publishSaveResult(context, path, start, result);
     if (result.kind !== "saved") {
       return { kind: "finished", path: update.resultingPath, success: false };
     }
@@ -411,5 +432,18 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
     }
   }
 
-  return { saveAll, saveDocument };
+  async function savePaths(paths: Iterable<string>) {
+    const requested = new Set(paths);
+    while (true) {
+      const dirtyPaths = Object.values(buffersRef.current)
+        .filter((buffer) => buffer.dirty && requested.has(buffer.path))
+        .map((buffer) => buffer.path);
+      if (!dirtyPaths.length) return true;
+      for (const path of dirtyPaths) {
+        if (!(await saveDocument(path))) return false;
+      }
+    }
+  }
+
+  return { saveAll, saveDocument, savePaths };
 }

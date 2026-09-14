@@ -1,4 +1,5 @@
-import { PROJECT_OVERVIEW_TAB_ID } from "./folderTabs";
+import { PROJECT_OVERVIEW_TAB_ID, folderPathFromTabId, folderTabId, isFolderTab } from "./folderTabs";
+import { mapFolderPath, mapPagePath, type ReceiptMappings } from "@/lib/fractal/reconcile";
 
 export type EditorGroupId = "left" | "right";
 
@@ -136,6 +137,30 @@ export function renameGroupTab(state: WorkspaceGroups, from: string, to: string)
     history: group.history.map((path) => path === from ? to : path)
   });
   return { ...state, left: rename(state.left), right: state.right ? rename(state.right) : null };
+}
+
+export function mapWorkspacePath(path: string, mappings: ReceiptMappings) {
+  if (isFolderTab(path)) {
+    const folder = folderPathFromTabId(path);
+    return folder == null ? path : folderTabId(mapFolderPath(folder, mappings));
+  }
+  return mapPagePath(path, mappings);
+}
+
+function reconcileGroupPaths(group: EditorGroup, mappings: ReceiptMappings): EditorGroup {
+  const mapUnique = (paths: string[]) => Array.from(new Set(paths.map((path) => mapWorkspacePath(path, mappings))));
+  const tabs = mapUnique(group.tabs);
+  const history = mapUnique(group.history);
+  const activePath = group.activePath ? mapWorkspacePath(group.activePath, mappings) : null;
+  const nextActivePath = activePath && tabs.includes(activePath) ? activePath : tabs[0] ?? null;
+  const historyIndex = nextActivePath ? Math.max(0, history.lastIndexOf(nextActivePath)) : -1;
+  return { ...group, tabs, activePath: nextActivePath, history, historyIndex };
+}
+
+export function reconcileWorkspacePaths(state: WorkspaceGroups, mappings: ReceiptMappings): WorkspaceGroups {
+  const left = reconcileGroupPaths(state.left, mappings);
+  const right = state.right ? reconcileGroupPaths(state.right, mappings) : null;
+  return { ...state, left, right };
 }
 
 export function groupForPath(state: WorkspaceGroups, path: string) {

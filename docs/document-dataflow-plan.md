@@ -1,6 +1,6 @@
 # Amanite document data-flow plan
 
-Status: D0 through D6 complete. D7 is in progress.
+Status: D0 through D7 complete. D8 is in progress.
 
 This plan improves loading, editing, tab activation, recovery, and persistence
 within the existing Tauri, React, Lexical, and Fractal stack. GPUI work is paused.
@@ -174,8 +174,8 @@ undo/history behavior explicit. Bound live DOM work before minimizing memory.
 | D4 | Schedule recovery and autosave per revision | D3 | Complete |
 | D5 | Separate catalog, navigation, and derived queries | D3 | Complete |
 | D6 | Retain Rust project state with explicit freshness | D1, D5 contracts | Complete |
-| D7 | Centralize receipt reconciliation and mutation scope | D4, D5, D6 | In progress |
-| D8 | Complete parity, performance, and documentation review | D1 through D7 | Not started |
+| D7 | Centralize receipt reconciliation and mutation scope | D4, D5, D6 | Complete |
+| D8 | Complete parity, performance, and documentation review | D1 through D7 | In progress |
 
 Use small reviewable changes. Keep the app runnable at each stage. Transitional
 adapters may feed old consumers, but name them and remove them before D8. Do not
@@ -373,6 +373,8 @@ Exit criteria:
 - Reports separate Amanite savings from full reloads still required by Fractal.
 
 ### D7. Centralize receipts and scope persistence barriers
+
+Implementation status: complete. See [D7 verification](measurements/document-dataflow-d7.md).
 
 - Apply each receipt through one reconciliation operation for document paths,
   tabs, history, folder references, catalog entries, drafts, links, and queues.

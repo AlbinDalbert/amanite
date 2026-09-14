@@ -7,11 +7,13 @@ import {
   moveGroupTab,
   navigateGroupHistory,
   openGroupTab,
+  reconcileWorkspacePaths,
   reconcileWorkspaceGroups,
   renameGroupTab,
   tabPathForDirection,
   tabPathForShortcut
 } from "./workspaceGroups";
+import { receiptMappings } from "@/lib/fractal/reconcile";
 
 describe("workspace groups", () => {
   it("starts a project on its root folder overview", () => {
@@ -97,6 +99,21 @@ describe("workspace groups", () => {
     state = reconcileWorkspaceGroups(state, new Set(["folder/two.fractal.html"]));
     expect(state.left.tabs).toEqual(["folder/two.fractal.html"]);
     expect(state.right).toBeNull();
+  });
+
+  it("reconciles mapped page and folder paths in tabs and history together", () => {
+    let state = createWorkspaceGroups("old/page.fractal.html");
+    state = openGroupTab(state, "left", "folder://old");
+    state = openGroupTab(state, "right", "old/nested.fractal.html");
+    const mappings = receiptMappings({ operation: "set_folder_title", warnings: [], changes: [
+      { change: "moved", from: "pages/old", to: "pages/new", entry: "directory" }
+    ] });
+
+    const next = reconcileWorkspacePaths(state, mappings);
+    expect(next.left.tabs).toEqual(["new/page.fractal.html", "folder://new"]);
+    expect(next.left.history).toEqual(["new/page.fractal.html", "folder://new"]);
+    expect(next.right?.tabs).toEqual(["new/nested.fractal.html"]);
+    expect(next.right?.history).toEqual(["new/nested.fractal.html"]);
   });
 
   it("resolves numbered tabs within one editor group", () => {

@@ -1,5 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import { isFolderTab } from "./folderTabs";
+import { folderPathFromTabId, isFolderTab } from "./folderTabs";
 import {
   BOREALIS_TAB_ID,
   tabPathForDirection,
@@ -17,8 +17,8 @@ export type WorkspaceShortcutContext = {
   closedTabs: ClosedTab[];
   createPage: (title: string) => Promise<void>;
   documents: {
-    saveAll: () => Promise<boolean>;
     saveDocument: (path: string) => Promise<boolean>;
+    saveFolder: (path: string) => Promise<boolean>;
   };
   groupsRef: { current: WorkspaceGroups };
   openInGroup: (groupId: EditorGroupId, path: string) => Promise<void>;
@@ -50,7 +50,10 @@ function handleSaveShortcut(event: KeyboardEvent, key: string, context: Workspac
   if (event.defaultPrevented) return true;
   event.preventDefault();
   const path = context.activeGroup.activePath;
-  if (path && isFolderTab(path)) void context.documents.saveAll();
+  if (path && isFolderTab(path)) {
+    const folderPath = folderPathFromTabId(path);
+    if (folderPath != null) void context.documents.saveFolder(folderPath);
+  }
   else if (path && path !== BOREALIS_TAB_ID) void context.documents.saveDocument(path);
   return true;
 }
@@ -123,8 +126,8 @@ export function useWorkspaceShortcuts(context: WorkspaceShortcutContext) {
     context.closeTab,
     context.closedTabs,
     context.createPage,
-    context.documents.saveAll,
     context.documents.saveDocument,
+    context.documents.saveFolder,
     context.groupsRef,
     context.openInGroup,
     context.setClosedTabs,

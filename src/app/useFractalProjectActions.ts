@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { clearPageDraft } from "./pageDrafts";
 import { describeFractalFailure, type FractalFailureStatus } from "./fractalFailure";
 import { fractalClient } from "@/lib/fractal/client";
+import { reconcileMutationBatch } from "@/lib/fractal/reconcile";
 import type { FractalCommandResult, FractalMutationBatchResult, FractalMutationReceipt, FractalMutationResult, FractalProject } from "@/lib/fractal/types";
 
 type MutableValue<T> = { current: T };
@@ -9,7 +10,7 @@ type WithBusy = <T>(operation: "page", action: () => Promise<T>) => Promise<T | 
 
 type Options = {
   acceptProject: (project: FractalProject, newSession?: boolean) => void;
-  acceptMutation: (result: FractalMutationResult) => void;
+  acceptMutation: (result: FractalMutationResult) => FractalMutationResult;
   activeProjectRef: MutableValue<FractalProject | null>;
   busyRef: MutableValue<"catalog" | "load" | "command" | "page" | "save" | null>;
   confirm: (message: string, confirmLabel?: string) => Promise<boolean>;
@@ -79,9 +80,9 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
   const runMutation = useCallback(async (action: () => Promise<FractalMutationResult>, success: (project: FractalProject) => FractalCommandResult) => {
     const result = await withBusy("page", action);
     if (!result) return null;
-    acceptMutation(result);
-    if (!result.receipt.warnings.length) setCommandResult(success(result.project));
-    return result;
+    const accepted = acceptMutation(result);
+    if (!accepted.receipt.warnings.length) setCommandResult(success(accepted.project));
+    return accepted;
   }, [acceptMutation, setCommandResult, withBusy]);
 
   const createProjectPage = useCallback(async (title: string, folderPath?: string) => {
@@ -120,9 +121,10 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
     const folderPath = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : undefined;
     const result = await withBusy("page", () => fractalClient.duplicatePage(current, pagePath, title, folderPath));
     if (!result) return null;
-    acceptProject(result.project);
-    reportDuplicateResult(result, setCommandResult, setError, setFailureStatus, setLastReceipt);
-    return result.project;
+    const accepted = reconcileMutationBatch(activeProjectRef.current ?? current, result).result;
+    acceptProject(accepted.project);
+    reportDuplicateResult(accepted, setCommandResult, setError, setFailureStatus, setLastReceipt);
+    return accepted;
   }, [acceptProject, activeProjectRef, busyRef, setCommandResult, setError, setFailureStatus, setLastReceipt, withBusy]);
 
   const createProjectFolder = useCallback(async (folderPath: string) => {

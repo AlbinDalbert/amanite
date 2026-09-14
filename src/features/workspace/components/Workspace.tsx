@@ -4,8 +4,8 @@ import { startPointerResize } from "@/components/ui/pointerResize";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { AiSettings } from "@/app/useAiSettings";
 import BorealisChat, { BorealisSessionProvider } from "@/features/ai-chat/components/AiChat";
-import type { FractalCommandResult, FractalFolderHtmlExportOptions, FractalMutationResult, FractalProject, FractalSearchResult } from "@/lib/fractal/types";
-import { createdPagePath, mapPagePath, receiptMappings } from "@/lib/fractal/reconcile";
+import type { FractalCommandResult, FractalFolderHtmlExportOptions, FractalMutationBatchResult, FractalMutationResult, FractalProject, FractalSearchResult } from "@/lib/fractal/types";
+import { createdPagePath, mapPagePath, reconcileMutationBatch, reconcileMutationResult } from "@/lib/fractal/reconcile";
 import { reconcilePageDrafts } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import { useWorkspaceDocuments } from "../useWorkspaceDocuments";
@@ -18,9 +18,11 @@ import {
   closeGroupTab,
   createProjectOverviewGroups,
   groupForPath,
+  mapWorkspacePath,
   moveGroupTab,
   navigateGroupHistory,
   openGroupTab,
+  reconcileWorkspacePaths,
   reconcileWorkspaceGroups,
   renameGroupTab,
   type EditorGroupId,
@@ -33,6 +35,7 @@ import WorkspaceToolbar from "./WorkspaceToolbar";
 import WorkspaceTabs, { type DraggedWorkspaceTab } from "./WorkspaceTabs";
 
 type ProjectMutation = Promise<FractalMutationResult | null | undefined>;
+type ProjectBatchMutation = Promise<FractalMutationBatchResult | null | undefined>;
 
 function validWorkspaceTabs(project: FractalProject) {
   return new Set([...project.pages.map((page) => page.path), ...project.folders.map((folder) => folderTabId(folder.path)), BOREALIS_TAB_ID]);
@@ -55,7 +58,7 @@ type WorkspaceProps = {
   onDeletePage: (pagePath: string) => ProjectMutation;
   onDeleteFolder: (folderPath: string) => ProjectMutation;
   onDismissStatus: () => void;
-  onDuplicatePage: (pagePath: string) => Promise<FractalProject | null | undefined>;
+  onDuplicatePage: (pagePath: string) => ProjectBatchMutation;
   onRepairPage: (pagePath: string) => ProjectMutation;
   onMovePage: (pagePath: string, destinationFolder: string) => ProjectMutation;
   onOpenSettings: () => void;
@@ -107,6 +110,45 @@ function QuickOpen({ documentQueries, onClose, onOpen }: {
 }
 
 type WorkspaceDocuments = ReturnType<typeof useWorkspaceDocuments>;
+
+function useWorkspaceMutationReconciliation(documents: WorkspaceDocuments, setClosedTabs: Dispatch<SetStateAction<Array<{ groupId: EditorGroupId; path: string }>>>, setGroups: Dispatch<SetStateAction<WorkspaceGroups>>) {
+  const applyMutation = useCallback(async (mutation: FractalMutationResult) => {
+    const reconciled = reconcileMutationResult(documents.project, mutation);
+    const { result, scope } = reconciled;
+    if (mutation.receipt.changes.length) await reconcilePageDrafts(result.project.rootPath, scope.mappings);
+    for (const path of Object.keys(documents.buffers)) {
+      const nextPath = mapPagePath(path, scope.mappings);
+      if (nextPath !== path) documents.renameDocument(path, nextPath);
+    }
+    setGroups((current) => reconcileWorkspacePaths(current, scope.mappings));
+    setClosedTabs((current) => current.map((tab) => ({ ...tab, path: mapWorkspacePath(tab.path, scope.mappings) })));
+    documents.publishProject(result.project);
+    const deletedPaths = Object.keys(documents.buffers).filter((path) =>
+      scope.mappings.deletedPages.has(path)
+      || Array.from(scope.mappings.deletedFolders).some((folder) => path.startsWith(`${folder}/`))
+    );
+    await documents.refreshChangedDocuments(result.project, deletedPaths);
+    return result;
+  }, [documents, setClosedTabs, setGroups]);
+
+  const applyBatchMutation = useCallback(async (mutation: FractalMutationBatchResult) => {
+    const reconciled = reconcileMutationBatch(documents.project, mutation);
+    const { result, scope } = reconciled;
+    if (mutation.receipts.some((receipt) => receipt.changes.length)) await reconcilePageDrafts(result.project.rootPath, scope.mappings);
+    for (const path of Object.keys(documents.buffers)) {
+      const nextPath = mapPagePath(path, scope.mappings);
+      if (nextPath !== path) documents.renameDocument(path, nextPath);
+    }
+    setGroups((current) => reconcileWorkspacePaths(current, scope.mappings));
+    setClosedTabs((current) => current.map((tab) => ({ ...tab, path: mapWorkspacePath(tab.path, scope.mappings) })));
+    documents.publishProject(result.project);
+    await documents.refreshChangedDocuments(result.project);
+    return result;
+  }, [documents, setClosedTabs, setGroups]);
+
+  return { applyBatchMutation, applyMutation };
+}
+
 type WorkspacePaneProps = Omit<ComponentProps<typeof EditorGroupPane>, "buffer" | "focused" | "group" | "isLoading" | "onActivate" | "onCreateFirstPage">
   & Pick<ComponentProps<typeof WorkspaceTabs>, "onCloseTab" | "onDragEnd" | "onDragStart" | "onDropTab" | "onSelectTab" | "onSplitTab">;
 
@@ -336,7 +378,8 @@ function useWorkspaceTabActions({ documents, groupsRef, setBorealisOpen, setClos
       return;
     }
     if (isFolderTab(path)) {
-      if (!(await documents.saveAll())) return;
+      const folderPath = folderPathFromTabId(path);
+      if (!(await documents.savePaths(folderPath == null ? [] : documents.pagePathsInFolder(folderPath)))) return;
       setClosedTabs((tabs) => [...tabs.filter((tab) => tab.path !== path || tab.groupId !== groupId), { groupId, path }]);
       setGroups((current) => closeGroupTab(current, groupId, path));
       return;
@@ -348,18 +391,27 @@ function useWorkspaceTabActions({ documents, groupsRef, setBorealisOpen, setClos
     setGroups(next);
     const stillOpen = next.left.tabs.includes(path) || Boolean(next.right?.tabs.includes(path));
     if (!stillOpen) documents.forgetDocument(path);
-  }, [documents.buffers, documents.forgetDocument, documents.saveAll, documents.saveDocument, groupsRef, setBorealisOpen, setClosedTabs, setGroups]);
+  }, [documents.buffers, documents.forgetDocument, documents.pagePathsInFolder, documents.saveDocument, documents.savePaths, groupsRef, setBorealisOpen, setClosedTabs, setGroups]);
 
   const closeRightGroup = useCallback(async () => {
     const right = groupsRef.current.right;
-    if (!right || !(await documents.saveAll())) return;
+    if (!right) return;
+    const paths = right.tabs.flatMap((path) => {
+      if (path === BOREALIS_TAB_ID) return [];
+      if (isFolderTab(path)) {
+        const folderPath = folderPathFromTabId(path);
+        return folderPath == null ? [] : documents.pagePathsInFolder(folderPath);
+      }
+      return [path];
+    });
+    if (!(await documents.savePaths(paths))) return;
     let next = groupsRef.current;
     for (const path of right.tabs) next = closeGroupTab(next, "right", path);
     setGroups(next);
     for (const path of right.tabs) {
       if (path !== BOREALIS_TAB_ID && !next.left.tabs.includes(path)) documents.forgetDocument(path);
     }
-  }, [documents.forgetDocument, documents.saveAll, groupsRef, setGroups]);
+  }, [documents.forgetDocument, documents.pagePathsInFolder, documents.savePaths, groupsRef, setGroups]);
 
   const toggleBorealis = useCallback(() => {
     const tabGroup = groupForPath(groupsRef.current, BOREALIS_TAB_ID);
@@ -401,6 +453,8 @@ function useWorkspaceTabActions({ documents, groupsRef, setBorealisOpen, setClos
 }
 
 type WorkspaceProjectActionsOptions = {
+  applyBatchMutation: (mutation: FractalMutationBatchResult) => Promise<FractalMutationBatchResult>;
+  applyMutation: (mutation: FractalMutationResult) => Promise<FractalMutationResult>;
   documents: WorkspaceDocuments;
   groupsRef: { current: WorkspaceGroups };
   openInGroup: (groupId: EditorGroupId, path: string, knownProject?: FractalProject) => Promise<void>;
@@ -408,99 +462,80 @@ type WorkspaceProjectActionsOptions = {
   setGroups: Dispatch<SetStateAction<WorkspaceGroups>>;
 };
 
-function useWorkspacePageActions({ documents, groupsRef, openInGroup, props }: WorkspaceProjectActionsOptions) {
+function useWorkspacePageActions({ applyBatchMutation, applyMutation, documents, groupsRef, openInGroup, props }: WorkspaceProjectActionsOptions) {
   const createPage = useCallback(async (title: string, folderPath?: string) => {
-    if (!(await documents.saveAll())) return;
     const result = await props.onCreatePage(title, folderPath);
-    const next = result?.project;
-    const created = result ? createdPagePath(result.receipt) : null;
+    const accepted = result ? await applyMutation(result) : null;
+    const next = accepted?.project;
+    const created = accepted ? createdPagePath(accepted.receipt) : null;
     if (!next || !created) return;
-    documents.publishProject(next);
     await openInGroup(groupsRef.current.activeGroupId, created, next);
-  }, [documents.publishProject, documents.saveAll, groupsRef, openInGroup, props.onCreatePage]);
+  }, [applyMutation, groupsRef, openInGroup, props.onCreatePage]);
 
   const repairPage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
+    if (!(await documents.savePaths([path]))) return;
     const result = await props.onRepairPage(path);
-    const next = result?.project;
-    if (!next) return;
-    documents.publishProject(next);
-    await documents.reloadDocument(path);
-  }, [documents.publishProject, documents.reloadDocument, documents.saveAll, props.onRepairPage]);
+    const accepted = result ? await applyMutation(result) : null;
+    if (accepted) await documents.reloadDocument(path);
+  }, [applyMutation, documents.reloadDocument, documents.savePaths, props.onRepairPage]);
 
   const duplicatePage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = await props.onDuplicatePage(path);
+    if (!(await documents.savePaths([path]))) return;
+    const result = await props.onDuplicatePage(path);
+    const accepted = result ? await applyBatchMutation(result) : null;
+    const next = accepted?.project;
     if (!next?.activePagePath) return;
-    documents.publishProject(next);
     await openInGroup(groupsRef.current.activeGroupId, next.activePagePath, next);
-  }, [documents.publishProject, documents.saveAll, groupsRef, openInGroup, props.onDuplicatePage]);
+  }, [applyBatchMutation, documents.savePaths, groupsRef, openInGroup, props.onDuplicatePage]);
 
   const createFolder = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onCreateFolder(path))?.project;
-    if (next) documents.publishProject(next);
-  }, [documents.publishProject, documents.saveAll, props.onCreateFolder]);
+    const result = await props.onCreateFolder(path);
+    if (result) await applyMutation(result);
+  }, [applyMutation, props.onCreateFolder]);
 
   return { createFolder, createPage, duplicatePage, repairPage };
 }
 
-function useWorkspaceFolderActions({ documents, groupsRef, props, setGroups }: WorkspaceProjectActionsOptions) {
+function useWorkspaceFolderActions({ applyMutation, documents, props, setGroups }: WorkspaceProjectActionsOptions) {
   const setFolderTitle = useCallback(async (path: string, title: string) => {
     if (!(await documents.saveAll())) return;
     const result = await props.onSetFolderTitle(path, title);
-    const next = result?.project;
-    if (!next || !result) return;
-    const mappings = receiptMappings(result.receipt);
-    await reconcilePageDrafts(next.rootPath, mappings);
-    for (const [from, to] of mappings.folders) setGroups((current) => renameGroupTab(current, folderTabId(from), folderTabId(to)));
-    for (const bufferPath of Object.keys(documents.buffers)) {
-      const mapped = mapPagePath(bufferPath, mappings);
-      if (mapped !== bufferPath) { documents.renameDocument(bufferPath, mapped); setGroups((current) => renameGroupTab(current, bufferPath, mapped)); }
-    }
-    documents.publishProject(next);
-  }, [documents.buffers, documents.publishProject, documents.renameDocument, documents.saveAll, props.onSetFolderTitle, setGroups]);
+    if (result) await applyMutation(result);
+  }, [applyMutation, documents.saveAll, props.onSetFolderTitle]);
 
   const reorderFolder = useCallback(async (path: string, order: string[]) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onReorderFolder(path, order))?.project;
-    if (next) documents.publishProject(next);
-  }, [documents.publishProject, documents.saveAll, props.onReorderFolder]);
+    const result = await props.onReorderFolder(path, order);
+    if (result) await applyMutation(result);
+  }, [applyMutation, props.onReorderFolder]);
 
   const deletePage = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onDeletePage(path))?.project;
+    if (!(await documents.savePaths([path]))) return;
+    const result = await props.onDeletePage(path);
+    const accepted = result ? await applyMutation(result) : null;
+    const next = accepted?.project;
     if (!next) return;
-    documents.publishProject(next);
     documents.forgetDocument(path);
     setGroups((current) => reconcileWorkspaceGroups(current, validWorkspaceTabs(next)));
-  }, [documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeletePage, setGroups]);
+  }, [applyMutation, documents.forgetDocument, documents.savePaths, props.onDeletePage, setGroups]);
 
   const deleteFolder = useCallback(async (path: string) => {
-    if (!(await documents.saveAll())) return;
-    const next = (await props.onDeleteFolder(path))?.project;
+    if (!(await documents.savePaths(documents.pagePathsInFolder(path)))) return;
+    const result = await props.onDeleteFolder(path);
+    const accepted = result ? await applyMutation(result) : null;
+    const next = accepted?.project;
     if (!next) return;
-    documents.publishProject(next);
     const valid = validWorkspaceTabs(next);
     for (const bufferPath of Object.keys(documents.buffers)) {
       if (!valid.has(bufferPath)) documents.forgetDocument(bufferPath);
     }
     setGroups((current) => reconcileWorkspaceGroups(current, valid));
-  }, [documents.buffers, documents.forgetDocument, documents.publishProject, documents.saveAll, props.onDeleteFolder, setGroups]);
+  }, [applyMutation, documents.buffers, documents.forgetDocument, documents.pagePathsInFolder, documents.savePaths, props.onDeleteFolder, setGroups]);
 
   const movePage = useCallback(async (path: string, destinationFolder: string) => {
     if (!(await documents.saveAll())) return;
     const result = await props.onMovePage(path, destinationFolder);
-    const next = result?.project;
-    const resultingPath = result ? mapPagePath(path, receiptMappings(result.receipt)) : path;
-    if (!next || resultingPath === path) return;
-    await reconcilePageDrafts(next.rootPath, receiptMappings(result.receipt));
-    documents.publishProject(next);
-    setGroups((current) => renameGroupTab(current, path, resultingPath));
-    documents.renameDocument(path, resultingPath);
-    await documents.reloadDocument(resultingPath);
-    await documents.refreshChangedDocuments(next, [resultingPath]);
-  }, [documents.publishProject, documents.refreshChangedDocuments, documents.reloadDocument, documents.renameDocument, documents.saveAll, props.onMovePage, setGroups]);
+    if (result) await applyMutation(result);
+  }, [applyMutation, documents.saveAll, props.onMovePage]);
 
   return { deleteFolder, deletePage, movePage, reorderFolder, setFolderTitle };
 }
@@ -508,22 +543,26 @@ function useWorkspaceFolderActions({ documents, groupsRef, props, setGroups }: W
 function useWorkspaceExportActions({ documents }: WorkspaceProjectActionsOptions) {
   const exportPage = useCallback(async (path: string, includeDerivedLinks: boolean) => {
     if (!(await documents.saveDocument(path))) return null;
-    const page = documents.project.pages.find((candidate) => candidate.path === path);
-    const suggestedName = `${page?.title?.trim() || path.split("/").at(-1)?.replace(/\.fractal\.html$/i, "") || "page"}.html`;
+    const savedPath = documents.resolveDocumentPath(path) ?? path;
+    const page = documents.project.pages.find((candidate) => candidate.path === savedPath);
+    const suggestedName = `${page?.title?.trim() || savedPath.split("/").at(-1)?.replace(/\.fractal\.html$/i, "") || "page"}.html`;
     const output = await save({ defaultPath: suggestedName, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export HTML" });
     if (!output) return null;
-    return fractalClient.exportHtml(documents.project, path, output, includeDerivedLinks);
-  }, [documents.project, documents.saveDocument]);
+    return fractalClient.exportHtml(documents.project, savedPath, output, includeDerivedLinks);
+  }, [documents.project, documents.resolveDocumentPath, documents.saveDocument]);
 
   const exportFolder = useCallback(async (path: string, options: FractalFolderHtmlExportOptions) => {
-    if (!(await documents.saveAll())) return null;
+    const selectedPaths = options.selections.length ? options.selections : documents.pagePathsInFolder(path);
+    if (!(await documents.savePaths(selectedPaths))) return null;
+    const resolvedSelections = options.selections.map((selected) => documents.resolveDocumentPath(selected) ?? selected);
+    const resolvedOptions = resolvedSelections.length ? { ...options, selections: resolvedSelections } : options;
     const folder = documents.project.folders.find((candidate) => candidate.path === path);
     const baseName = (folder?.title.trim() || path.split("/").at(-1) || documents.project.name || "folder")
       .replace(/[\\/:*?"<>|]+/g, "-");
     const output = await save({ defaultPath: `${baseName}.html`, filters: [{ name: "HTML document", extensions: ["html"] }], title: "Export folder as HTML" });
     if (!output) return null;
-    return fractalClient.exportFolderHtml(documents.project, path, output, options);
-  }, [documents.project, documents.saveAll]);
+    return fractalClient.exportFolderHtml(documents.project, path, output, resolvedOptions);
+  }, [documents.pagePathsInFolder, documents.project, documents.resolveDocumentPath, documents.savePaths]);
 
   return { exportFolder, exportPage };
 }
@@ -578,12 +617,10 @@ function useWorkspaceEffects(props: WorkspaceProps, ui: ReturnType<typeof useWor
   }, [props.project.rootPath, previousRootRef, setClosedTabs, setGroups]);
 
   useEffect(() => {
-    const validPaths = validWorkspaceTabs(documents.project);
+    const validPaths = new Set([...validWorkspaceTabs(documents.project), ...Object.keys(documents.buffers)]);
     setGroups((current) => reconcileWorkspaceGroups(current, validPaths));
-    for (const path of Object.keys(documents.buffers)) {
-      if (!validPaths.has(path)) documents.forgetDocument(path);
-    }
-  }, [documents.project.folders, documents.project.pages, setGroups]);
+    setClosedTabs((current) => current.filter((tab) => validPaths.has(tab.path)));
+  }, [documents.buffers, documents.project.folders, documents.project.pages, setClosedTabs, setGroups]);
 
   useEffect(() => {
     props.onRegisterWorkspace(documents.dirtyCount > 0, documents.saveAll);
@@ -593,7 +630,8 @@ function useWorkspaceEffects(props: WorkspaceProps, ui: ReturnType<typeof useWor
 
 function useWorkspaceActions(props: WorkspaceProps, ui: ReturnType<typeof useWorkspaceUiState>, documents: WorkspaceDocuments, activeGroup: WorkspaceGroups["left"]) {
   const tabActions = useWorkspaceTabActions({ documents, groupsRef: ui.groupsRef, setBorealisOpen: ui.setBorealisOpen, setClosedTabs: ui.setClosedTabs, setDraggedTab: ui.setDraggedTab, setGroups: ui.setGroups });
-  const projectActionOptions = { documents, groupsRef: ui.groupsRef, openInGroup: tabActions.openInGroup, props, setGroups: ui.setGroups };
+  const reconciliation = useWorkspaceMutationReconciliation(documents, ui.setClosedTabs, ui.setGroups);
+  const projectActionOptions = { ...reconciliation, documents, groupsRef: ui.groupsRef, openInGroup: tabActions.openInGroup, props, setGroups: ui.setGroups };
   const pageActions = useWorkspacePageActions(projectActionOptions);
   const folderActions = useWorkspaceFolderActions(projectActionOptions);
   const exportActions = useWorkspaceExportActions(projectActionOptions);
@@ -603,7 +641,7 @@ function useWorkspaceActions(props: WorkspaceProps, ui: ReturnType<typeof useWor
     closeTab: tabActions.closeTab,
     closedTabs: ui.closedTabs,
     createPage: pageActions.createPage,
-    documents: { saveAll: documents.saveAll, saveDocument: documents.saveDocument },
+    documents: { saveDocument: documents.saveDocument, saveFolder: documents.saveFolder },
     groupsRef: ui.groupsRef,
     openInGroup: tabActions.openInGroup,
     setClosedTabs: ui.setClosedTabs,
@@ -672,12 +710,10 @@ function Workspace(props: WorkspaceProps) {
   }
 
   async function openSettings() {
-    if (!(await documents.saveAll())) return;
     props.onOpenSettings();
   }
 
   async function validateProject() {
-    if (!(await documents.saveAll())) return;
     props.onValidate();
   }
 

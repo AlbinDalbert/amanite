@@ -218,6 +218,30 @@ describe("document persistence", () => {
     expect(buffersRef.current[secondPath]).toMatchObject({ dirty: false });
   });
 
+  it("saves only the requested buffers for a scoped barrier", async () => {
+    const firstPath = "first.fractal.html";
+    const secondPath = "second.fractal.html";
+    const firstProject = nativeProject(firstPath);
+    const secondProject = nativeProject(secondPath);
+    const firstBuffer = bufferFromProject(firstProject)!;
+    firstBuffer.nativeEdits = { content: "<p>First changed</p>" };
+    firstBuffer.dirty = true;
+    const secondBuffer = bufferFromProject(secondProject)!;
+    secondBuffer.nativeEdits = { content: "<p>Second changed</p>" };
+    secondBuffer.dirty = true;
+    const buffersRef = { current: { [firstPath]: firstBuffer, [secondPath]: secondBuffer } as DocumentBuffers };
+    const projectRef = { current: firstProject };
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockResolvedValue(saved(nativeProject(firstPath, NATIVE_SOURCE.replace("Before", "First changed"), nativeParts({ contentHtml: "<p>First changed</p>", sourceHash: "first-saved" }))));
+    const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange: vi.fn(), projectRef, publishProject: vi.fn() });
+
+    await expect(persistence.savePaths([firstPath])).resolves.toBe(true);
+
+    expect(setPageContent).toHaveBeenCalledTimes(1);
+    expect(buffersRef.current[firstPath]).toMatchObject({ dirty: false });
+    expect(buffersRef.current[secondPath]).toMatchObject({ dirty: true, nativeEdits: { content: "<p>Second changed</p>" } });
+  });
+
   it("reports a conditional-write conflict without overwriting the page", async () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);
@@ -246,6 +270,25 @@ describe("document persistence", () => {
 
     await expect(persistence.saveDocument(path)).resolves.toBe(false);
     expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
+  });
+
+  it("refreshes an uncertain Fractal outcome without dropping the local buffer", async () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.nativeEdits = { content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    const refreshed = nativeProject(path, NATIVE_SOURCE.replace("Before", "External edit"), nativeParts({ contentHtml: "<p>External edit</p>", contentHash: "external-content" }));
+    vi.spyOn(fractalClient, "setPageContent").mockRejectedValue({ code: "mutation_committed", message: "commit marker remains" });
+    const refresh = vi.spyOn(fractalClient, "openProjectPath").mockResolvedValue(refreshed);
+    const persistence = createDocumentPersistence({ buffersRef, commitBuffers, onDocumentPathChange: vi.fn(), projectRef: { current: initialProject }, publishProject: vi.fn() });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(false);
+
+    expect(refresh).toHaveBeenCalledWith(initialProject.rootPath);
+    expect(buffersRef.current[path]).toMatchObject({ dirty: true, operation: null, operationOutcome: "mutation_committed", nativeEdits: { content: "<p>Local edit</p>" } });
   });
 
   it("keeps the buffer when the editor barrier fails", async () => {

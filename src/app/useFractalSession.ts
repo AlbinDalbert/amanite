@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
-import type { FractalCommandResult, FractalMutationReceipt, FractalProject, FractalProjectCatalog, FractalProjectInspection } from "@/lib/fractal/types";
+import { reconcileMutationResult } from "@/lib/fractal/reconcile";
+import type { FractalCommandResult, FractalMutationReceipt, FractalMutationResult, FractalProject, FractalProjectCatalog, FractalProjectInspection } from "@/lib/fractal/types";
 import { describeFractalFailure, type FractalFailureStatus } from "./fractalFailure";
 import { listPageDrafts } from "./pageDrafts";
 import { useFractalProjectActions } from "./useFractalProjectActions";
@@ -94,12 +95,14 @@ export function useFractalSession() {
     }
   }, []);
 
-  const acceptMutation = useCallback((result: { project: FractalProject; receipt: FractalMutationReceipt }) => {
-    setLastReceipt(result.receipt);
-    acceptProject(result.project);
-    const warning = result.receipt.warnings[0];
+  const acceptMutation = useCallback((result: FractalMutationResult): FractalMutationResult => {
+    const reconciled = reconcileMutationResult(activeProjectRef.current ?? result.project, result).result;
+    setLastReceipt(reconciled.receipt);
+    acceptProject(reconciled.project);
+    const warning = reconciled.receipt.warnings[0];
     if (warning) setCommandResult({ ok: false, message: warning.message, details: warning.code });
-  }, [acceptProject]);
+    return reconciled;
+  }, [acceptProject, setCommandResult]);
 
   const adoptProjectSnapshot = useCallback((project: FractalProject) => {
     const taggedProject = { ...project, sessionGeneration: projectGenerationRef.current || project.sessionGeneration || 1 };
