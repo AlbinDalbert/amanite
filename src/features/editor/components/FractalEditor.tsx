@@ -8,12 +8,13 @@ import type {
 import { countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
 import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
-import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
+import RichDocumentEditor, { ReadOnlyDocumentMirror, resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
 import { fractalClient } from "@/lib/fractal/client";
 import { startPointerResize } from "@/components/ui/pointerResize";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
+import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type FractalEditorProps = {
   borealisOpen: boolean;
@@ -27,6 +28,10 @@ type FractalEditorProps = {
   pagePath: string;
   projectName: string;
   source: string;
+  documentId?: string;
+  editable?: boolean;
+  sharedSession?: SharedDocumentEditorSession;
+  viewId?: string;
   spellCheck: boolean;
   wordGoal: number;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
@@ -67,7 +72,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, sharedSession, source, spellCheck, viewId, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -179,20 +184,27 @@ function FractalEditor(props: FractalEditorProps) {
             </div>
           </section>
         ) : (
-          <RichDocumentEditor
-            bodyHtml={page.bodyHtml}
-            isBusy={isBusy}
-            pagePath={pagePath}
-            pages={pages}
-            projectName={projectName}
-            spellCheck={spellCheck}
-            title={page.title}
-            onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading), { section: "content", value: bodyHtml })}
-            onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading), { section: "title", value: title })}
-            onRevision={onRevision}
-            onOpenFolder={onOpenFolder}
-            onToggleInspector={() => setIsInspectorOpen((open) => !open)}
-          />
+          !editable && sharedSession ? (
+            <ReadOnlyDocumentMirror bodyHtml={page.bodyHtml} pagePath={pagePath} session={sharedSession} title={page.title} />
+          ) : (
+            <RichDocumentEditor
+              bodyHtml={page.bodyHtml}
+              documentId={documentId}
+              isBusy={isBusy}
+              pagePath={pagePath}
+              pages={pages}
+              projectName={projectName}
+              sharedSession={sharedSession}
+              spellCheck={spellCheck}
+              title={page.title}
+              viewId={viewId}
+              onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading), { section: "content", value: bodyHtml })}
+              onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading), { section: "title", value: title })}
+              onRevision={editable ? onRevision : undefined}
+              onOpenFolder={onOpenFolder}
+              onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+            />
+          )
         )}
         <FindBar
           currentMatch={currentMatch}

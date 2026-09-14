@@ -84,6 +84,7 @@ function EditorGroupPane(props: Props) {
     borealisWorkspace: props.borealisWorkspace,
     buffers: props.buffers,
     focusMode: props.focusMode,
+    focused: props.focused,
     isLoading: props.isLoading,
     loadingPaths: props.loadingPaths,
     loadErrors: props.loadErrors,

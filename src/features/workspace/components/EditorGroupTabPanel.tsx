@@ -1,5 +1,7 @@
 import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
+import { readEditablePage } from "@/features/editor/components/pageSource";
+import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalFolder, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
@@ -14,6 +16,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   borealisWorkspace: boolean;
   buffers: Record<string, DocumentBuffer>;
   focusMode: boolean;
+  focused: boolean;
   isLoading: boolean;
   loadingPaths: Set<string>;
   loadErrors: Record<string, string>;
@@ -64,6 +67,7 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         borealisWorkspace={context.borealisWorkspace}
         buffers={context.buffers}
         folder={folder}
+        editorOwner={active && context.focused}
         focusMode={context.focusMode}
         folders={context.project.folders}
         isBusy={context.workspaceBusy}
@@ -99,12 +103,20 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
   const tabBuffer = context.buffers[path];
   const tabPage = context.pages.find((candidate) => candidate.path === path);
   if (!tabBuffer || !tabPage) return null;
+  return <LoadedDocumentTabPanel active={active} context={context} groupId={groupId} path={path} tabBuffer={tabBuffer} tabPage={tabPage} />;
+}
+
+function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
+  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml);
+  const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">
       <FractalEditor
         borealisOpen={context.borealisOpen}
         borealisWorkspace={context.borealisWorkspace}
         backlinks={tabBuffer.backlinks}
+        documentId={tabBuffer.documentId}
+        editable={editable}
         focusMode={context.focusMode}
         isBusy={context.workspaceBusy || (active && context.isLoading)}
         isFractalValid={Boolean(tabBuffer.nativeDocumentParts)}
@@ -112,11 +124,13 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
         pages={context.pages}
         pagePath={path}
         projectName={context.project.name}
+        sharedSession={session}
         source={tabBuffer.source}
         spellCheck={context.settings.spellCheck}
+        viewId={`${groupId}:${tabBuffer.documentId}`}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
-        onRevision={() => context.onRevision?.(path)}
+        onRevision={editable ? () => context.onRevision?.(path) : () => undefined}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}
         onNavigatePage={(nextPath) => context.onNavigatePage(groupId, nextPath)}
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}

@@ -6,10 +6,13 @@ import { useCallback, useEffect, useRef } from "react";
 import { registerEditorFlush } from "./editorFlush";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
 import { cleanEditorHtml } from "./editorHtml";
+import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type Props = {
   bodyHtml: string;
+  documentId?: string;
   pagePath: string;
+  sharedSession?: SharedDocumentEditorSession;
   onChange: (html: string) => void;
   onRevision?: (revision: number) => void;
   onLoaded?: () => void;
@@ -18,8 +21,9 @@ type Props = {
 
 const HTML_EXPORT_DELAY_MS = 120;
 
-function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onRevision, onLoaded, onLoading }: Props) {
+function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onChange, onRevision, onLoaded, onLoading }: Props) {
   const [editor] = useLexicalComposerContext();
+  const editorDocumentId = documentId ?? pagePath;
   const loadedPage = useRef<string | null>(null);
   const lastHtml = useRef(bodyHtml);
   const onChangeRef = useRef(onChange);
@@ -48,15 +52,22 @@ function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onRevision, onLoaded, 
   }, [editor]);
 
   useEffect(() => {
-    if (loadedPage.current === pagePath && bodyHtml === lastHtml.current) return;
+    if (sharedSession?.initialized && loadedPage.current === null && (!sharedSession.needsSourceRefresh || bodyHtml === sharedSession.getMirrorHtml())) {
+      loadedPage.current = editorDocumentId;
+      lastHtml.current = bodyHtml;
+      onLoadedRef.current?.();
+      return;
+    }
+    if (loadedPage.current === editorDocumentId && bodyHtml === lastHtml.current) return;
     onLoadingRef.current?.();
     const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
-      loadedPage.current = pagePath;
+      loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
+      sharedSession?.markInitialized();
       onLoadedRef.current?.();
     });
     return cancelImport;
-  }, [bodyHtml, editor, pagePath]);
+  }, [bodyHtml, editor, editorDocumentId, pagePath, sharedSession]);
 
   useEffect(() => {
     const root = editor.getRootElement();
@@ -77,7 +88,7 @@ function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onRevision, onLoaded, 
 
   const getRevision = useCallback(() => revisionRef.current, []);
 
-  useEffect(() => registerEditorFlush(pagePath, { flush: exportPendingState, getRevision }), [exportPendingState, getRevision, pagePath]);
+  useEffect(() => registerEditorFlush(editorDocumentId, { flush: exportPendingState, getRevision }), [editorDocumentId, exportPendingState, getRevision]);
 
   useEffect(() => () => exportPendingState(), [exportPendingState]);
 

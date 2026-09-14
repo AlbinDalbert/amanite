@@ -1,5 +1,3 @@
-import { LinkNode } from "@lexical/link";
-import { ListItemNode, ListNode } from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -8,10 +6,6 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { HeadingNode, QuoteNode } from "@lexical/rich-text";
-import { CodeNode } from "@lexical/code";
-import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
-import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin";
@@ -19,12 +13,12 @@ import { $getRoot } from "lexical";
 import { type PointerEvent, useEffect, useMemo, useState } from "react";
 import TreeLocation, { displayPagePath } from "@/components/ui/TreeLocation";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
-import { DerivedLinkNode } from "./DerivedLinkNode";
-import { editorLexicalTheme } from "./editorLexicalTheme";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
 import InlinePageLinksPlugin from "./InlinePageLinksPlugin";
 import DocumentLoadingPreview from "./DocumentLoadingPreview";
+import { editorConfig } from "./editorConfig";
+import { SharedLexicalComposer, useSharedDocumentMirror, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type Props = {
   bodyHtml: string;
@@ -35,6 +29,9 @@ type Props = {
   projectName?: string;
   spellCheck: boolean;
   title: string;
+  documentId?: string;
+  sharedSession?: SharedDocumentEditorSession;
+  viewId?: string;
   onChangeBody: (html: string) => void;
   onChangeTitle: (title: string) => void;
   onRevision?: (revision: number) => void;
@@ -46,11 +43,57 @@ type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages"
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
+  documentId?: string;
+  sharedSession?: SharedDocumentEditorSession;
+  viewId?: string;
 };
+
+export function ReadOnlyDocumentMirror({ bodyHtml, embedded = false, pagePath, session, title }: { bodyHtml: string; embedded?: boolean; pagePath: string; session: SharedDocumentEditorSession; title: string }) {
+  const liveBodyHtml = useSharedDocumentMirror(session);
+  return (
+    <section aria-label="Read-only document view" className={embedded ? "rich-document-shell embedded document-mirror" : "rich-document-shell document-mirror"}>
+      <article className="rich-page-canvas">
+        <div className="rich-page-column">
+          <div className="document-page-heading">
+            <label className="document-title-field"><input aria-label="Document title" disabled placeholder="Untitled" value={title} readOnly /></label>
+          </div>
+          <div className="rich-body-frame">
+            <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content" dangerouslySetInnerHTML={{ __html: liveBodyHtml || bodyHtml }} />
+          </div>
+        </div>
+      </article>
+    </section>
+  );
+}
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => editor.setEditable(!isBusy), [editor, isBusy]);
+  return null;
+}
+
+function ViewAttachmentPlugin({ session, viewId }: { session?: SharedDocumentEditorSession; viewId?: string }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    if (!session || !viewId) return;
+    let frame = 0;
+    let root: HTMLElement | null = null;
+    const saveScroll = () => {
+      if (root) session.setViewScroll(viewId, root.scrollTop);
+    };
+    const attach = () => {
+      root = editor.getRootElement();
+      if (!root) return;
+      root.scrollTop = session.getViewScroll(viewId);
+      root.addEventListener("scroll", saveScroll, { passive: true });
+    };
+    frame = window.requestAnimationFrame(attach);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      saveScroll();
+      root?.removeEventListener("scroll", saveScroll);
+    };
+  }, [editor, session, viewId]);
   return null;
 }
 
@@ -69,7 +112,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder, onRevision }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder, onRevision }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -118,48 +161,54 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellChec
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} onRevision={onRevision} onLoaded={onContentLoaded} onLoading={onContentLoading} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onRevision={onRevision} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
+          <ViewAttachmentPlugin session={sharedSession} viewId={viewId} />
         </div>
       </div>
     </article>
   );
 }
 
-function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onOpenFolder, onRevision, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onOpenFolder, onRevision, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
-  const config = useMemo(() => ({
-    namespace: `amanite-${pagePath}`,
-    nodes: [CodeNode, DerivedLinkNode, HeadingNode, HorizontalRuleNode, LinkNode, ListItemNode, ListNode, QuoteNode, TableCellNode, TableNode, TableRowNode],
-    onError(error: Error) { throw error; },
-    theme: editorLexicalTheme
-  }), [pagePath]);
+  const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
+  const writingArea = (
+    <>
+      <header className="rich-editor-header">
+        <EditorToolbar disabled={editorBusy} pagePath={pagePath} pages={pages} />
+        {onToggleInspector ? <><span className="toolbar-divider" /><button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button></> : null}
+      </header>
+      <WritingArea
+        bodyHtml={bodyHtml}
+        documentId={documentId}
+        isBusy={editorBusy}
+        pagePath={pagePath}
+        pages={pages}
+        projectName={projectName}
+        sharedSession={sharedSession}
+        spellCheck={spellCheck}
+        title={title}
+        viewId={viewId}
+        onChangeBody={onChangeBody}
+        onChangeTitle={onChangeTitle}
+        onContentLoaded={() => setIsContentReady(true)}
+        onContentLoading={() => setIsContentReady(false)}
+        onOpenFolder={onOpenFolder}
+        onRevision={onRevision}
+      />
+    </>
+  );
 
   return (
     <section className={embedded ? "rich-document-shell embedded" : "rich-document-shell"} aria-label="Rich text editor">
       {!isContentReady ? <DocumentLoadingPreview title={title || "Untitled"} /> : null}
-      <LexicalComposer initialConfig={config} key={pagePath}>
-        <header className="rich-editor-header">
-          <EditorToolbar disabled={editorBusy} pagePath={pagePath} pages={pages} />
-          {onToggleInspector ? <><span className="toolbar-divider" /><button className="editor-inspector-toggle" onClick={onToggleInspector} type="button">Links</button></> : null}
-        </header>
-        <WritingArea
-          bodyHtml={bodyHtml}
-          isBusy={editorBusy}
-          pagePath={pagePath}
-          pages={pages}
-          projectName={projectName}
-          spellCheck={spellCheck}
-          title={title}
-          onChangeBody={onChangeBody}
-          onChangeTitle={onChangeTitle}
-          onContentLoaded={() => setIsContentReady(true)}
-          onContentLoading={() => setIsContentReady(false)}
-          onOpenFolder={onOpenFolder}
-          onRevision={onRevision}
-        />
-      </LexicalComposer>
+      {sharedSession ? (
+        <SharedLexicalComposer session={sharedSession}>{writingArea}</SharedLexicalComposer>
+      ) : (
+        <LexicalComposer initialConfig={config} key={documentId ?? pagePath}>{writingArea}</LexicalComposer>
+      )}
     </section>
   );
 }
