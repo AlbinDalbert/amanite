@@ -109,7 +109,10 @@ describe("executeWorkspaceTool", () => {
   it("reads an unsaved editor buffer before the saved Fractal page", async () => {
     const buffers: DocumentBuffers = {
       "drafts/day-one.fractal.html": {
+        documentId: "amanite-document-test-day-one",
+        projectGeneration: 1,
         path: "drafts/day-one.fractal.html",
+        baseSource: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',
         source: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',
         links: [],
         backlinks: [],
@@ -118,6 +121,8 @@ describe("executeWorkspaceTool", () => {
         nativeEdits: {},
         dirty: true,
         revision: 1,
+        savedRevision: 0,
+        draftedRevision: 0,
         operation: null,
         error: null,
         conflict: false

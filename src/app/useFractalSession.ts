@@ -26,7 +26,9 @@ export function useFractalSession() {
   const [inspection, setInspection] = useState<FractalProjectInspection | null>(null);
   const [lastReceipt, setLastReceipt] = useState<FractalMutationReceipt | null>(null);
   const [draftCount, setDraftCount] = useState(0);
+  const [projectGeneration, setProjectGeneration] = useState(0);
   const activeProjectRef = useRef(activeProject);
+  const projectGenerationRef = useRef(projectGeneration);
   const busyRef = useRef(busyOperation);
   activeProjectRef.current = activeProject;
   busyRef.current = busyOperation;
@@ -71,15 +73,21 @@ export function useFractalSession() {
     }
   }, []);
 
-  const acceptProject = useCallback((project: FractalProject) => {
-    activeProjectRef.current = project;
-    setActiveProject(project);
+  const acceptProject = useCallback((project: FractalProject, newSession = false) => {
+    const generation = newSession
+      ? projectGenerationRef.current + 1
+      : (project.sessionGeneration ?? projectGenerationRef.current) || 1;
+    const taggedProject = { ...project, sessionGeneration: generation };
+    projectGenerationRef.current = generation;
+    activeProjectRef.current = taggedProject;
+    setProjectGeneration(generation);
+    setActiveProject(taggedProject);
     setCommandResult(null);
-    void fractalClient.inspectProject(project.rootPath).then(setInspection).catch(() => setInspection(null));
-    void listPageDrafts(project.rootPath).then((drafts) => setDraftCount(drafts.length)).catch(() => setDraftCount(0));
+    void fractalClient.inspectProject(taggedProject.rootPath).then(setInspection).catch(() => setInspection(null));
+    void listPageDrafts(taggedProject.rootPath).then((drafts) => setDraftCount(drafts.length)).catch(() => setDraftCount(0));
     try {
       localStorage.setItem("amanite.last-session.v1", JSON.stringify({
-        projectRoot: project.rootPath
+        projectRoot: taggedProject.rootPath
       }));
     } catch {
       // Session restore is optional.
@@ -94,8 +102,9 @@ export function useFractalSession() {
   }, [acceptProject]);
 
   const adoptProjectSnapshot = useCallback((project: FractalProject) => {
-    activeProjectRef.current = project;
-    setActiveProject(project);
+    const taggedProject = { ...project, sessionGeneration: projectGenerationRef.current || project.sessionGeneration || 1 };
+    activeProjectRef.current = taggedProject;
+    setActiveProject(taggedProject);
   }, []);
 
   const { inspectProject, refreshProjectCatalog, revealPage, searchProject, validateProject } = useFractalProjectQueries({
@@ -119,7 +128,7 @@ export function useFractalSession() {
       }
     }
     const project = await withBusy("load", action);
-    if (project) acceptProject(project);
+    if (project) acceptProject(project, true);
   }, [acceptProject, withBusy]);
 
   const recoverProject = useCallback(async (projectRoot: string) => {
@@ -127,7 +136,7 @@ export function useFractalSession() {
     const result = await withBusy("command", () => fractalClient.recoverProject(projectRoot));
     if (result) {
       setInspection(result.inspection);
-      if (result.project) acceptProject(result.project);
+      if (result.project) acceptProject(result.project, !activeProjectRef.current);
       setCommandResult({ ok: result.report.failures.length === 0, message: `Recovered ${result.report.recoveredTransactions.length} transaction(s) and cleaned ${result.report.cleanedTransactions.length}.` });
       await refreshProjectCatalog();
     }
@@ -188,6 +197,7 @@ export function useFractalSession() {
     draftCount,
     isBusy,
     projectCatalog,
+    projectGeneration,
     ...projectActions,
     closeProject,
     dismissStatus,

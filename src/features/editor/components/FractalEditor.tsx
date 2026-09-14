@@ -30,6 +30,7 @@ type FractalEditorProps = {
   spellCheck: boolean;
   wordGoal: number;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
+  onRevision: () => void;
   onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (pagePath: string) => void;
   onOpenFolder: (folderPath: string) => void;
@@ -66,7 +67,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onSave, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, borealisOpen, borealisWorkspace, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, source, spellCheck, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -188,6 +189,7 @@ function FractalEditor(props: FractalEditorProps) {
             title={page.title}
             onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading), { section: "content", value: bodyHtml })}
             onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading), { section: "title", value: title })}
+            onRevision={onRevision}
             onOpenFolder={onOpenFolder}
             onToggleInspector={() => setIsInspectorOpen((open) => !open)}
           />

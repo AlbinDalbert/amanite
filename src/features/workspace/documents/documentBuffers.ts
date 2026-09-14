@@ -1,7 +1,11 @@
 import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
+import { documentIdentity } from "./documentSessions";
 
 export type DocumentBuffer = {
+  documentId: string;
+  projectGeneration: number;
   path: string;
+  baseSource: string;
   source: string;
   links: FractalProject["activePageLinks"];
   backlinks: FractalProject["activePageBacklinks"];
@@ -10,7 +14,10 @@ export type DocumentBuffer = {
   nativeEdits: FractalNativeSectionEdits;
   dirty: boolean;
   revision: number;
+  savedRevision: number;
+  draftedRevision: number;
   operation: "load" | "save" | null;
+  operationOutcome?: "saved" | "conflict" | "partial" | "failed" | "mutation_committed" | "indeterminate" | "recovery_required";
   error: string | null;
   conflict: boolean;
   missing?: boolean;
@@ -55,14 +62,27 @@ function nativeEditsForSource(source: string, parts: FractalNativeDocumentParts 
   return dirty && parts ? nativeEditsFromSource(source, parts) : {};
 }
 
+type BufferIdentityOptions = {
+  projectGeneration?: number;
+};
+
+function bufferIdentity(path: string, projectGeneration: number | undefined) {
+  return documentIdentity(projectGeneration ?? 0, path);
+}
+
 export function bufferFromProject(
   project: FractalProject,
   source = project.activePageSource ?? "",
-  dirty = false
+  dirty = false,
+  options: BufferIdentityOptions = {}
 ): DocumentBuffer | null {
   if (!project.activePagePath || project.activePageSource == null) return null;
+  const identity = bufferIdentity(project.activePagePath, options.projectGeneration ?? project.sessionGeneration);
   return {
+    documentId: identity.documentId,
+    projectGeneration: identity.projectGeneration,
     path: project.activePagePath,
+    baseSource: project.activePageSource,
     source,
     links: project.activePageLinks,
     backlinks: project.activePageBacklinks,
@@ -71,6 +91,8 @@ export function bufferFromProject(
     nativeEdits: nativeEditsForSource(source, nativePartsForProject(project), dirty),
     dirty,
     revision: dirty ? 1 : 0,
+    savedRevision: 0,
+    draftedRevision: 0,
     operation: null,
     error: null,
     conflict: false,
@@ -78,9 +100,13 @@ export function bufferFromProject(
   };
 }
 
-export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false): DocumentBuffer {
+export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false, options: BufferIdentityOptions = {}): DocumentBuffer {
+  const identity = bufferIdentity(loaded.path, options.projectGeneration);
   return {
+    documentId: identity.documentId,
+    projectGeneration: identity.projectGeneration,
     path: loaded.path,
+    baseSource: loaded.source,
     source,
     links: loaded.links,
     backlinks: loaded.backlinks,
@@ -89,6 +115,8 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
     nativeEdits: nativeEditsForSource(source, loaded.nativeDocumentParts ?? null, dirty),
     dirty,
     revision: dirty ? 1 : 0,
+    savedRevision: 0,
+    draftedRevision: 0,
     operation: null,
     error: null,
     conflict: false,

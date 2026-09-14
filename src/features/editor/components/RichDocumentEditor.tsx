@@ -37,6 +37,7 @@ type Props = {
   title: string;
   onChangeBody: (html: string) => void;
   onChangeTitle: (title: string) => void;
+  onRevision?: (revision: number) => void;
   onOpenFolder?: (folderPath: string) => void;
   onToggleInspector?: () => void;
 };
@@ -44,6 +45,7 @@ type Props = {
 type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "projectName" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle" | "onOpenFolder"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
+  onRevision?: (revision: number) => void;
 };
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
@@ -67,7 +69,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder }: WritingAreaProps) {
+function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder, onRevision }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -116,7 +118,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellChec
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} onLoaded={onContentLoaded} onLoading={onContentLoading} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} pagePath={pagePath} onChange={onChangeBody} onRevision={onRevision} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
         </div>
       </div>
@@ -124,7 +126,7 @@ function WritingArea({ bodyHtml, isBusy, pagePath, pages, projectName, spellChec
   );
 }
 
-function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onOpenFolder, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, pages, projectName, spellCheck, title, onChangeBody, onChangeTitle, onOpenFolder, onRevision, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => ({
@@ -155,6 +157,7 @@ function RichDocumentEditor({ bodyHtml, embedded = false, isBusy, pagePath, page
           onContentLoaded={() => setIsContentReady(true)}
           onContentLoading={() => setIsContentReady(false)}
           onOpenFolder={onOpenFolder}
+          onRevision={onRevision}
         />
       </LexicalComposer>
     </section>

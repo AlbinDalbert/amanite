@@ -1,5 +1,5 @@
 import { clearPageDraft } from "@/app/pageDrafts";
-import { fractalClient } from "@/lib/fractal/client";
+import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
 import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 import { mapPagePath, receiptMappings } from "@/lib/fractal/reconcile";
 import {
@@ -14,7 +14,7 @@ type MutableValue<T> = { current: T };
 type PersistenceOptions = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
-  flushDocument?: (path: string) => void;
+  flushDocument?: (buffer: DocumentBuffer) => void | Promise<void>;
   onDocumentPathChange: (from: string, to: string) => void;
   onDraftStorageError?: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
@@ -55,8 +55,17 @@ function applySection(
 }
 
 export type NativeSaveResult =
-  | { kind: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
-  | { kind: "conflict" | "failed"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string };
+  | { kind: "saved"; outcome?: "saved"; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
+  | { kind: "conflict"; outcome?: "conflict"; message: string; project: FractalProject; sent: FractalNativeSectionEdits; resultingPath: string }
+  | {
+    kind: "failed";
+    outcome?: "failed" | "mutation_committed" | "indeterminate" | "recovery_required";
+    code?: string;
+    message: string;
+    project: FractalProject;
+    sent: FractalNativeSectionEdits;
+    resultingPath: string;
+  };
 
 async function saveNativeDocument(
   project: FractalProject,
@@ -85,16 +94,20 @@ async function saveNativeDocument(
     try {
       const result = await applySection(workingProject, section, value, sectionHash(expectedParts, section));
       if (result.status === "conflict") {
-        return { kind: "conflict", message: result.error.message, project: projectAfterCommittedSections(), sent, resultingPath };
+        return { kind: "conflict", outcome: "conflict", message: result.error.message, project: projectAfterCommittedSections(), sent, resultingPath };
       }
       sent[section] = value;
       resultingPath = mapPagePath(resultingPath, receiptMappings(result.result.receipt));
       workingProject = result.result.project;
     } catch (error) {
-      return { kind: "failed", message: errorMessage(error), project: projectAfterCommittedSections(), sent, resultingPath };
+      const code = isFractalCommandError(error) ? error.code : undefined;
+      const outcome = code === "mutation_committed" || code === "indeterminate" || code === "recovery_required"
+        ? code
+        : "failed";
+      return { kind: "failed", outcome, code, message: errorMessage(error), project: projectAfterCommittedSections(), sent, resultingPath };
     }
   }
-  return { kind: "saved", project: projectAfterCommittedSections(), sent, resultingPath };
+  return { kind: "saved", outcome: "saved", project: projectAfterCommittedSections(), sent, resultingPath };
 }
 
 function mergeSavedProject(
@@ -129,12 +142,45 @@ function pendingNativeEdits(currentEdits: FractalNativeSectionEdits, sent: Fract
   return remaining;
 }
 
+const nativeSectionValueKeys: Record<FractalNativeSection, keyof FractalNativeDocumentParts> = {
+  title: "title",
+  content: "contentHtml",
+  style: "styleCss",
+  metadata: "metadataHtml"
+};
+
+const nativeSectionHashKeys: Record<FractalNativeSection, keyof FractalNativeDocumentParts> = {
+  title: "titleHash",
+  content: "contentHash",
+  style: "styleHash",
+  metadata: "metadataHash"
+};
+
+function mergeAcknowledgedNativeParts(
+  current: FractalNativeDocumentParts | null,
+  saved: FractalNativeDocumentParts | null,
+  sent: FractalNativeSectionEdits
+) {
+  if (!current || !saved) return current ?? saved;
+  const next = { ...current };
+  for (const section of Object.keys(sent) as FractalNativeSection[]) {
+    next[nativeSectionValueKeys[section]] = saved[nativeSectionValueKeys[section]];
+    next[nativeSectionHashKeys[section]] = saved[nativeSectionHashKeys[section]];
+  }
+  return next;
+}
+
 export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: DocumentBuffer, result: NativeSaveResult, savedProject: FractalProject, resultingPath: string, sent: FractalNativeSectionEdits) {
   const remainingEdits = pendingNativeEdits(currentBuffer.nativeEdits, sent);
   const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
   const hasNewerEdits = currentBuffer.revision !== start.revision;
   const failed = result.kind !== "saved";
   const savedPage = pageForProject(savedProject, resultingPath);
+  const fullyAcknowledged = result.kind === "saved" && !hasPendingNativeEdits && !hasNewerEdits;
+  const savedParts = savedProject.activePageNativeDocumentParts ?? null;
+  const acknowledgedParts = fullyAcknowledged
+    ? savedParts ?? currentBuffer.nativeDocumentParts
+    : mergeAcknowledgedNativeParts(currentBuffer.nativeDocumentParts, savedParts, sent);
   return {
     ...currentBuffer,
     path: resultingPath,
@@ -143,13 +189,22 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
       : savedProject.activePageSource ?? currentBuffer.source,
     links: savedPage?.links ?? savedProject.activePageLinks,
     backlinks: savedProject.activePageBacklinks,
-    contentHash: savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash,
-    nativeDocumentParts: result.kind === "conflict"
-      ? currentBuffer.nativeDocumentParts
-      : savedProject.activePageNativeDocumentParts ?? currentBuffer.nativeDocumentParts,
+    contentHash: fullyAcknowledged
+      ? savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash
+      : currentBuffer.contentHash,
+    baseSource: fullyAcknowledged ? savedProject.activePageSource ?? currentBuffer.baseSource : currentBuffer.baseSource,
+    nativeDocumentParts: acknowledgedParts,
     nativeEdits: remainingEdits,
     conflict: result.kind === "conflict",
     dirty: failed || hasPendingNativeEdits || hasNewerEdits,
+    savedRevision: fullyAcknowledged ? Math.max(currentBuffer.savedRevision, start.revision) : currentBuffer.savedRevision,
+    operationOutcome: result.kind === "saved"
+      ? "saved"
+      : result.kind === "conflict"
+        ? "conflict"
+        : result.outcome === "mutation_committed" || result.outcome === "indeterminate" || result.outcome === "recovery_required"
+          ? result.outcome
+          : Object.keys(sent).length ? "partial" : "failed",
     error: result.kind === "conflict"
       ? "This page changed on disk. Reload it or replace the external version."
       : result.kind === "failed" ? result.message : null,
@@ -231,9 +286,20 @@ function publishSaveResult(context: SaveContext, currentPath: string, start: Doc
 }
 
 async function savePass(context: SaveContext, path: string, force: boolean): Promise<SavePassResult> {
-  context.flushDocument?.(path);
-  const start = context.buffersRef.current[path];
-  if (!start) return { kind: "finished", path, success: true };
+  const beforeFlush = context.buffersRef.current[path];
+  if (!beforeFlush) return { kind: "finished", path, success: true };
+  try {
+    await context.flushDocument?.(beforeFlush);
+  } catch (error) {
+    context.commitBuffers((current) => {
+      const buffer = current[path];
+      return buffer
+        ? { ...current, [path]: { ...buffer, operation: null, operationOutcome: "failed", error: errorMessage(error) } }
+        : current;
+    });
+    return { kind: "finished", path, success: false };
+  }
+  const start = context.buffersRef.current[path] ?? beforeFlush;
   if (!start.dirty && !force) return { kind: "finished", path, success: true };
   context.commitBuffers((current) => {
     const buffer = current[path];

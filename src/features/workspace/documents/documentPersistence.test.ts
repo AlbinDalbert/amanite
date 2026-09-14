@@ -110,6 +110,35 @@ describe("document persistence", () => {
     });
   });
 
+  it("acknowledges only the native section that was committed", () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
+    buffer.dirty = true;
+    buffer.revision = 3;
+    const savedProject = nativeProject(path, NATIVE_SOURCE.replace("Test", "Renamed"), nativeParts({
+      title: "Renamed",
+      titleHash: "title-hash-2",
+      contentHtml: "<p>External edit</p>",
+      contentHash: "external-content"
+    }));
+    const result: NativeSaveResult = { kind: "failed", outcome: "failed", message: "content write failed", project: savedProject, sent: { title: "Renamed" }, resultingPath: path };
+
+    expect(nextDocumentBuffer(buffer, buffer, result, savedProject, path, result.sent)).toMatchObject({
+      dirty: true,
+      nativeDocumentParts: {
+        title: "Renamed",
+        titleHash: "title-hash-2",
+        contentHtml: "<p>Before</p>",
+        contentHash: "content-hash"
+      },
+      nativeEdits: { content: "<p>Local edit</p>" },
+      operationOutcome: "partial",
+      savedRevision: 0
+    });
+  });
+
   it("leaves newer native edits dirty without replacing them", async () => {
     const path = "index.fractal.html";
     const firstProject = nativeProject(path);
@@ -217,6 +246,27 @@ describe("document persistence", () => {
 
     await expect(persistence.saveDocument(path)).resolves.toBe(false);
     expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
+  });
+
+  it("keeps the buffer when the editor barrier fails", async () => {
+    const path = "index.fractal.html";
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject)!;
+    buffer.dirty = true;
+    buffer.nativeEdits = { content: "<p>Local edit</p>" };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers,
+      flushDocument: async () => { throw new Error("composition is still active"); },
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(false);
+    expect(buffersRef.current[path]).toMatchObject({ dirty: true, operation: null, operationOutcome: "failed", error: "composition is still active" });
   });
 
   it("checks every section against the original snapshot", async () => {

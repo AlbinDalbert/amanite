@@ -43,6 +43,7 @@ type WorkspaceProps = {
   error: string | null;
   isBusy: boolean;
   project: FractalProject;
+  projectGeneration?: number;
   settings: AppearanceSettings;
   onCloseProject: () => void;
   onCloseRequest: () => void;
@@ -628,7 +629,8 @@ function Workspace(props: WorkspaceProps) {
     initialProject: props.project,
     onDocumentPathChange,
     onProjectSnapshot: props.onProjectSnapshot,
-    onRequestConfirmation: props.onRequestConfirmation
+    onRequestConfirmation: props.onRequestConfirmation,
+    projectGeneration: props.projectGeneration
   });
 
   const activeGroup = groups.activeGroupId === "right" && groups.right ? groups.right : groups.left;
@@ -692,6 +694,7 @@ function Workspace(props: WorkspaceProps) {
     settings: props.settings,
     workspaceBusy: props.isBusy,
     onChangeSource: documents.updateSource,
+    onRevision: documents.markRevision,
     onCreateFolder: (path: string) => { void createFolder(path); },
     onCreatePage: (title: string, folderPath?: string) => { void createPage(title, folderPath); },
     onCloseTab: (groupId: EditorGroupId, path: string) => { void closeTab(groupId, path); },

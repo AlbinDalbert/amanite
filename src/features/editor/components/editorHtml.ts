@@ -2,6 +2,7 @@ import { $generateNodesFromDOM } from "@lexical/html";
 import { $createParagraphNode, $getRoot, type LexicalEditor } from "lexical";
 
 export const AMANITE_HTML_LOAD_TAG = "amanite-html-load";
+export const AMANITE_DERIVED_LINK_TAG = "amanite-derived-link";
 
 const ALLOWED_ELEMENTS = new Set([
   "a", "b", "blockquote", "br", "code", "em",

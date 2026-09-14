@@ -8,7 +8,7 @@ type MutableValue<T> = { current: T };
 type WithBusy = <T>(operation: "page", action: () => Promise<T>) => Promise<T | null>;
 
 type Options = {
-  acceptProject: (project: FractalProject) => void;
+  acceptProject: (project: FractalProject, newSession?: boolean) => void;
   acceptMutation: (result: FractalMutationResult) => void;
   activeProjectRef: MutableValue<FractalProject | null>;
   busyRef: MutableValue<"catalog" | "load" | "command" | "page" | "save" | null>;

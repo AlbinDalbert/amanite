@@ -27,7 +27,7 @@ const group: EditorGroup = {
 describe("workspace tab", () => {
   it("renders a page tab with its dirty state", () => {
     const element = WorkspaceTab({
-      buffers: { "notes.fractal.html": { path: "notes.fractal.html", source: "", links: [], backlinks: [], contentHash: "notes-hash", nativeDocumentParts: null, nativeEdits: {}, dirty: true, revision: 1, operation: null, error: null, conflict: false } },
+      buffers: { "notes.fractal.html": { documentId: "amanite-document-test-notes", projectGeneration: 1, path: "notes.fractal.html", baseSource: "", source: "", links: [], backlinks: [], contentHash: "notes-hash", nativeDocumentParts: null, nativeEdits: {}, dirty: true, revision: 1, savedRevision: 0, draftedRevision: 0, operation: null, error: null, conflict: false } },
       draggedTab: null,
       group,
       index: 0,

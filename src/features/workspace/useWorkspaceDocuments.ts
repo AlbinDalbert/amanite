@@ -11,6 +11,7 @@ import {
   type DocumentBuffers
 } from "./documents/documentBuffers";
 import { createDocumentPersistence } from "./documents/documentPersistence";
+import { createProjectGeneration } from "./documents/documentSessions";
 import { useDocumentDrafts } from "./documents/useDocumentDrafts";
 import { useDocumentLoading } from "./documents/useDocumentLoading";
 import { useProjectFilePolling } from "./documents/useProjectFilePolling";
@@ -20,14 +21,16 @@ export type { DocumentBuffer } from "./documents/documentBuffers";
 type Options = {
   autoSave: boolean;
   initialProject: FractalProject;
+  projectGeneration?: number;
   onProjectSnapshot: (project: FractalProject) => void;
   onDocumentPathChange: (from: string, to: string) => void;
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
 };
 
-function useWorkspaceDocumentState(initialProject: FractalProject) {
-  const initialBuffer = bufferFromProject(initialProject);
-  const [project, setProject] = useState(initialProject);
+function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
+  const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
+  const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
+  const [project, setProject] = useState(() => ({ ...initialProject, sessionGeneration: projectGeneration }));
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
@@ -36,6 +39,7 @@ function useWorkspaceDocumentState(initialProject: FractalProject) {
   const projectRef = useRef(project);
   const buffersRef = useRef(buffers);
   const previousRootRef = useRef(initialProject.rootPath);
+  const previousGenerationRef = useRef(projectGeneration);
   const lastPollingNoticeRef = useRef(0);
 
   return {
@@ -47,6 +51,8 @@ function useWorkspaceDocumentState(initialProject: FractalProject) {
     loadingPaths,
     pollingNotice,
     previousRootRef,
+    previousGenerationRef,
+    projectGeneration,
     project,
     projectRef,
     setBuffers,
@@ -58,7 +64,7 @@ function useWorkspaceDocumentState(initialProject: FractalProject) {
   };
 }
 
-export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPathChange, onProjectSnapshot, onRequestConfirmation }: Options) {
+export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPathChange, onProjectSnapshot, onRequestConfirmation, projectGeneration: requestedGeneration }: Options) {
   const {
     buffers,
     buffersRef,
@@ -68,6 +74,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     loadingPaths,
     pollingNotice,
     previousRootRef,
+    projectGeneration,
+    previousGenerationRef,
     project,
     projectRef,
     setBuffers,
@@ -76,7 +84,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setLoadingPaths,
     setPollingNotice,
     setProject
-  } = useWorkspaceDocumentState(initialProject);
+  } = useWorkspaceDocumentState(initialProject, requestedGeneration);
+  const reportedRevisionRef = useRef(new Set<string>());
 
   const commitBuffers = useCallback((updater: BufferUpdater) => {
     const next = updater(buffersRef.current);
@@ -86,15 +95,16 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   }, []);
 
   const publishProject = useCallback((next: FractalProject) => {
-    projectRef.current = next;
-    setProject(next);
-    onProjectSnapshot(next);
-  }, [onProjectSnapshot]);
+    const tagged = { ...next, sessionGeneration: projectGeneration };
+    projectRef.current = tagged;
+    setProject(tagged);
+    onProjectSnapshot(tagged);
+  }, [onProjectSnapshot, projectGeneration]);
 
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
-    flushDocument: requestEditorFlush,
+    flushDocument: (buffer) => requestEditorFlush(buffer.path),
     onDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
@@ -102,32 +112,46 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   }), [commitBuffers, onDocumentPathChange, publishProject, setDraftStorageError]);
 
   useEffect(() => {
-    if (previousRootRef.current !== initialProject.rootPath) {
+    if (previousRootRef.current !== initialProject.rootPath || previousGenerationRef.current !== projectGeneration) {
       previousRootRef.current = initialProject.rootPath;
-      const nextBuffer = bufferFromProject(initialProject);
+      previousGenerationRef.current = projectGeneration;
+      const nextBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
       const nextBuffers = nextBuffer ? { [nextBuffer.path]: nextBuffer } : {};
-      projectRef.current = initialProject;
+      const tagged = { ...initialProject, sessionGeneration: projectGeneration };
+      projectRef.current = tagged;
       buffersRef.current = nextBuffers;
-      setProject(initialProject);
+      setProject(tagged);
       setBuffers(nextBuffers);
       setLoadingPaths(new Set());
       setLoadErrors({});
       return;
     }
-    projectRef.current = initialProject;
-    setProject(initialProject);
-  }, [initialProject]);
+    const tagged = { ...initialProject, sessionGeneration: projectGeneration };
+    projectRef.current = tagged;
+    setProject(tagged);
+  }, [initialProject, previousGenerationRef, previousRootRef, projectGeneration]);
 
   const { openDocument, reloadDocument } = useDocumentLoading({
     buffersRef,
     commitBuffers,
     initialProject,
     onRequestConfirmation,
+    projectGeneration,
     projectRef,
     publishProject,
     setLoadErrors,
     setLoadingPaths
   });
+
+  const markRevision = useCallback((path: string) => {
+    reportedRevisionRef.current.add(path);
+    commitBuffers((current) => {
+      const buffer = current[path];
+      return buffer
+        ? { ...current, [path]: { ...buffer, dirty: true, revision: buffer.revision + 1, error: null } }
+        : current;
+    });
+  }, [commitBuffers]);
 
   const updateSource = useCallback((path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => {
     commitBuffers((current) => {
@@ -139,9 +163,11 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
           ? { ...buffer.nativeEdits, [nativeSection.section]: nativeSection.value }
           : nativeEditsFromSource(source, buffer.nativeDocumentParts);
       }
+      const reported = reportedRevisionRef.current.has(path);
+      reportedRevisionRef.current.delete(path);
       return {
         ...current,
-        [path]: { ...buffer, source, nativeEdits, dirty: true, revision: buffer.revision + 1, error: null }
+        [path]: { ...buffer, source, nativeEdits, dirty: true, revision: buffer.revision + (reported ? 0 : 1), error: null }
       };
     });
   }, [commitBuffers]);
@@ -254,6 +280,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     saveAll: persistence.saveAll,
     saveDocument: persistence.saveDocument,
     dismissPollingNotice: () => setPollingNotice(null),
+    markRevision,
     updateSource
   };
 }

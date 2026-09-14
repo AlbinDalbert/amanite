@@ -19,7 +19,10 @@ const project: FractalProject = {
 };
 
 const buffer: DocumentBuffer = {
+  documentId: "amanite-document-test-notes",
+  projectGeneration: 1,
   path: "notes.fractal.html",
+  baseSource: "",
   source: "",
   links: [],
   backlinks: [],
@@ -28,6 +31,8 @@ const buffer: DocumentBuffer = {
   nativeEdits: {},
   dirty: true,
   revision: 1,
+  savedRevision: 0,
+  draftedRevision: 0,
   operation: null,
   error: null,
   conflict: true

@@ -234,6 +234,7 @@ function App() {
             error={error}
             isBusy={isBusy}
             project={activeProject}
+            projectGeneration={session.projectGeneration}
             aiSettings={ai.settings}
             settings={appearance.settings}
             onCloseProject={session.closeProject}

@@ -3,30 +3,34 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
-import { listenForEditorFlush } from "./editorFlush";
-import { AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
+import { registerEditorFlush } from "./editorFlush";
+import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
 import { cleanEditorHtml } from "./editorHtml";
 
 type Props = {
   bodyHtml: string;
   pagePath: string;
   onChange: (html: string) => void;
+  onRevision?: (revision: number) => void;
   onLoaded?: () => void;
   onLoading?: () => void;
 };
 
 const HTML_EXPORT_DELAY_MS = 120;
 
-function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onLoaded, onLoading }: Props) {
+function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onRevision, onLoaded, onLoading }: Props) {
   const [editor] = useLexicalComposerContext();
   const loadedPage = useRef<string | null>(null);
   const lastHtml = useRef(bodyHtml);
   const onChangeRef = useRef(onChange);
+  const onRevisionRef = useRef(onRevision);
   const onLoadedRef = useRef(onLoaded);
   const onLoadingRef = useRef(onLoading);
+  const revisionRef = useRef(0);
   const pendingState = useRef<EditorState | null>(null);
   const exportTimeout = useRef<number | null>(null);
   onChangeRef.current = onChange;
+  onRevisionRef.current = onRevision;
   onLoadedRef.current = onLoaded;
   onLoadingRef.current = onLoading;
 
@@ -71,12 +75,16 @@ function HtmlBridgePlugin({ bodyHtml, pagePath, onChange, onLoaded, onLoading }:
     };
   }, [editor, exportPendingState]);
 
-  useEffect(() => listenForEditorFlush(pagePath, exportPendingState), [exportPendingState, pagePath]);
+  const getRevision = useCallback(() => revisionRef.current, []);
+
+  useEffect(() => registerEditorFlush(pagePath, { flush: exportPendingState, getRevision }), [exportPendingState, getRevision, pagePath]);
 
   useEffect(() => () => exportPendingState(), [exportPendingState]);
 
   function handleChange(state: EditorState, _editor: unknown, tags: Set<string>) {
-    if (tags.has(AMANITE_HTML_LOAD_TAG)) return;
+    if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG)) return;
+    revisionRef.current += 1;
+    onRevisionRef.current?.(revisionRef.current);
     pendingState.current = state;
     if (exportTimeout.current != null) window.clearTimeout(exportTimeout.current);
     exportTimeout.current = window.setTimeout(exportPendingState, HTML_EXPORT_DELAY_MS);

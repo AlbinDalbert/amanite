@@ -116,6 +116,7 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
         spellCheck={context.settings.spellCheck}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
+        onRevision={() => context.onRevision?.(path)}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}
         onNavigatePage={(nextPath) => context.onNavigatePage(groupId, nextPath)}
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}

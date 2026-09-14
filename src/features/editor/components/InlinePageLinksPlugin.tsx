@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FractalPage } from "@/lib/fractal/types";
 import { $createDerivedLinkNode, $isDerivedLinkNode, DerivedLinkNode } from "./DerivedLinkNode";
+import { AMANITE_DERIVED_LINK_TAG } from "./editorHtml";
 import { derivedPageLinkTargets, findDerivedPageLinksForTargets, matchingPages, relativePageHref } from "./pageLinks";
 
 type Props = { pagePath: string; pages: FractalPage[] };
@@ -95,7 +96,7 @@ function DerivedLinksPlugin({ pagePath, pages }: Props) {
     const unregisterDerived = editor.registerNodeTransform(DerivedLinkNode, transformText);
     editor.update(() => {
       for (const node of $getRoot().getAllTextNodes()) node.markDirty();
-    });
+    }, { tag: AMANITE_DERIVED_LINK_TAG });
     return () => { unregisterDerived(); unregisterText(); };
   }, [editor, transformText]);
 
