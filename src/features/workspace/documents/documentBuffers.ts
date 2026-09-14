@@ -21,6 +21,7 @@ export type DocumentBuffer = {
   snapshotRevision: number;
   savedRevision: number;
   draftedRevision: number;
+  draftError: string | null;
   operation: "load" | "save" | null;
   operationOutcome?: "saved" | "conflict" | "partial" | "failed" | "mutation_committed" | "indeterminate" | "recovery_required";
   error: string | null;
@@ -72,7 +73,9 @@ function editableFields(source: string) {
 }
 
 type BufferIdentityOptions = {
+  draftedRevision?: number;
   projectGeneration?: number;
+  revision?: number;
 };
 
 function bufferIdentity(path: string, projectGeneration: number | undefined) {
@@ -88,6 +91,7 @@ export function bufferFromProject(
   if (!project.activePagePath || project.activePageSource == null) return null;
   const identity = bufferIdentity(project.activePagePath, options.projectGeneration ?? project.sessionGeneration);
   const editable = editableFields(source);
+  const revision = dirty ? Math.max(1, options.revision ?? 1) : 0;
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
@@ -103,10 +107,11 @@ export function bufferFromProject(
     nativeDocumentParts: nativePartsForProject(project),
     nativeEdits: nativeEditsForSource(source, nativePartsForProject(project), dirty),
     dirty,
-    revision: dirty ? 1 : 0,
+    revision,
     snapshotRevision: 0,
     savedRevision: 0,
-    draftedRevision: 0,
+    draftedRevision: dirty ? options.draftedRevision ?? 0 : 0,
+    draftError: null,
     operation: null,
     error: null,
     conflict: false,
@@ -117,6 +122,7 @@ export function bufferFromProject(
 export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false, options: BufferIdentityOptions = {}): DocumentBuffer {
   const identity = bufferIdentity(loaded.path, options.projectGeneration);
   const editable = editableFields(source);
+  const revision = dirty ? Math.max(1, options.revision ?? 1) : 0;
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
@@ -132,10 +138,11 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
     nativeDocumentParts: loaded.nativeDocumentParts ?? null,
     nativeEdits: nativeEditsForSource(source, loaded.nativeDocumentParts ?? null, dirty),
     dirty,
-    revision: dirty ? 1 : 0,
+    revision,
     snapshotRevision: 0,
     savedRevision: 0,
-    draftedRevision: 0,
+    draftedRevision: dirty ? options.draftedRevision ?? 0 : 0,
+    draftError: null,
     operation: null,
     error: null,
     conflict: false,

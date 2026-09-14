@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
 import { requestEditorSnapshot } from "./editorFlush";
+import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 function CaptureEditor({ onCapture }: { onCapture: (editor: LexicalEditor) => void }) {
   const [editor] = useLexicalComposerContext();
@@ -85,5 +86,50 @@ describe("HTML bridge loading", () => {
     expect(onChange).toHaveBeenCalledWith("<p><span>One changed</span></p>");
 
     await act(async () => root.unmount());
+  });
+
+  it("does not re-export a saved editor during cleanup", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onSnapshot = vi.fn();
+    const revision = { current: 0 };
+    const sharedSession = {
+      initialized: false,
+      needsSourceRefresh: false,
+      getMirrorHtml: () => "<p>One</p>",
+      getRevision: () => revision.current,
+      nextRevision: () => ++revision.current,
+      acceptBodyHtml: vi.fn(),
+      markInitialized: vi.fn()
+    } as unknown as SharedDocumentEditorSession;
+
+    await act(async () => {
+      root.render(
+        <LexicalComposer initialConfig={{ namespace: "cleanup-snapshot-test", onError: (error) => { throw error; } }}>
+          <HtmlBridgePlugin
+            bodyHtml="<p>One</p>"
+            documentId="amanite-document-cleanup-snapshot"
+            onChange={() => {}}
+            onRevision={() => {}}
+            onSnapshot={onSnapshot}
+            pagePath="notes.fractal.html"
+            sharedSession={sharedSession}
+          />
+        </LexicalComposer>
+      );
+    });
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 30)); });
+
+    revision.current = 1;
+    const first = await requestEditorSnapshot("amanite-document-cleanup-snapshot", 1);
+    expect(first).toMatchObject({ revision: 1 });
+    revision.current = 2;
+    const second = await requestEditorSnapshot("amanite-document-cleanup-snapshot", 2);
+    expect(second).toMatchObject({ revision: 2 });
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
+
+    revision.current = 3;
+    await act(async () => root.unmount());
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
   });
 });

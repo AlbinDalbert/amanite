@@ -16,6 +16,10 @@ function identity(projectRoot: string, pagePath: string) {
   return `${projectRoot}\u0000${pagePath}`;
 }
 
+function projectQueueKey(projectRoot: string) {
+  return `project\u0000${projectRoot}`;
+}
+
 function enqueue<T>(key: string, work: () => Promise<T>) {
   const next = (queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
   queues.set(key, next);
@@ -24,6 +28,17 @@ function enqueue<T>(key: string, work: () => Promise<T>) {
   };
   void next.then(cleanup, cleanup);
   return next;
+}
+
+function enqueueProject<T>(projectRoot: string, work: () => Promise<T>) {
+  return enqueue(projectQueueKey(projectRoot), work);
+}
+
+function invalidate(projectRoot: string, pagePath: string) {
+  const key = identity(projectRoot, pagePath);
+  const generation = (generations.get(key) ?? 0) + 1;
+  generations.set(key, generation);
+  return { generation, key };
 }
 
 export async function listPageDrafts(projectRoot?: string) {
@@ -36,34 +51,38 @@ export async function readPageDraft(projectRoot: string, pagePath: string) {
   return invoke<PageDraft | null>("fractal_read_draft", { projectRoot, pagePath });
 }
 
-export function writePageDraftSource(projectRoot: string, pagePath: string, source: string, baseSourceHash: string) {
-  const key = identity(projectRoot, pagePath);
-  const generation = (generations.get(key) ?? 0) + 1;
-  generations.set(key, generation);
+export type PageDraftWriteResult = { revision: number; status: "written" | "superseded" };
+
+export function writePageDraftSource(projectRoot: string, pagePath: string, source: string, baseSourceHash: string, revision: number) {
+  const { generation, key } = invalidate(projectRoot, pagePath);
   const draft: PageDraft = {
     version: 1,
     projectRoot,
     pagePath,
     source,
     baseSourceHash,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    revision
   };
   if (!hasTauriRuntime()) return Promise.reject(new Error("Native draft storage requires the desktop app."));
-  return enqueue(key, async () => {
-    if (generations.get(key) !== generation) return;
+  return enqueueProject(projectRoot, async (): Promise<PageDraftWriteResult> => {
+    if (generations.get(key) !== generation) return { revision, status: "superseded" };
     await invoke("fractal_write_draft", { draft });
+    return { revision, status: "written" };
   });
 }
 
 export function clearPageDraft(projectRoot: string, pagePath: string) {
-  const key = identity(projectRoot, pagePath);
+  invalidate(projectRoot, pagePath);
   if (!hasTauriRuntime()) return Promise.resolve();
-  return enqueue(key, () => invoke("fractal_delete_draft", { projectRoot, pagePath }));
+  return enqueueProject(projectRoot, () => invoke("fractal_delete_draft", { projectRoot, pagePath }));
 }
 
 async function movePageDraft(projectRoot: string, from: string, to: string) {
   if (!hasTauriRuntime()) return;
-  await invoke("fractal_move_draft", { projectRoot, from, to });
+  invalidate(projectRoot, from);
+  invalidate(projectRoot, to);
+  await enqueueProject(projectRoot, () => invoke("fractal_move_draft", { projectRoot, from, to }));
 }
 
 export async function reconcilePageDrafts(projectRoot: string, mappings: ReceiptMappings) {
@@ -97,7 +116,8 @@ export async function migrateLegacyDrafts() {
         draft: {
           ...value,
           baseSourceHash: value.baseSourceHash ?? "",
-          updatedAt: value.updatedAt ?? new Date().toISOString()
+          updatedAt: value.updatedAt ?? new Date().toISOString(),
+          revision: value.revision ?? 0
         }
       });
       localStorage.removeItem(key);

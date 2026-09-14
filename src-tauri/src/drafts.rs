@@ -18,6 +18,8 @@ pub(crate) struct PageDraft {
     source: String,
     base_source_hash: String,
     updated_at: String,
+    #[serde(default)]
+    revision: u64,
 }
 
 fn draft_dir(app: &AppHandle) -> FractalResult<PathBuf> {
@@ -154,6 +156,10 @@ fn write_draft(app: &AppHandle, draft: PageDraft) -> FractalResult<()> {
         .map_err(|error| FractalCommandError::io(format!("Could not commit draft: {error}")))?;
     fs::rename(&temporary, &target)
         .map_err(|error| FractalCommandError::io(format!("Could not replace draft: {error}")))?;
+    #[cfg(unix)]
+    if let Ok(directory_handle) = fs::File::open(&directory) {
+        let _ = directory_handle.sync_all();
+    }
     Ok(())
 }
 
@@ -210,7 +216,7 @@ pub(crate) async fn fractal_delete_draft(
 
 #[cfg(test)]
 mod tests {
-    use super::digest;
+    use super::{digest, PageDraft};
 
     #[test]
     fn draft_names_do_not_expose_paths() {
@@ -236,5 +242,21 @@ mod tests {
             );
         }
         assert!(source.contains("tauri::async_runtime::spawn_blocking(task)"));
+    }
+
+    #[test]
+    fn legacy_draft_records_default_to_revision_zero() {
+        let draft: PageDraft = serde_json::from_str(
+            r#"{
+                "version": 1,
+                "projectRoot": "/tmp/project",
+                "pagePath": "notes.fractal.html",
+                "source": "<p>Draft</p>",
+                "baseSourceHash": "base",
+                "updatedAt": "2026-09-14T00:00:00.000Z"
+            }"#,
+        )
+        .expect("legacy draft should remain readable");
+        assert_eq!(draft.revision, 0);
     }
 }

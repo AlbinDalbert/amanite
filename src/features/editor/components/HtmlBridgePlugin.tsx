@@ -51,10 +51,16 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   }, []);
 
   const exportPendingState = useCallback((minimumRevision = 0): EditorSnapshot | void => {
-    const revision = pendingRevision.current ?? currentRevision();
-    if (!pendingState.current && lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision) return lastSnapshot.current;
+    const editorRevision = currentRevision();
+    const pendingAt = pendingRevision.current ?? -1;
+    const revision = Math.max(editorRevision, pendingAt);
+    if (!pendingState.current && lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision && lastSnapshot.current.revision >= revision) return lastSnapshot.current;
     if (revision < minimumRevision) return lastSnapshot.current?.revision === revision ? lastSnapshot.current : undefined;
-    const state = pendingState.current;
+    const state = pendingState.current && pendingAt >= editorRevision
+      ? pendingState.current
+      : minimumRevision > 0 && revision > 0
+        ? editor.getEditorState()
+        : null;
     if (!state) return lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision ? lastSnapshot.current : undefined;
     pendingState.current = null;
     pendingRevision.current = null;

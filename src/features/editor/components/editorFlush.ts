@@ -29,8 +29,8 @@ export function requestEditorSnapshot(documentId: string, minimumRevision = 0): 
   return Promise.all(pending).then((snapshots) => snapshots.find((snapshot): snapshot is EditorSnapshot => Boolean(snapshot)) ?? null);
 }
 
-export function requestEditorFlush(documentId: string) {
-  return requestEditorSnapshot(documentId).then(() => undefined);
+export function requestEditorFlush(documentId: string, minimumRevision = 0) {
+  return requestEditorSnapshot(documentId, minimumRevision).then(() => undefined);
 }
 
 export function listenForEditorFlush(pagePath: string, flush: () => void) {

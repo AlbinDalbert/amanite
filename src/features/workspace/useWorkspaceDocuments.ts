@@ -105,7 +105,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
-    flushDocument: (buffer) => requestEditorFlush(buffer.documentId),
+    flushDocument: (buffer) => requestEditorFlush(buffer.documentId, buffer.revision),
     onDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
@@ -149,7 +149,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     commitBuffers((current) => {
       const buffer = current[path];
       return buffer
-        ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), error: null } }
+        ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), draftError: null, error: null } }
         : current;
     });
   }, [commitBuffers]);
@@ -179,6 +179,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
           nativeEdits,
           dirty: true,
           revision: buffer.revision + (reported ? 0 : 1),
+          draftError: null,
           error: null
         }
       };
@@ -204,6 +205,27 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       };
     });
   }, [commitBuffers]);
+
+  const confirmDraft = useCallback((documentId: string, revision: number) => {
+    commitBuffers((current) => {
+      const path = Object.keys(current).find((candidate) => current[candidate].documentId === documentId);
+      if (!path) return current;
+      const buffer = current[path];
+      if (revision <= buffer.draftedRevision && !buffer.draftError) return current;
+      return { ...current, [path]: { ...buffer, draftedRevision: Math.max(buffer.draftedRevision, revision), draftError: null } };
+    });
+    setDraftStorageError(null);
+  }, [commitBuffers, setDraftStorageError]);
+
+  const reportDraftError = useCallback((documentId: string, message: string) => {
+    commitBuffers((current) => {
+      const path = Object.keys(current).find((candidate) => current[candidate].documentId === documentId);
+      if (!path) return current;
+      const buffer = current[path];
+      return buffer.draftError === message ? current : { ...current, [path]: { ...buffer, draftError: message } };
+    });
+    setDraftStorageError(message);
+  }, [commitBuffers, setDraftStorageError]);
 
   const forgetDocument = useCallback((path: string) => {
     commitBuffers((current) => {
@@ -290,6 +312,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     buffers,
     projectRoot: project.rootPath,
     saveDocument: persistence.saveDocument,
+    onDraftConfirmed: confirmDraft,
+    onDraftError: reportDraftError,
     onStorageError: setDraftStorageError
   });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });

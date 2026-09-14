@@ -127,6 +127,7 @@ describe("executeWorkspaceTool", () => {
         snapshotRevision: 0,
         savedRevision: 0,
         draftedRevision: 0,
+        draftError: null,
         operation: null,
         error: null,
         conflict: false

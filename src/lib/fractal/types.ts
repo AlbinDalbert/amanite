@@ -106,7 +106,7 @@ export type FractalRecoveryReport = { recoveredTransactions: string[]; cleanedTr
 export type FractalRepairReport = { changes: FractalProjectChange[]; warnings: FractalOperationWarning[]; failures: FractalOperationFailure[] };
 export type FractalRecoveryResult = { project?: FractalProject | null; report: FractalRecoveryReport; inspection: FractalProjectInspection };
 export type FractalRepairResult = { project: FractalProject; report: FractalRepairReport; inspection: FractalProjectInspection };
-export type FractalPageDraft = { version: 1; projectRoot: string; pagePath: string; source: string; baseSourceHash: string; updatedAt: string; revision?: number };
+export type FractalPageDraft = { version: 1; projectRoot: string; pagePath: string; source: string; baseSourceHash: string; updatedAt: string; revision: number };
 
 export type FractalProjectCatalog = {
   rootPath: string;

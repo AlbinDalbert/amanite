@@ -12,18 +12,18 @@ type Options = {
 
 export async function resolveDocumentDraft({ checkDraft, isCurrent, onRequestConfirmation, pagePath, projectRoot, source, sourceHash }: Options) {
   const stillCurrent = () => !isCurrent || isCurrent();
-  if (!checkDraft) return { dirty: false, source };
-  if (!stillCurrent()) return { dirty: false, source };
+  if (!checkDraft) return { dirty: false, draftedRevision: 0, revision: 0, source };
+  if (!stillCurrent()) return { dirty: false, draftedRevision: 0, revision: 0, source };
 
   const draft = await readPageDraft(projectRoot, pagePath);
-  if (!draft) return { dirty: false, source };
-  if (!stillCurrent()) return { dirty: false, source };
+  if (!draft) return { dirty: false, draftedRevision: 0, revision: 0, source };
+  if (!stillCurrent()) return { dirty: false, draftedRevision: 0, revision: 0, source };
   if (draft.source === source) {
     if (stillCurrent()) void clearPageDraft(projectRoot, pagePath);
-    return { dirty: false, source };
+    return { dirty: false, draftedRevision: 0, revision: 0, source };
   }
 
-  if (!stillCurrent()) return { dirty: false, source };
+  if (!stillCurrent()) return { dirty: false, draftedRevision: 0, revision: 0, source };
   const baselineMatches = Boolean(draft.baseSourceHash && draft.baseSourceHash === sourceHash);
   const recover = await onRequestConfirmation(
     baselineMatches
@@ -31,8 +31,8 @@ export async function resolveDocumentDraft({ checkDraft, isCurrent, onRequestCon
       : `The page changed on disk after this draft was created. Replace the disk version with the draft for ${pagePath}?`,
     baselineMatches ? "Recover draft" : "Replace with draft"
   );
-  if (recover) return { dirty: true, source: draft.source };
+  if (recover) return { dirty: true, draftedRevision: draft.revision, revision: Math.max(1, draft.revision), source: draft.source };
 
   if (stillCurrent()) void clearPageDraft(projectRoot, pagePath);
-  return { dirty: false, source };
+  return { dirty: false, draftedRevision: 0, revision: 0, source };
 }
