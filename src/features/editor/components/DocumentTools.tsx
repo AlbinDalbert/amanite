@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, type FormEvent } from "react";
 import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
+import { $isLinkNode } from "@lexical/link";
+import { $getRoot, $isTextNode, type LexicalEditor } from "lexical";
 
 export type DocumentCounts = {
   characters: number;
@@ -64,6 +66,34 @@ export function replaceDocumentText(source: string, query: string, replacement: 
   }
   const doctype = document.doctype ? `<!doctype ${document.doctype.name}>\n` : "<!doctype html>\n";
   return `${doctype}${document.documentElement.outerHTML}\n`;
+}
+
+export function replaceEditorText(editor: LexicalEditor, query: string, replacement: string) {
+  if (!query) return false;
+  const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+  let replaced = false;
+  editor.update(() => {
+    for (const node of $getRoot().getAllTextNodes()) {
+      if (node.getType() === "derived-link") continue;
+      let parent = node.getParent();
+      let linked = false;
+      while (parent) {
+        if ($isLinkNode(parent)) {
+          linked = true;
+          break;
+        }
+        parent = parent.getParent();
+      }
+      if (linked || !$isTextNode(node)) continue;
+      const current = node.getTextContent();
+      const next = current.replace(pattern, replacement);
+      if (next !== current) {
+        node.setTextContent(next);
+        replaced = true;
+      }
+    }
+  });
+  return replaced;
 }
 
 type FindBarProps = {

@@ -116,6 +116,26 @@ export function writeEditableBody(source: string, bodyHtml: string, hasTitleHead
   return serializeDocument(document);
 }
 
+export function writeEditablePage(source: string, title: string, bodyHtml: string, hasTitleHeading: boolean) {
+  const document = new DOMParser().parseFromString(source, "text/html");
+  const documentRoot = document.body.querySelector(NATIVE_ROOT_SELECTOR);
+  if (!documentRoot) throw new Error("Native document root is missing.");
+  let titleElement = document.head.querySelector("title");
+  if (!titleElement) {
+    titleElement = document.createElement("title");
+    document.head.append(titleElement);
+  }
+  titleElement.textContent = title;
+  documentRoot.innerHTML = bodyHtml;
+  if (hasTitleHeading) {
+    const heading = document.createElement("h1");
+    heading.setAttribute("data-fractal-title", "");
+    heading.textContent = title;
+    documentRoot.prepend(heading);
+  }
+  return serializeDocument(document);
+}
+
 export function writeEditableTitle(source: string, title: string, hasTitleHeading: boolean) {
   const document = new DOMParser().parseFromString(source, "text/html");
   let titleElement = document.head.querySelector("title");

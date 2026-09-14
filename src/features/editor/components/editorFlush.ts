@@ -1,7 +1,12 @@
 const EDITOR_FLUSH_EVENT = "amanite:flush-editor";
 
+export type EditorSnapshot = {
+  bodyHtml: string;
+  revision: number;
+};
+
 export type EditorFlushController = {
-  flush: () => void | Promise<void>;
+  flush: (minimumRevision?: number) => void | Promise<EditorSnapshot | void>;
   getRevision?: () => number;
 };
 
@@ -17,11 +22,15 @@ export function registerEditorFlush(key: string, controller: EditorFlushControll
   };
 }
 
-export function requestEditorFlush(pagePath: string) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EDITOR_FLUSH_EVENT, { detail: { pagePath } }));
-  const pending = Array.from(controllers.get(pagePath) ?? [], (controller) => controller.flush());
-  return Promise.all(pending).then(() => undefined);
+export function requestEditorSnapshot(documentId: string, minimumRevision = 0): Promise<EditorSnapshot | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  window.dispatchEvent(new CustomEvent(EDITOR_FLUSH_EVENT, { detail: { pagePath: documentId } }));
+  const pending = Array.from(controllers.get(documentId) ?? [], (controller) => controller.flush(minimumRevision));
+  return Promise.all(pending).then((snapshots) => snapshots.find((snapshot): snapshot is EditorSnapshot => Boolean(snapshot)) ?? null);
+}
+
+export function requestEditorFlush(documentId: string) {
+  return requestEditorSnapshot(documentId).then(() => undefined);
 }
 
 export function listenForEditorFlush(pagePath: string, flush: () => void) {

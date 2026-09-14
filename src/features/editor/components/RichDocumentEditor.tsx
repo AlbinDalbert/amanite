@@ -18,6 +18,8 @@ import HtmlBridgePlugin from "./HtmlBridgePlugin";
 import InlinePageLinksPlugin from "./InlinePageLinksPlugin";
 import DocumentLoadingPreview from "./DocumentLoadingPreview";
 import { editorConfig } from "./editorConfig";
+import type { EditorSnapshot } from "./editorFlush";
+import type { EditorModelSnapshot } from "./editorModel";
 import { SharedLexicalComposer, useSharedDocumentMirror, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type Props = {
@@ -33,13 +35,15 @@ type Props = {
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
   onChangeBody: (html: string) => void;
+  onModelChange?: (snapshot: EditorModelSnapshot) => void;
   onChangeTitle: (title: string) => void;
+  onSnapshot?: (snapshot: EditorSnapshot) => void;
   onRevision?: (revision: number) => void;
   onOpenFolder?: (folderPath: string) => void;
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages" | "projectName" | "spellCheck" | "title" | "onChangeBody" | "onChangeTitle" | "onOpenFolder"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "isBusy" | "pagePath" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
@@ -49,7 +53,7 @@ type WritingAreaProps = Pick<Props, "bodyHtml" | "isBusy" | "pagePath" | "pages"
 };
 
 export function ReadOnlyDocumentMirror({ bodyHtml, embedded = false, pagePath, session, title }: { bodyHtml: string; embedded?: boolean; pagePath: string; session: SharedDocumentEditorSession; title: string }) {
-  const liveBodyHtml = useSharedDocumentMirror(session);
+  const liveText = useSharedDocumentMirror(session);
   return (
     <section aria-label="Read-only document view" className={embedded ? "rich-document-shell embedded document-mirror" : "rich-document-shell document-mirror"}>
       <article className="rich-page-canvas">
@@ -58,7 +62,11 @@ export function ReadOnlyDocumentMirror({ bodyHtml, embedded = false, pagePath, s
             <label className="document-title-field"><input aria-label="Document title" disabled placeholder="Untitled" value={title} readOnly /></label>
           </div>
           <div className="rich-body-frame">
-            <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content" dangerouslySetInnerHTML={{ __html: liveBodyHtml || bodyHtml }} />
+            {liveText === null ? (
+              <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+            ) : (
+              <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content">{liveText}</div>
+            )}
           </div>
         </div>
       </article>
@@ -112,7 +120,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onContentLoaded, onContentLoading, onOpenFolder, onRevision }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -161,7 +169,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectNam
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onRevision={onRevision} onLoaded={onContentLoaded} onLoading={onContentLoading} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
           <ViewAttachmentPlugin session={sharedSession} viewId={viewId} />
         </div>
@@ -170,7 +178,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectNam
   );
 }
 
-function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onOpenFolder, onRevision, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -193,10 +201,12 @@ function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pa
         viewId={viewId}
         onChangeBody={onChangeBody}
         onChangeTitle={onChangeTitle}
+        onModelChange={onModelChange}
         onContentLoaded={() => setIsContentReady(true)}
         onContentLoading={() => setIsContentReady(false)}
         onOpenFolder={onOpenFolder}
         onRevision={onRevision}
+        onSnapshot={onSnapshot}
       />
     </>
   );

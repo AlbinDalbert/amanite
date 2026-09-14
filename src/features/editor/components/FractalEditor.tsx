@@ -5,15 +5,17 @@ import type {
   FractalNativeSection,
   FractalPage
 } from "@/lib/fractal/types";
-import { countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText } from "./DocumentTools";
+import { countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText, replaceEditorText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
-import { analyzeEditablePage, readEditablePage, writeEditableBody, writeEditableTitle } from "./pageSource";
+import { analyzeEditablePage } from "./pageSource";
 import RichDocumentEditor, { ReadOnlyDocumentMirror, resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
 import { fractalClient } from "@/lib/fractal/client";
 import { startPointerResize } from "@/components/ui/pointerResize";
 import ExportDialog from "./ExportDialog";
 import type { FractalHtmlExportReport } from "@/lib/fractal/types";
+import type { EditorSnapshot } from "./editorFlush";
+import { countTextMatchesInText, type EditorModelSnapshot } from "./editorModel";
 import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type FractalEditorProps = {
@@ -28,6 +30,9 @@ type FractalEditorProps = {
   pagePath: string;
   projectName: string;
   source: string;
+  bodyHtml?: string;
+  hasTitleHeading?: boolean;
+  title?: string;
   documentId?: string;
   editable?: boolean;
   sharedSession?: SharedDocumentEditorSession;
@@ -35,7 +40,9 @@ type FractalEditorProps = {
   spellCheck: boolean;
   wordGoal: number;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
-  onRevision: () => void;
+  onModelChange?: (snapshot: EditorModelSnapshot) => void;
+  onRevision: (revision?: number) => void;
+  onSnapshot?: (snapshot: EditorSnapshot) => void;
   onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (pagePath: string) => void;
   onOpenFolder: (folderPath: string) => void;
@@ -72,20 +79,26 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, isBusy, isFractalValid, links, pages, pagePath, projectName, sharedSession, source, spellCheck, viewId, wordGoal, onChangeSource, onExport, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, projectName, sharedSession, source, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
+  const [liveModel, setLiveModel] = useState<EditorModelSnapshot | null>(null);
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [source]);
-  const matchCount = useMemo(() => countTextMatches(source, findQuery, true), [findQuery, source]);
+  const matchCount = useMemo(() => liveModel ? countTextMatchesInText(liveModel.text, findQuery) : countTextMatches(source, findQuery, true), [findQuery, liveModel, source]);
   const page = nativeAnalysis.page;
-  const counts = nativeAnalysis.counts;
-  const outline = nativeAnalysis.outline;
+  const displayedBodyHtml = bufferBodyHtml ?? page.bodyHtml;
+  const displayedTitle = bufferTitle ?? page.title;
+  const hasTitleHeading = bufferHasTitleHeading ?? page.hasTitleHeading;
+  const counts = liveModel?.counts ?? nativeAnalysis.counts;
+  const outline = liveModel?.outline ?? nativeAnalysis.outline;
+
+  useEffect(() => setLiveModel(null), [documentId, pagePath]);
 
   useEffect(() => {
     setIsInspectorOpen(false);
@@ -103,10 +116,19 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function replaceAll() {
-    if (!findQuery) return;
-    const next = replaceDocumentText(source, findQuery, replacement, true);
-    onChangeSource(next, { section: "content", value: readEditablePage(next).bodyHtml });
+    if (!findQuery || !editable) return;
+    if (sharedSession) {
+      replaceEditorText(sharedSession.editor, findQuery, replacement);
+    } else {
+      onChangeSource(replaceDocumentText(source, findQuery, replacement, true));
+    }
     setCurrentMatch(0);
+  }
+
+  function changeTitle(title: string) {
+    const revision = sharedSession?.nextRevision();
+    onRevision(revision);
+    onChangeSource(source, { section: "title", value: title });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -185,10 +207,10 @@ function FractalEditor(props: FractalEditorProps) {
           </section>
         ) : (
           !editable && sharedSession ? (
-            <ReadOnlyDocumentMirror bodyHtml={page.bodyHtml} pagePath={pagePath} session={sharedSession} title={page.title} />
+            <ReadOnlyDocumentMirror bodyHtml={displayedBodyHtml} pagePath={pagePath} session={sharedSession} title={displayedTitle} />
           ) : (
             <RichDocumentEditor
-              bodyHtml={page.bodyHtml}
+              bodyHtml={displayedBodyHtml}
               documentId={documentId}
               isBusy={isBusy}
               pagePath={pagePath}
@@ -196,11 +218,13 @@ function FractalEditor(props: FractalEditorProps) {
               projectName={projectName}
               sharedSession={sharedSession}
               spellCheck={spellCheck}
-              title={page.title}
+              title={displayedTitle}
               viewId={viewId}
-              onChangeBody={(bodyHtml) => onChangeSource(writeEditableBody(source, bodyHtml, page.hasTitleHeading), { section: "content", value: bodyHtml })}
-              onChangeTitle={(title) => onChangeSource(writeEditableTitle(source, title, page.hasTitleHeading), { section: "title", value: title })}
+              onChangeBody={() => undefined}
+              onChangeTitle={changeTitle}
+              onModelChange={editable ? (snapshot) => { setLiveModel(snapshot); onModelChange?.(snapshot); } : undefined}
               onRevision={editable ? onRevision : undefined}
+              onSnapshot={onSnapshot}
               onOpenFolder={onOpenFolder}
               onToggleInspector={() => setIsInspectorOpen((open) => !open)}
             />

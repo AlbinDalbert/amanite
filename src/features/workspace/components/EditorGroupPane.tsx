@@ -27,6 +27,7 @@ type Props = {
   onActivate: () => void;
   onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onRevision: (path: string) => void;
+  onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
   onCreateFolder: (path: string) => void;
   onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFirstPage?: () => void;
@@ -90,6 +91,7 @@ function EditorGroupPane(props: Props) {
     loadErrors: props.loadErrors,
     onChangeSource: props.onChangeSource,
     onRevision: props.onRevision,
+    onSnapshot: props.onSnapshot,
     onCreateFolder: props.onCreateFolder,
     onCreatePage: props.onCreatePage,
     onEnsurePage: props.onEnsurePage,

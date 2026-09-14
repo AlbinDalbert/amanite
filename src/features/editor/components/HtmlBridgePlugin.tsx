@@ -3,9 +3,10 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
-import { registerEditorFlush } from "./editorFlush";
+import { registerEditorFlush, type EditorSnapshot } from "./editorFlush";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
 import { cleanEditorHtml } from "./editorHtml";
+import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
 import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type Props = {
@@ -13,61 +14,83 @@ type Props = {
   documentId?: string;
   pagePath: string;
   sharedSession?: SharedDocumentEditorSession;
-  onChange: (html: string) => void;
+  onChange?: (html: string) => void;
+  onModelChange?: (snapshot: EditorModelSnapshot) => void;
   onRevision?: (revision: number) => void;
+  onSnapshot?: (snapshot: EditorSnapshot) => void;
   onLoaded?: () => void;
   onLoading?: () => void;
 };
 
-const HTML_EXPORT_DELAY_MS = 120;
-
-function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onChange, onRevision, onLoaded, onLoading }: Props) {
+function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onChange, onModelChange, onRevision, onSnapshot, onLoaded, onLoading }: Props) {
   const [editor] = useLexicalComposerContext();
   const editorDocumentId = documentId ?? pagePath;
   const loadedPage = useRef<string | null>(null);
   const lastHtml = useRef(bodyHtml);
   const onChangeRef = useRef(onChange);
+  const onModelChangeRef = useRef(onModelChange);
   const onRevisionRef = useRef(onRevision);
+  const onSnapshotRef = useRef(onSnapshot);
   const onLoadedRef = useRef(onLoaded);
   const onLoadingRef = useRef(onLoading);
   const revisionRef = useRef(0);
   const pendingState = useRef<EditorState | null>(null);
-  const exportTimeout = useRef<number | null>(null);
+  const pendingRevision = useRef<number | null>(null);
+  const lastSnapshot = useRef<EditorSnapshot | null>(null);
   onChangeRef.current = onChange;
+  onModelChangeRef.current = onModelChange;
   onRevisionRef.current = onRevision;
+  onSnapshotRef.current = onSnapshot;
   onLoadedRef.current = onLoaded;
   onLoadingRef.current = onLoading;
 
-  const exportPendingState = useCallback(() => {
-    if (exportTimeout.current != null) {
-      window.clearTimeout(exportTimeout.current);
-      exportTimeout.current = null;
-    }
+  const currentRevision = useCallback(() => sharedSession?.getRevision() ?? revisionRef.current, [sharedSession]);
+
+  const reportModel = useCallback((state: EditorState, revision: number) => {
+    onModelChangeRef.current?.(readEditorModel(state, revision));
+  }, []);
+
+  const exportPendingState = useCallback((minimumRevision = 0): EditorSnapshot | void => {
+    const revision = pendingRevision.current ?? currentRevision();
+    if (!pendingState.current && lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision) return lastSnapshot.current;
+    if (revision < minimumRevision) return lastSnapshot.current?.revision === revision ? lastSnapshot.current : undefined;
     const state = pendingState.current;
-    if (!state) return;
+    if (!state) return lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision ? lastSnapshot.current : undefined;
     pendingState.current = null;
+    pendingRevision.current = null;
     const html = state.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor });
+    const snapshot = { bodyHtml: html, revision };
+    lastSnapshot.current = snapshot;
     lastHtml.current = html;
-    onChangeRef.current(html);
-  }, [editor]);
+    sharedSession?.acceptBodyHtml(html);
+    onSnapshotRef.current?.(snapshot);
+    onChangeRef.current?.(html);
+    return snapshot;
+  }, [currentRevision, editor]);
 
   useEffect(() => {
     if (sharedSession?.initialized && loadedPage.current === null && (!sharedSession.needsSourceRefresh || bodyHtml === sharedSession.getMirrorHtml())) {
       loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
+      sharedSession.markInitialized();
+      reportModel(editor.getEditorState(), currentRevision());
       onLoadedRef.current?.();
       return;
     }
     if (loadedPage.current === editorDocumentId && bodyHtml === lastHtml.current) return;
     onLoadingRef.current?.();
+    if (sharedSession?.initialized && bodyHtml !== sharedSession.getMirrorHtml()) sharedSession.resetRevision();
+    lastSnapshot.current = null;
     const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
       loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
+      sharedSession?.acceptBodyHtml(bodyHtml);
       sharedSession?.markInitialized();
+      reportModel(editor.getEditorState(), currentRevision());
       onLoadedRef.current?.();
     });
     return cancelImport;
-  }, [bodyHtml, editor, editorDocumentId, pagePath, sharedSession]);
+  }, [bodyHtml, currentRevision, editor, editorDocumentId, pagePath, reportModel, sharedSession]);
 
   useEffect(() => {
     const root = editor.getRootElement();
@@ -86,19 +109,19 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     };
   }, [editor, exportPendingState]);
 
-  const getRevision = useCallback(() => revisionRef.current, []);
+  const getRevision = useCallback(() => currentRevision(), [currentRevision]);
 
-  useEffect(() => registerEditorFlush(editorDocumentId, { flush: exportPendingState, getRevision }), [editorDocumentId, exportPendingState, getRevision]);
+  useEffect(() => registerEditorFlush(editorDocumentId, { flush: (minimumRevision) => Promise.resolve(exportPendingState(minimumRevision)), getRevision }), [editorDocumentId, exportPendingState, getRevision]);
 
-  useEffect(() => () => exportPendingState(), [exportPendingState]);
+  useEffect(() => () => { void exportPendingState(); }, [exportPendingState]);
 
   function handleChange(state: EditorState, _editor: unknown, tags: Set<string>) {
     if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG)) return;
-    revisionRef.current += 1;
-    onRevisionRef.current?.(revisionRef.current);
+    const revision = sharedSession?.nextRevision() ?? (revisionRef.current += 1);
+    onRevisionRef.current?.(revision);
+    reportModel(state, revision);
     pendingState.current = state;
-    if (exportTimeout.current != null) window.clearTimeout(exportTimeout.current);
-    exportTimeout.current = window.setTimeout(exportPendingState, HTML_EXPORT_DELAY_MS);
+    pendingRevision.current = revision;
   }
 
   return <OnChangePlugin ignoreHistoryMergeTagChange ignoreSelectionChange onChange={handleChange} />;

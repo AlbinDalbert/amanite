@@ -1,4 +1,5 @@
 import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
+import { readEditablePage } from "@/features/editor/components/pageSource";
 import { documentIdentity } from "./documentSessions";
 
 export type DocumentBuffer = {
@@ -7,6 +8,9 @@ export type DocumentBuffer = {
   path: string;
   baseSource: string;
   source: string;
+  title: string;
+  bodyHtml: string;
+  hasTitleHeading: boolean;
   links: FractalProject["activePageLinks"];
   backlinks: FractalProject["activePageBacklinks"];
   contentHash: string | null;
@@ -14,6 +18,7 @@ export type DocumentBuffer = {
   nativeEdits: FractalNativeSectionEdits;
   dirty: boolean;
   revision: number;
+  snapshotRevision: number;
   savedRevision: number;
   draftedRevision: number;
   operation: "load" | "save" | null;
@@ -62,6 +67,10 @@ function nativeEditsForSource(source: string, parts: FractalNativeDocumentParts 
   return dirty && parts ? nativeEditsFromSource(source, parts) : {};
 }
 
+function editableFields(source: string) {
+  return readEditablePage(source);
+}
+
 type BufferIdentityOptions = {
   projectGeneration?: number;
 };
@@ -78,12 +87,16 @@ export function bufferFromProject(
 ): DocumentBuffer | null {
   if (!project.activePagePath || project.activePageSource == null) return null;
   const identity = bufferIdentity(project.activePagePath, options.projectGeneration ?? project.sessionGeneration);
+  const editable = editableFields(source);
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
     path: project.activePagePath,
     baseSource: project.activePageSource,
     source,
+    title: editable.title,
+    bodyHtml: editable.bodyHtml,
+    hasTitleHeading: editable.hasTitleHeading,
     links: project.activePageLinks,
     backlinks: project.activePageBacklinks,
     contentHash: project.activePageContentHash ?? null,
@@ -91,6 +104,7 @@ export function bufferFromProject(
     nativeEdits: nativeEditsForSource(source, nativePartsForProject(project), dirty),
     dirty,
     revision: dirty ? 1 : 0,
+    snapshotRevision: 0,
     savedRevision: 0,
     draftedRevision: 0,
     operation: null,
@@ -102,12 +116,16 @@ export function bufferFromProject(
 
 export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false, options: BufferIdentityOptions = {}): DocumentBuffer {
   const identity = bufferIdentity(loaded.path, options.projectGeneration);
+  const editable = editableFields(source);
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
     path: loaded.path,
     baseSource: loaded.source,
     source,
+    title: editable.title,
+    bodyHtml: editable.bodyHtml,
+    hasTitleHeading: editable.hasTitleHeading,
     links: loaded.links,
     backlinks: loaded.backlinks,
     contentHash: loaded.contentHash,
@@ -115,6 +133,7 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
     nativeEdits: nativeEditsForSource(source, loaded.nativeDocumentParts ?? null, dirty),
     dirty,
     revision: dirty ? 1 : 0,
+    snapshotRevision: 0,
     savedRevision: 0,
     draftedRevision: 0,
     operation: null,

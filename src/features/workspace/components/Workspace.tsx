@@ -695,6 +695,7 @@ function Workspace(props: WorkspaceProps) {
     workspaceBusy: props.isBusy,
     onChangeSource: documents.updateSource,
     onRevision: documents.markRevision,
+    onSnapshot: documents.updateSnapshot,
     onCreateFolder: (path: string) => { void createFolder(path); },
     onCreatePage: (title: string, folderPath?: string) => { void createPage(title, folderPath); },
     onCloseTab: (groupId: EditorGroupId, path: string) => { void closeTab(groupId, path); },
@@ -721,7 +722,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   const view: WorkspaceViewProps = {
     activeFolderPath,

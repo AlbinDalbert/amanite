@@ -115,6 +115,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         borealisOpen={context.borealisOpen}
         borealisWorkspace={context.borealisWorkspace}
         backlinks={tabBuffer.backlinks}
+        bodyHtml={tabBuffer.bodyHtml}
         documentId={tabBuffer.documentId}
         editable={editable}
         focusMode={context.focusMode}
@@ -127,10 +128,12 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         sharedSession={session}
         source={tabBuffer.source}
         spellCheck={context.settings.spellCheck}
+        title={tabBuffer.title}
         viewId={`${groupId}:${tabBuffer.documentId}`}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
-        onRevision={editable ? () => context.onRevision?.(path) : () => undefined}
+        onRevision={editable ? (revision) => context.onRevision?.(path, revision) : () => undefined}
+        onSnapshot={(snapshot) => context.onSnapshot?.(path, snapshot.bodyHtml, snapshot.revision)}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}
         onNavigatePage={(nextPath) => context.onNavigatePage(groupId, nextPath)}
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}

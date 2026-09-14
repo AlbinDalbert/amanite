@@ -59,8 +59,9 @@ export function cleanEditorHtml(html: string) {
   return template.innerHTML || "<p></p>";
 }
 
-const IMPORT_BATCH_NODES = 1;
-const IMPORT_BATCH_CHARACTERS = 8_000;
+const IMPORT_BATCH_NODES = 12;
+const IMPORT_BATCH_CHARACTERS = 32_000;
+const IMPORT_BATCH_TIME_BUDGET_MS = 8;
 
 export function importHtmlIntoEditorInBatches(editor: LexicalEditor, html: string, onComplete: () => void) {
   const document = new DOMParser().parseFromString(html || "<p></p>", "text/html");
@@ -77,14 +78,15 @@ export function importHtmlIntoEditorInBatches(editor: LexicalEditor, html: strin
   const importBatch = () => {
     if (cancelled) return;
     const chunk = document.implementation.createHTMLDocument("");
+    const started = performance.now();
     let characters = 0;
     let count = 0;
-    while (index < sourceNodes.length && count < IMPORT_BATCH_NODES) {
+    while (index < sourceNodes.length) {
       const node = sourceNodes[index++];
       characters += node.textContent?.length ?? 0;
       chunk.body.append(node);
       count += 1;
-      if (characters >= IMPORT_BATCH_CHARACTERS) break;
+      if (count >= IMPORT_BATCH_NODES || characters >= IMPORT_BATCH_CHARACTERS || performance.now() - started >= IMPORT_BATCH_TIME_BUDGET_MS) break;
     }
 
     editor.update(() => {

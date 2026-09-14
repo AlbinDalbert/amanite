@@ -10,6 +10,7 @@ describe("shared document editor sessions", () => {
     expect(second.editor).toBe(first.editor);
     expect(second.context).toBe(first.context);
     expect(first.viewCount).toBe(2);
+    first.markInitialized();
 
     first.editor.update(() => {
       const paragraph = $createParagraphNode();
@@ -18,8 +19,8 @@ describe("shared document editor sessions", () => {
       // The session is the authority, so both view handles observe this same update.
     });
 
-    await vi.waitFor(() => expect(first.getMirrorHtml()).toContain("Shared edit"));
-    expect(second.getMirrorHtml()).toBe(first.getMirrorHtml());
+    await vi.waitFor(() => expect(first.getMirrorText()).toContain("Shared edit"));
+    expect(second.getMirrorText()).toBe(first.getMirrorText());
 
     first.releaseView();
     second.releaseView();

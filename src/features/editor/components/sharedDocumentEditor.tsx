@@ -1,8 +1,8 @@
-import { $generateHtmlFromNodes } from "@lexical/html";
 import { createLexicalComposerContext, LexicalComposerContext, type LexicalComposerContextType } from "@lexical/react/LexicalComposerContext";
 import { $createParagraphNode, $getRoot, type LexicalEditor } from "lexical";
 import { createAmaniteEditor } from "./editorConfig";
-import { cleanEditorHtml } from "./editorHtml";
+import { AMANITE_DERIVED_LINK_TAG } from "./editorHtml";
+import { readEditorModel } from "./editorModel";
 import { editorLexicalTheme } from "./editorLexicalTheme";
 import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 
@@ -13,8 +13,13 @@ export type SharedDocumentEditorSession = {
   context: LexicalComposerContextType;
   initialized: boolean;
   needsSourceRefresh: boolean;
+  getRevision: () => number;
+  nextRevision: () => number;
+  resetRevision: () => void;
   viewCount: number;
   getMirrorHtml: () => string;
+  getMirrorText: () => string | null;
+  acceptBodyHtml: (bodyHtml: string) => void;
   subscribe: (listener: () => void) => () => void;
   acquireView: () => void;
   releaseView: () => void;
@@ -26,6 +31,8 @@ export type SharedDocumentEditorSession = {
 
 type SessionRecord = SharedDocumentEditorSession & {
   mirrorHtml: string;
+  mirrorText: string | null;
+  revision: number;
   listeners: Set<() => void>;
   viewScroll: Map<string, number>;
   unregisterUpdate: () => void;
@@ -53,12 +60,20 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     context,
     initialized: false,
     needsSourceRefresh: false,
+    revision: 0,
     viewCount: 0,
     mirrorHtml: initialBodyHtml || "<p></p>",
+    mirrorText: null,
     listeners: new Set<() => void>(),
     viewScroll: new Map<string, number>(),
     unregisterUpdate: () => undefined,
     getMirrorHtml() { return session.mirrorHtml; },
+    getMirrorText() { return session.mirrorText; },
+    acceptBodyHtml(bodyHtml: string) {
+      if (session.mirrorHtml === bodyHtml) return;
+      session.mirrorHtml = bodyHtml;
+      emit(session);
+    },
     subscribe(listener: () => void) {
       session.listeners.add(listener);
       return () => session.listeners.delete(listener);
@@ -72,10 +87,17 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
       if (session.viewCount === 0) session.needsSourceRefresh = true;
     },
     markInitialized() {
+      session.mirrorText = readEditorModel(session.editor.getEditorState(), session.revision).text;
       session.initialized = true;
       session.needsSourceRefresh = false;
       emit(session);
     },
+    getRevision() { return session.revision; },
+    nextRevision() {
+      session.revision += 1;
+      return session.revision;
+    },
+    resetRevision() { session.revision = 0; },
     getViewScroll(viewId: string) { return session.viewScroll.get(viewId) ?? 0; },
     setViewScroll(viewId: string, scrollTop: number) { session.viewScroll.set(viewId, scrollTop); },
     dispose() {
@@ -85,10 +107,12 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     }
   } as SessionRecord;
 
-  session.unregisterUpdate = editor.registerUpdateListener(({ editorState }) => {
-    const html = editorState.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor });
-    if (html === session.mirrorHtml) return;
-    session.mirrorHtml = html;
+  session.unregisterUpdate = editor.registerUpdateListener(({ editorState, tags }) => {
+    if (!session.initialized) return;
+    if (tags.has(AMANITE_DERIVED_LINK_TAG)) return;
+    const text = readEditorModel(editorState, session.revision).text;
+    if (text === session.mirrorText) return;
+    session.mirrorText = text;
     emit(session);
   });
   editor.update(() => {
@@ -113,7 +137,7 @@ export function releaseSharedDocumentEditor(session: SharedDocumentEditorSession
 }
 
 export function useSharedDocumentMirror(session: SharedDocumentEditorSession) {
-  return useSyncExternalStore(session.subscribe, session.getMirrorHtml, session.getMirrorHtml);
+  return useSyncExternalStore(session.subscribe, session.getMirrorText, session.getMirrorText);
 }
 
 export function SharedLexicalComposer({ children, session }: { children: ReactNode; session: SharedDocumentEditorSession }) {

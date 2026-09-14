@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft } from "@/app/pageDrafts";
 import { requestEditorFlush } from "@/features/editor/components/editorFlush";
+import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import {
@@ -104,7 +105,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
-    flushDocument: (buffer) => requestEditorFlush(buffer.path),
+    flushDocument: (buffer) => requestEditorFlush(buffer.documentId),
     onDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
@@ -143,12 +144,12 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setLoadingPaths
   });
 
-  const markRevision = useCallback((path: string) => {
+  const markRevision = useCallback((path: string, revision?: number) => {
     reportedRevisionRef.current.add(path);
     commitBuffers((current) => {
       const buffer = current[path];
       return buffer
-        ? { ...current, [path]: { ...buffer, dirty: true, revision: buffer.revision + 1, error: null } }
+        ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), error: null } }
         : current;
     });
   }, [commitBuffers]);
@@ -165,9 +166,41 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       }
       const reported = reportedRevisionRef.current.has(path);
       reportedRevisionRef.current.delete(path);
+      const sectionTitle = nativeSection?.section === "title" ? nativeSection.value : buffer.title;
+      const sectionBody = nativeSection?.section === "content" ? nativeSection.value : buffer.bodyHtml;
+      const shouldKeepCurrentSource = nativeSection?.section === "title" && source === buffer.source;
       return {
         ...current,
-        [path]: { ...buffer, source, nativeEdits, dirty: true, revision: buffer.revision + (reported ? 0 : 1), error: null }
+        [path]: {
+          ...buffer,
+          source: shouldKeepCurrentSource ? buffer.source : source,
+          title: sectionTitle,
+          bodyHtml: sectionBody,
+          nativeEdits,
+          dirty: true,
+          revision: buffer.revision + (reported ? 0 : 1),
+          error: null
+        }
+      };
+    });
+  }, [commitBuffers]);
+
+  const updateSnapshot = useCallback((path: string, bodyHtml: string, snapshotRevision: number) => {
+    commitBuffers((current) => {
+      const buffer = current[path];
+      if (!buffer || snapshotRevision < buffer.snapshotRevision) return current;
+      const source = writeEditablePage(buffer.source, buffer.title, bodyHtml, buffer.hasTitleHeading);
+      return {
+        ...current,
+        [path]: {
+          ...buffer,
+          source,
+          bodyHtml,
+          nativeEdits: buffer.nativeDocumentParts ? { ...buffer.nativeEdits, content: bodyHtml } : buffer.nativeEdits,
+          dirty: true,
+          snapshotRevision,
+          error: null
+        }
       };
     });
   }, [commitBuffers]);
@@ -281,6 +314,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     saveDocument: persistence.saveDocument,
     dismissPollingNotice: () => setPollingNotice(null),
     markRevision,
+    updateSnapshot,
     updateSource
   };
 }
