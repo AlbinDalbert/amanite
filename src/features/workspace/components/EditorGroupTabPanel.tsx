@@ -2,10 +2,12 @@ import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import { readEditablePage } from "@/features/editor/components/pageSource";
 import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
+import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalFolder, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
+import type { DocumentQueryIndex } from "../documentQueryIndex";
 import { folderPathFromTabId } from "../folderTabs";
 import { BOREALIS_TAB_ID, type EditorGroupId } from "../workspaceGroups";
 import type { WorkspaceDocumentCallbacks } from "../workspaceCallbacks";
@@ -15,6 +17,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   borealisOpen: boolean;
   borealisWorkspace: boolean;
   buffers: Record<string, DocumentBuffer>;
+  documentQueries?: DocumentQueryIndex;
   focusMode: boolean;
   focused: boolean;
   isLoading: boolean;
@@ -33,6 +36,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   onToggleBorealis: () => void;
   onToggleFocus: () => void;
   pages: FractalProject["pages"];
+  pageTitleIndex?: PageTitleIndex;
   project: FractalProject;
   settings: AppearanceSettings;
   workspaceBusy: boolean;
@@ -66,6 +70,7 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         borealisOpen={context.borealisOpen}
         borealisWorkspace={context.borealisWorkspace}
         buffers={context.buffers}
+        documentQueries={context.documentQueries}
         folder={folder}
         editorOwner={active && context.focused}
         focusMode={context.focusMode}
@@ -74,9 +79,11 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         loadingPaths={context.loadingPaths}
         loadErrors={context.loadErrors}
         pages={context.pages}
+        pageTitleIndex={context.pageTitleIndex}
         projectName={context.project.name}
         spellCheck={context.settings.spellCheck}
         onChangeSource={context.onChangeSource}
+        onModelChange={context.onModelChange}
         onCreateFolder={context.onCreateFolder}
         onCreatePage={context.onCreatePage}
         onEnsurePage={context.onEnsurePage}
@@ -122,6 +129,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         isBusy={context.workspaceBusy || (active && context.isLoading)}
         isFractalValid={Boolean(tabBuffer.nativeDocumentParts)}
         links={tabBuffer.links}
+        pageTitleIndex={context.pageTitleIndex}
         pages={context.pages}
         pagePath={path}
         projectName={context.project.name}
@@ -132,6 +140,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         viewId={`${groupId}:${tabBuffer.documentId}`}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
+        onModelChange={(snapshot) => context.onModelChange?.(path, snapshot)}
         onRevision={editable ? (revision) => context.onRevision?.(path, revision) : () => undefined}
         onSnapshot={(snapshot) => context.onSnapshot?.(path, snapshot.bodyHtml, snapshot.revision)}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}

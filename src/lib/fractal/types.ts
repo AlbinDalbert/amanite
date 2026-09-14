@@ -17,6 +17,8 @@ export type FractalSearchResult = {
   path: string;
   title?: string | null;
   snippet: string;
+  freshness?: "saved" | "live";
+  revision?: number;
 };
 
 export type FractalNativeDocumentParts = {
@@ -69,12 +71,16 @@ export type FractalFolder = {
   issues: FractalFolderIssue[];
 };
 
-export type FractalProject = {
+export type FractalProjectCatalogSnapshot = {
   name: string;
   version: number;
   rootPath: string;
   pages: FractalPage[];
   folders: FractalFolder[];
+  catalogVersion?: number;
+};
+
+export type FractalProject = FractalProjectCatalogSnapshot & {
   activePagePath?: string | null;
   activePageSource?: string | null;
   activePageLinks: FractalLink[];
@@ -82,7 +88,6 @@ export type FractalProject = {
   activePageContentHash?: string | null;
   activePageNativeDocumentParts?: FractalNativeDocumentParts | null;
   sessionGeneration?: number;
-  catalogVersion?: number;
 };
 
 export type FractalProjectSummary = {

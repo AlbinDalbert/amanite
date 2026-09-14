@@ -5,6 +5,7 @@ import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/work
 import { folderTabId } from "@/features/workspace/folderTabs";
 import type { AiToolCall } from "./client";
 import { executeWorkspaceTool, type AiWorkspace, workspaceSystemPrompt } from "./workspaceTools";
+import { DocumentQueryIndex } from "@/features/workspace/documentQueryIndex";
 
 function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
   const project = {
@@ -139,6 +140,31 @@ describe("executeWorkspaceTool", () => {
     )) as Record<string, unknown>;
     expect(result.source).toBe("unsaved_buffer");
     expect(result.content).toBe("Fresh unsaved thought");
+  });
+
+  it("uses the shared live query index for search and bounded reads", async () => {
+    const current = workspace();
+    const documentQueries = new DocumentQueryIndex(current.project.pages);
+    documentQueries.setLiveDocument({
+      documentId: "amanite-document-test-day-one",
+      dirty: true,
+      links: [],
+      model: {
+        counts: { characters: 18, paragraphs: 1, readingMinutes: 1, words: 3 },
+        outline: [],
+        revision: 4,
+        text: "Fresh live thought"
+      },
+      path: "drafts/day-one.fractal.html",
+      title: "Live day one"
+    });
+
+    const withQueries = workspace({ documentQueries });
+    const search = JSON.parse(await executeWorkspaceTool(call("fractal_search", { query: "live" }), withQueries)) as { results: Array<Record<string, unknown>> };
+    const read = JSON.parse(await executeWorkspaceTool(call("fractal_read_page", { path: "drafts/day-one.fractal.html", limit: 5 }), withQueries)) as Record<string, unknown>;
+
+    expect(search.results[0]).toMatchObject({ freshness: "live", path: "drafts/day-one.fractal.html", revision: 4 });
+    expect(read).toMatchObject({ content: "Fresh", freshness: "live", nextOffset: 5, title: "Live day one" });
   });
 
   it("uses the saved Page text when the page has no open buffer", async () => {

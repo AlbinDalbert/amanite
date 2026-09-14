@@ -12,6 +12,7 @@ import { TabIndentationPlugin } from "@lexical/react/LexicalTabIndentationPlugin
 import { $getRoot } from "lexical";
 import { type PointerEvent, useEffect, useMemo, useState } from "react";
 import TreeLocation, { displayPagePath } from "@/components/ui/TreeLocation";
+import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { FractalLink, FractalPage } from "@/lib/fractal/types";
 import EditorToolbar from "./EditorToolbar";
 import HtmlBridgePlugin from "./HtmlBridgePlugin";
@@ -27,6 +28,7 @@ type Props = {
   embedded?: boolean;
   isBusy: boolean;
   pagePath: string;
+  pageTitleIndex?: PageTitleIndex;
   pages: FractalPage[];
   projectName?: string;
   spellCheck: boolean;
@@ -43,7 +45,7 @@ type Props = {
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "isBusy" | "pagePath" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
@@ -120,7 +122,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -170,7 +172,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectNam
           <HorizontalRulePlugin />
           <TablePlugin />
           <HtmlBridgePlugin bodyHtml={bodyHtml} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
-          <InlinePageLinksPlugin pagePath={pagePath} pages={pages} />
+          <InlinePageLinksPlugin pagePath={pagePath} pageTitleIndex={pageTitleIndex} pages={pages} />
           <ViewAttachmentPlugin session={sharedSession} viewId={viewId} />
         </div>
       </div>
@@ -178,7 +180,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pages, projectNam
   );
 }
 
-function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -193,6 +195,7 @@ function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pa
         documentId={documentId}
         isBusy={editorBusy}
         pagePath={pagePath}
+        pageTitleIndex={pageTitleIndex}
         pages={pages}
         projectName={projectName}
         sharedSession={sharedSession}

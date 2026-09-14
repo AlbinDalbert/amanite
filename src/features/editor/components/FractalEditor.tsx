@@ -17,6 +17,7 @@ import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { EditorSnapshot } from "./editorFlush";
 import { countTextMatchesInText, type EditorModelSnapshot } from "./editorModel";
 import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 
 type FractalEditorProps = {
   borealisOpen: boolean;
@@ -43,6 +44,7 @@ type FractalEditorProps = {
   onModelChange?: (snapshot: EditorModelSnapshot) => void;
   onRevision: (revision?: number) => void;
   onSnapshot?: (snapshot: EditorSnapshot) => void;
+  pageTitleIndex?: PageTitleIndex;
   onExport: (includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport | null>;
   onNavigatePage: (pagePath: string) => void;
   onOpenFolder: (folderPath: string) => void;
@@ -79,7 +81,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, projectName, sharedSession, source, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -214,6 +216,7 @@ function FractalEditor(props: FractalEditorProps) {
               documentId={documentId}
               isBusy={isBusy}
               pagePath={pagePath}
+              pageTitleIndex={pageTitleIndex}
               pages={pages}
               projectName={projectName}
               sharedSession={sharedSession}

@@ -3,6 +3,7 @@ import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
+import type { DocumentQueryIndex } from "../documentQueryIndex";
 import { isFolderTab } from "../folderTabs";
 import { BOREALIS_TAB_ID, type EditorGroup, type EditorGroupId } from "../workspaceGroups";
 import { EditorGroupTabPanel, type EditorGroupTabPanelContext } from "./EditorGroupTabPanel";
@@ -14,6 +15,7 @@ type Props = {
   buffer?: DocumentBuffer;
   buffers: Record<string, DocumentBuffer>;
   draggedTab: DraggedWorkspaceTab | null;
+  documentQueries?: DocumentQueryIndex;
   focused: boolean;
   focusMode: boolean;
   group: EditorGroup;
@@ -26,6 +28,7 @@ type Props = {
   settings: AppearanceSettings;
   onActivate: () => void;
   onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
+  onModelChange?: (path: string, snapshot: import("@/features/editor/components/editorModel").EditorModelSnapshot) => void;
   onRevision: (path: string) => void;
   onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
   onCreateFolder: (path: string) => void;
@@ -45,6 +48,7 @@ type Props = {
   onRemoveMissing: (kind: "folder" | "native", path: string) => void;
   onReorderFolder: (path: string, order: string[]) => void;
   onSave: (path: string) => void;
+  pageTitleIndex?: DocumentQueryIndex["titleIndex"];
   onSetFolderTitle: (path: string, title: string) => void;
   onToggleFocus: () => void;
   onToggleBorealis: () => void;
@@ -84,12 +88,14 @@ function EditorGroupPane(props: Props) {
     borealisOpen: props.borealisOpen,
     borealisWorkspace: props.borealisWorkspace,
     buffers: props.buffers,
+    documentQueries: props.documentQueries,
     focusMode: props.focusMode,
     focused: props.focused,
     isLoading: props.isLoading,
     loadingPaths: props.loadingPaths,
     loadErrors: props.loadErrors,
     onChangeSource: props.onChangeSource,
+    onModelChange: props.onModelChange,
     onRevision: props.onRevision,
     onSnapshot: props.onSnapshot,
     onCreateFolder: props.onCreateFolder,
@@ -108,6 +114,7 @@ function EditorGroupPane(props: Props) {
     onToggleBorealis: props.onToggleBorealis,
     onToggleFocus: props.onToggleFocus,
     pages: props.project.pages,
+    pageTitleIndex: props.pageTitleIndex,
     project: props.project,
     settings: props.settings,
     workspaceBusy: props.workspaceBusy

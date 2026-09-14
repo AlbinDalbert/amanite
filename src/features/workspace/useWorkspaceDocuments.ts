@@ -16,6 +16,8 @@ import { createProjectGeneration } from "./documents/documentSessions";
 import { useDocumentDrafts } from "./documents/useDocumentDrafts";
 import { useDocumentLoading } from "./documents/useDocumentLoading";
 import { useProjectFilePolling } from "./documents/useProjectFilePolling";
+import { DocumentQueryIndex, type LiveDocumentModel } from "./documentQueryIndex";
+import type { EditorModelSnapshot } from "@/features/editor/components/editorModel";
 
 export type { DocumentBuffer } from "./documents/documentBuffers";
 
@@ -87,6 +89,9 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setProject
   } = useWorkspaceDocumentState(initialProject, requestedGeneration);
   const reportedRevisionRef = useRef(new Set<string>());
+  const [liveModels, setLiveModels] = useState<Record<string, EditorModelSnapshot>>({});
+  const liveModelsRef = useRef(liveModels);
+  const [documentQueries] = useState(() => new DocumentQueryIndex(initialProject.pages));
 
   const commitBuffers = useCallback((updater: BufferUpdater) => {
     const next = updater(buffersRef.current);
@@ -245,6 +250,16 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     });
   }, [commitBuffers]);
 
+  const updateModel = useCallback((path: string, snapshot: EditorModelSnapshot) => {
+    const buffer = buffersRef.current[path];
+    if (!buffer || snapshot.revision > buffer.revision) return;
+    const previous = liveModelsRef.current[buffer.documentId];
+    if (previous && (snapshot.revision < previous.revision || snapshot.text === previous.text && snapshot.counts === previous.counts && snapshot.outline === previous.outline)) return;
+    const next = { ...liveModelsRef.current, [buffer.documentId]: snapshot };
+    liveModelsRef.current = next;
+    setLiveModels(next);
+  }, [buffersRef]);
+
   const recreateDocument = useCallback(async (path: string) => {
     const buffer = buffersRef.current[path];
     if (!buffer?.missing) return false;
@@ -318,10 +333,18 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 
+  documentQueries.updateCatalog(project.pages);
+  const liveDocuments: LiveDocumentModel[] = Object.values(buffers).flatMap((buffer) => {
+    const model = liveModels[buffer.documentId];
+    return model ? [{ documentId: buffer.documentId, dirty: buffer.dirty, links: buffer.links, model, path: buffer.path, title: buffer.title }] : [];
+  });
+  documentQueries.syncLiveDocuments(liveDocuments);
+
   const dirtyCount = Object.values(buffers).filter((buffer) => buffer.dirty).length;
   return {
     buffers,
     dirtyCount,
+    documentQueries,
     draftStorageError,
     forgetDocument,
     loadErrors,
@@ -339,6 +362,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     dismissPollingNotice: () => setPollingNotice(null),
     markRevision,
     updateSnapshot,
-    updateSource
+    updateSource,
+    updateModel
   };
 }

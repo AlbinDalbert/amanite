@@ -1,4 +1,5 @@
 import type { FractalPage } from "@/lib/fractal/types";
+import { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 
 export type DerivedPageLinkMatch = {
   end: number;
@@ -29,25 +30,7 @@ export function relativePageHref(from: string, target: string) {
 }
 
 export function derivedPageLinkTargets(pagePath: string, pages: FractalPage[]) {
-  const grouped = new Map<string, DerivedPageLinkTarget[]>();
-  for (const page of pages) {
-    const title = page.title?.trim();
-    if (!title || page.path === pagePath) continue;
-    const key = title.toLocaleLowerCase();
-    grouped.set(key, [...(grouped.get(key) ?? []), { path: page.path, title }]);
-  }
-  const uniqueTargets: DerivedPageLinkTarget[] = [];
-  for (const targets of grouped.values()) {
-    if (targets.length !== 1) continue;
-    const target = targets[0];
-    uniqueTargets.push({
-      ...target,
-      firstCharacter: Array.from(target.title)[0]?.toLocaleLowerCase(),
-      normalizedTitle: target.title.toLocaleLowerCase()
-    });
-  }
-  uniqueTargets.sort((left, right) => Array.from(right.title).length - Array.from(left.title).length || left.path.localeCompare(right.path));
-  return uniqueTargets;
+  return new PageTitleIndex(pages).uniqueTargets(pagePath);
 }
 
 export function findDerivedPageLinksForTargets(text: string, targets: DerivedPageLinkTarget[]): DerivedPageLinkMatch[] {

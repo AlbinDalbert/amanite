@@ -1,11 +1,13 @@
 import type { FractalSearchResult, FractalProject } from "@/lib/fractal/types";
 import type { DocumentBuffers } from "@/features/workspace/documents/documentBuffers";
+import type { DocumentQueryIndex } from "@/features/workspace/documentQueryIndex";
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
 import { folderPathFromTabId, isFolderTab } from "@/features/workspace/folderTabs";
 import type { AiTool, AiToolCall } from "./client";
 
 export type AiWorkspace = {
   buffers: DocumentBuffers;
+  documentQueries?: DocumentQueryIndex;
   groups: WorkspaceGroups;
   project: FractalProject;
   searchProject: (query: string) => Promise<FractalSearchResult[]>;
@@ -86,7 +88,7 @@ export function workspaceSystemPrompt(workspace: AiWorkspace) {
       name: workspace.project.name,
       folders: workspace.project.folders,
       editorGroups,
-      pages: workspace.project.pages.map((page) => ({
+      pages: (workspace.documentQueries?.listDocuments() ?? workspace.project.pages).map((page) => ({
         path: page.path,
         title: page.title ?? null,
       }))
@@ -122,6 +124,7 @@ function snippet(text: string, query: string) {
 }
 
 async function search(workspace: AiWorkspace, query: string) {
+  if (workspace.documentQueries) return workspace.documentQueries.search(query);
   const savedResults = await workspace.searchProject(query);
   const byPath = new Map(savedResults.map((result) => [result.path, result]));
 
@@ -163,19 +166,21 @@ function pageText(workspace: AiWorkspace, path: string) {
   const page = workspace.project.pages.find((candidate) => candidate.path === path);
   if (!page) throw new Error(`No page exists at ${path}.`);
   const buffer = workspace.buffers[page.path];
-  return { buffer, page, text: buffer ? sourceText(buffer.source) : page.text };
+  const document = workspace.documentQueries?.getDocument(path);
+  return { buffer, document, page, text: document?.text ?? (buffer ? sourceText(buffer.source) : page.text), title: document?.title ?? page.title };
 }
 
 function executeReadPageTool(args: Record<string, unknown>, workspace: AiWorkspace) {
   const path = requiredString(args, "path");
-  const { buffer, page, text } = pageText(workspace, path);
+  const { buffer, document, page, text, title } = pageText(workspace, path);
   const { limit, offset } = readPageLimit(args);
   const content = text.slice(offset, offset + limit);
   const nextOffset = offset + content.length < text.length ? offset + content.length : null;
   return JSON.stringify({
     path: page.path,
-    title: page.title ?? null,
+    title: title ?? null,
     source: buffer?.dirty ? "unsaved_buffer" : "saved_page",
+    freshness: document?.freshness ?? "saved",
     offset,
     nextOffset,
     totalCharacters: text.length,

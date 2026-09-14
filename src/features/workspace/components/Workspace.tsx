@@ -9,6 +9,7 @@ import { createdPagePath, mapPagePath, receiptMappings } from "@/lib/fractal/rec
 import { reconcilePageDrafts } from "@/app/pageDrafts";
 import { fractalClient } from "@/lib/fractal/client";
 import { useWorkspaceDocuments } from "../useWorkspaceDocuments";
+import type { DocumentQueryIndex } from "../documentQueryIndex";
 import { folderPathFromTabId, folderTabId, isFolderTab } from "../folderTabs";
 import { useWorkspaceShortcuts } from "../useWorkspaceShortcuts";
 import {
@@ -66,11 +67,10 @@ type WorkspaceProps = {
   onValidate: () => void;
 };
 
-function QuickOpen({ pages, onClose, onOpen, onSearch }: {
-  pages: FractalProject["pages"];
+function QuickOpen({ documentQueries, onClose, onOpen }: {
+  documentQueries: DocumentQueryIndex;
   onClose: () => void;
   onOpen: (path: string) => void;
-  onSearch: (query: string) => Promise<FractalSearchResult[]>;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FractalSearchResult[]>([]);
@@ -78,15 +78,11 @@ function QuickOpen({ pages, onClose, onOpen, onSearch }: {
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => {
     let disposed = false;
-    if (!query.trim()) {
-      setResults(pages.map((page) => ({ path: page.path, title: page.title, snippet: page.text.slice(0, 140) })));
-      return;
-    }
     const timeout = window.setTimeout(() => {
-      void onSearch(query).then((found) => { if (!disposed) setResults(found); });
+      if (!disposed) setResults(documentQueries.search(query));
     }, 120);
     return () => { disposed = true; window.clearTimeout(timeout); };
-  }, [onSearch, pages, query]);
+  }, [documentQueries, query]);
 
   return (
     <div className="modal-backdrop quick-open-backdrop" onClick={(event) => event.target === event.currentTarget && onClose()}>
@@ -307,7 +303,7 @@ function WorkspaceShell({ view }: { view: WorkspaceViewProps }) {
         <WorkspaceStatus view={view} />
         <WorkspaceEditorGroups view={view} />
       </section>
-      {view.quickOpen ? <QuickOpen pages={view.documents.project.pages} onClose={() => view.setQuickOpen(false)} onOpen={(path) => { void view.openInGroup(view.groups.activeGroupId, path); }} onSearch={view.props.onSearchProject} /> : null}
+      {view.quickOpen ? <QuickOpen documentQueries={view.documents.documentQueries} onClose={() => view.setQuickOpen(false)} onOpen={(path) => { void view.openInGroup(view.groups.activeGroupId, path); }} /> : null}
     </main>
   );
 }
@@ -640,10 +636,11 @@ function Workspace(props: WorkspaceProps) {
   const anySaving = Object.values(documents.buffers).some((buffer) => buffer.operation === "save");
   const aiWorkspace = useMemo(() => ({
     buffers: documents.buffers,
+    documentQueries: documents.documentQueries,
     groups,
     project: documents.project,
     searchProject: (query: string) => fractalClient.searchProject(documents.project, query)
-  }), [documents.buffers, documents.project, groups]);
+  }), [documents.buffers, documents.documentQueries, documents.project, groups]);
 
   useWorkspaceEffects(props, ui, documents);
   const { exportActions, folderActions, pageActions, tabActions } = useWorkspaceActions(props, ui, documents, activeGroup);
@@ -688,12 +685,14 @@ function Workspace(props: WorkspaceProps) {
     borealisOpen: borealisVisible,
     borealisWorkspace: borealisTabGroup !== null,
     buffers: documents.buffers,
+    documentQueries: documents.documentQueries,
     draggedTab,
     focusMode,
     project: documents.project,
     settings: props.settings,
     workspaceBusy: props.isBusy,
     onChangeSource: documents.updateSource,
+    onModelChange: documents.updateModel,
     onRevision: documents.markRevision,
     onSnapshot: documents.updateSnapshot,
     onCreateFolder: (path: string) => { void createFolder(path); },
@@ -722,7 +721,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateModel, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   const view: WorkspaceViewProps = {
     activeFolderPath,

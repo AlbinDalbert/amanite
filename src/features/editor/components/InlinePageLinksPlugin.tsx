@@ -9,12 +9,13 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { FractalPage } from "@/lib/fractal/types";
 import { $createDerivedLinkNode, $isDerivedLinkNode, DerivedLinkNode } from "./DerivedLinkNode";
 import { AMANITE_DERIVED_LINK_TAG } from "./editorHtml";
 import { derivedPageLinkTargets, findDerivedPageLinksForTargets, matchingPages, relativePageHref } from "./pageLinks";
 
-type Props = { pagePath: string; pages: FractalPage[] };
+type Props = { pagePath: string; pages: FractalPage[]; pageTitleIndex?: PageTitleIndex };
 
 class PageLinkOption extends MenuOption {
   page: FractalPage;
@@ -58,9 +59,9 @@ function matchesNodeBoundaries(node: TextNode, start: number, end: number) {
   return before !== "@" && !(before && alphanumeric.test(before)) && !(after && alphanumeric.test(after));
 }
 
-function DerivedLinksPlugin({ pagePath, pages }: Props) {
+function DerivedLinksPlugin({ pagePath, pageTitleIndex, pages }: Props) {
   const [editor] = useLexicalComposerContext();
-  const targets = useMemo(() => derivedPageLinkTargets(pagePath, pages), [pagePath, pages]);
+  const targets = useMemo(() => pageTitleIndex?.uniqueTargets(pagePath) ?? derivedPageLinkTargets(pagePath, pages), [pagePath, pageTitleIndex, pages]);
 
   const transformText = useCallback((node: TextNode) => {
     if ($isDerivedLinkNode(node)) {
@@ -103,12 +104,12 @@ function DerivedLinksPlugin({ pagePath, pages }: Props) {
   return null;
 }
 
-function PageLinkTypeaheadPlugin({ pagePath, pages }: Props) {
+function PageLinkTypeaheadPlugin({ pagePath, pageTitleIndex, pages }: Props) {
   const [query, setQuery] = useState<string | null>(null);
   const trigger = useBasicTypeaheadTriggerMatch("@", { allowWhitespace: true, maxLength: 80, minLength: 0 });
   const options = useMemo(
-    () => matchingPages(query ?? "", pagePath, pages).map(({ page, title }) => new PageLinkOption(page, title)),
-    [pagePath, pages, query]
+    () => (pageTitleIndex?.matchingPages(query ?? "", pagePath) ?? matchingPages(query ?? "", pagePath, pages)).map(({ page, title }) => new PageLinkOption(page, title)),
+    [pagePath, pageTitleIndex, pages, query]
   );
 
   const renderMenu = useCallback<MenuRenderFn<PageLinkOption>>((anchorRef, menu, matchingString) => {
