@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "dataflow:fixtures": "node scripts/document-dataflow-fixtures.mjs",
+    "dataflow:benchmark": "node scripts/document-dataflow-benchmark.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
