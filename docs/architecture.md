@@ -1,53 +1,115 @@
 # Architecture
 
-Fractal owns project and page behavior. Amanite is a desktop adapter and editor.
+Fractal owns durable project state, native document semantics, paths, links,
+transactions, and exports. Amanite is the Tauri desktop client: React owns
+workspace presentation and TypeScript owns live Lexical document sessions.
 
 ```text
-React UI
--> useFractalSession for project commands and catalog state
--> useWorkspaceDocuments for open document buffers
--> src/lib/fractal/client.ts
--> Tauri commands
+React shell
+-> useFractalSession (project identity, status, receipts)
+-> useWorkspaceDocuments (live sessions, queries, scoped persistence)
+-> fractalClient
+-> asynchronous Tauri commands
+-> ProjectSessionStore (retained Fractal projects and freshness)
 -> fractal::Project
--> refreshed FractalProject snapshot
+-> native project files and native recovery drafts
 ```
 
 ## Project and document ownership
 
-`useFractalSession` owns the project catalog, the current project snapshot, folder metadata mutations, command status, and confirmation dialogs. It does not own editable page state.
+`useFractalSession` owns the active project snapshot, project generation,
+catalog status, inspection, confirmations, and command receipts. It does not
+own editable page state. `ProjectSessionStore` retains one
+`fractal::Project` per canonical project root in Rust, serializes operations
+for that project, and labels publications as cached, refreshed, or mutated.
+Fractal-heavy commands run in Tauri blocking workers so they do not occupy the
+runtime that serves editor input. An explicit refresh remains available when
+fresh disk state is required.
 
-`useWorkspaceDocuments` is the only owner of open documents. Each path has one buffer containing complete HTML source, dirty and conflict state, the last known Fractal hashes, native pending section edits, references, and the current operation. Both editor groups point to these shared buffers. Opening the same page in both groups never creates a second draft.
+`useWorkspaceDocuments` is the owner of open document sessions. Each logical
+document has one in-memory buffer with a stable document ID, mutable project
+path, accepted native source and section hashes, editable title/body state,
+Lexical model revisions, snapshots, pending native edits, save and recovery
+revisions, hashes, and conflict state. Both editor groups and folder inline
+editors attach to that session; opening a page twice does not create a second
+editing history.
 
-The workspace saves buffers before project mutations and before closing the project. Window-close handling calls the workspace's `saveAll` function. Autosave and recovery drafts also operate on the same buffers. Each path has one save queue. If the editor changes while a write is running, the queue writes the newer revision before reporting success to a close or project mutation.
-
-Open-file change detection opens Fractal once every three seconds and compares the pending native sections or the raw source hash. Normal native saves use Fractal's section mutations under its project lock. Raw saves use `Project::write_raw_page_if_unchanged`. Explicit conflict replacement rereads native section hashes before applying the local sections, or uses the raw unconditional write.
+Typing reports a revision and live model immediately. Complete native-source
+serialization is requested through the registered editor snapshot barrier only
+for saving, recovery, export preparation, close, or another consumer that needs
+serialized source. The barrier is a direct document-ID registry; there is no
+global event authority. A per-document save queue preserves newer revisions,
+and `savePaths` provides scoped barriers for known page sets. `saveAll` remains
+for project/window close and mutations whose rewrite scope is deliberately
+conservative.
 
 ## Persistence boundary
 
-The backend opens a fresh `fractal::Project` for each command and delegates page mutations to its public methods. It does not keep another index or reproduce Fractal's page and link rules.
+Amanite edits native `*.fractal.html` documents only. Durable project changes
+go through Fractal section APIs with the expected section hashes. Title, body,
+style, and metadata sections retain their untouched source until Fractal
+confirms the corresponding mutation. Fractal owns path derivation, link
+rewrites, atomicity, conflict detection, receipts, warnings, and committed or
+uncertain outcomes.
 
-For native `.fractal.html` documents, the frontend reads the editable title and body from `main[data-fractal-document]`. It folds rich-editor changes back into the complete HTML view, then sends the changed title or content section to Fractal with its section hash. Title changes also follow Fractal's derived filename and path update.
+Each mutation receipt is reconciled once across project catalog references,
+document paths, tabs, history, closed tabs, buffers, drafts, and affected
+queries. Unchanged catalog objects are reused. Dirty or externally missing
+sessions remain recoverable until an explicit resolution permits disposal.
+Uncertain outcomes trigger a best-effort project refresh while retaining local
+edits and the reported outcome.
 
-Ordinary `.html` files render in a sandboxed frame. Their source mode edits the same complete document and persists it through Fractal's raw-page write API. Successful writes return a fresh project snapshot with updated pages, links, backlinks, iframes, and modification time.
+Recovery drafts contain exact native source and live in Amanite application
+data outside the project. They are versioned, revision-tagged, serialized per
+project, and removed only after a confirmed save or explicit discard. They are
+not a second project or document format. Exports use a saved, resolved path and
+are executed by Fractal.
 
-Recovery drafts contain complete HTML and live in browser-local storage. They are temporary crash recovery data, not another page format. Amanite removes a draft after a confirmed Fractal write or an explicit discard.
+## Queries and invalidation
 
-## Editor groups
+`DocumentQueryIndex` is the shared in-memory query surface for folder search,
+Quick Open, Borealis, previews, counts, bounded text reads, and live link
+context. Open sessions overlay revision-tagged live models and titles on the
+saved catalog. `PageTitleIndex` owns title/path lookup and derived-link
+matching, so body-only changes do not rebuild title data.
 
-The workspace has left and optional right editor groups. Each group owns its ordered tab identifiers, active tab, and navigation history. A tab may contain a page, a Fractal folder view, or Borealis. Every newly opened project starts on the root folder tab, which acts as the project overview. Groups share the document buffer map, so dirty state and save conflicts belong to a page path rather than a pane. Folder views load their expanded child pages into that same map and write through the normal page persistence path.
+The project catalog remains the saved Fractal view. File polling is an
+invalidation hint and compares affected content before offering reload or
+replacement. A refresh never overwrites dirty content merely because a page
+is absent from the refreshed catalog.
 
-`workspaceGroups.ts` contains pure tab and history transitions. `EditorGroupPane.tsx` renders either group with the same component. The layout is intentionally limited to two columns; Amanite does not carry a general docking tree.
+## Editor groups and folders
 
-## HTML safety
+The workspace has left and optional right groups. Each group owns tab order,
+active view, and navigation history; a tab identifies a document, folder view,
+or Borealis. Warm activation keeps the document session and undo history in
+memory and does not imply a disk read or HTML import. Closing one view does not
+dispose a session still attached to another view.
 
-Raw HTML previews run without script permission. Iframes embedded in native rich documents always receive Amanite's restrictive sandbox when rendered and saved. Media nodes retain their source attributes for round-trip fidelity, but the live React view only applies attributes that are safe and useful for rendering.
+Fractal supplies folder metadata and ordered children. Amanite routes folder
+creation, title changes, reorder, deletion, page moves, and folder export
+through Fractal, then applies the returned receipt scope to workspace state.
 
-## Folders and filesystem paths
+## Native document safety
 
-Fractal v2 models every directory below `pages/`, including the pages root, as a folder. Amanite consumes `Project::folders` directly. Folder titles and effective child order therefore come from Fractal, including missing ordered children. Title and reorder mutations call `Project::set_folder_title` and `Project::reorder_folder`; Amanite does not read or write folder metadata files itself.
+Unsupported or incompatible native content remains protected with its exact
+source and is not silently converted into an editable replacement. Editable
+content is imported into the configured Lexical node set and serialized only
+at explicit snapshot boundaries. Rendered output applies the app's safety
+policy to links, media, and embedded content while preserving native sections
+that Amanite does not edit.
 
-Folder HTML export also stays behind the Fractal boundary. Amanite builds the selection tree from Fractal's ordered folder snapshots and passes relative selected page paths plus export options to `Project::export_folder_html`. Fractal owns traversal, validation, link rewriting, document assembly, and the export report.
+## Current limits
 
-Amanite still creates empty directories below `pages/` because Fractal currently has no folder-creation operation. It derives each directory segment from the requested title, then records the new folder title through Fractal before refreshing the project. Folder deletion uses `Project::delete_folder`.
-
-Commands that inspect or reveal a page canonicalize the target and verify that it remains below the project's canonical `pages/` directory. Project roots may still live outside Amanite's default library when the user opens them explicitly.
+- Fractal still reloads and reconstructs broad catalog state internally for
+  some reads and section mutations. Retaining the project handle does not make
+  those operations incremental.
+- Project and mutation DTOs still contain the existing full snapshot shape;
+  receipt reconciliation reduces frontend invalidation work but is not yet a
+  compact IPC protocol.
+- Initial Lexical import and very large paragraphs or tables remain
+  document-sized work. D8 repeats the D0 fixture benchmark but does not claim
+  cold-paint, warm-switch, or typing latency from it.
+- The verified desktop matrix in this repository is Linux on the recorded
+  harness machine. Windows, separate Wayland/X11 runs, and macOS hardware
+  require their own evidence.

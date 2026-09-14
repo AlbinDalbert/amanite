@@ -426,12 +426,31 @@ function assertSmoke(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function waitForScript(driver, script, args = [], timeout = 10_000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const value = await driver.executeScript(script, args);
+    if (value) return value;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error(`Timed out waiting for desktop script condition: ${script}`);
+}
+
 async function openRootExplorerMenu(driver) {
   await driver.executeScript(`
     const explorer = document.querySelector('.file-explorer-surface');
     explorer?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 180, clientY: 180 }));
   `);
   await driver.find(".file-context-menu");
+}
+
+async function openProjectFromStart(driver, projectRoot) {
+  const selector = `.project-list-option[title="${projectRoot}"]`;
+  await waitForScript(driver, `
+    const project = document.querySelector(arguments[0]);
+    return Boolean(project && !project.disabled);
+  `, [selector], 30_000);
+  await driver.click(selector);
 }
 
 async function prepareSmokeProject(driver, screenshotsDir, projectRoot) {
@@ -690,8 +709,66 @@ async function runInlinePageLinkSmoke(driver, screenshotsDir) {
   await driver.find(".editor-tab-panel.active .rich-content-editable", 30_000);
 }
 
+async function runRichEditorContractSmoke(driver, screenshotsDir) {
+  const editorSelector = ".editor-tab-panel.active .rich-content-editable[contenteditable=\"true\"]";
+  const toolbarSelector = ".editor-tab-panel.active";
+  await driver.click(editorSelector);
+  await driver.sendKeys(editorSelector, "Formatting checkpoint");
+  await driver.find(editorSelector, 30_000);
+
+  const composition = await driver.executeScript(`
+    const root = document.querySelector(arguments[0]);
+    if (!root) return null;
+    const events = [];
+    const record = (event) => events.push(event.type);
+    for (const type of ["compositionstart", "compositionupdate", "compositionend"]) root.addEventListener(type, record);
+    root.focus();
+    root.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "あ" }));
+    root.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data: "あ" }));
+    root.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "あ" }));
+    for (const type of ["compositionstart", "compositionupdate", "compositionend"]) root.removeEventListener(type, record);
+    return { active: document.activeElement === root, events };
+  `, [editorSelector]);
+  assertSmoke(composition?.active && composition.events.join(",") === "compositionstart,compositionupdate,compositionend", `Composition lifecycle failed: ${JSON.stringify(composition)}`);
+  await driver.sendKeys(editorSelector, " composition");
+  const composedText = await driver.text(editorSelector);
+  assertSmoke(composedText.includes("composition"), `Composition follow-up text was lost: ${composedText}`);
+
+  await driver.selectAll(editorSelector);
+  await driver.click(`${toolbarSelector} [data-tool="Bold"]`);
+  const boldAfterToggle = await waitForScript(driver, `
+    const root = document.querySelector(arguments[0]);
+    const button = document.querySelector(arguments[1]);
+    const rendered = root?.querySelector("strong, b, .rich-text-bold, [style*='font-weight']");
+    return button?.getAttribute("aria-pressed") === "true" && Boolean(rendered);
+  `, [editorSelector, `${toolbarSelector} [data-tool="Bold"]`]);
+  assertSmoke(boldAfterToggle, "Bold formatting did not reach the active Lexical selection.");
+  await driver.click(`${toolbarSelector} [data-tool="Undo (Ctrl+Z)"]`);
+  await waitForScript(driver, `
+    const root = document.querySelector(arguments[0]);
+    const button = document.querySelector(arguments[1]);
+    return button?.getAttribute("aria-pressed") === "false" && !root?.querySelector("strong, b, .rich-text-bold, [style*='font-weight']");
+  `, [editorSelector, `${toolbarSelector} [data-tool="Bold"]`]);
+
+  await driver.click(`${toolbarSelector} [data-tool="More formatting"]`);
+  await driver.click(`${toolbarSelector} [data-tool="Add 3 by 3 table"]`);
+  const tableShape = await waitForScript(driver, `
+    const table = document.querySelector(arguments[0])?.querySelector("table");
+    if (!table) return null;
+    return { rows: table.querySelectorAll("tr").length, cells: table.querySelectorAll("td, th").length };
+  `, [editorSelector]);
+  assertSmoke(tableShape.rows === 3 && tableShape.cells === 9, `Table insertion produced an unexpected shape: ${JSON.stringify(tableShape)}`);
+  await driver.click(`${toolbarSelector} [data-tool="Undo (Ctrl+Z)"]`);
+  await waitForScript(driver, `return !document.querySelector(arguments[0])?.querySelector("table");`, [editorSelector]);
+  await takeScreenshot(driver, screenshotsDir, "04b-editor-contract");
+
+  await driver.ctrlS();
+  await driver.find(".save-state.saved", 30_000);
+}
+
 async function runEditorBasicsSmoke(driver, screenshotsDir) {
   await createSmokePage(driver, screenshotsDir);
+  await runRichEditorContractSmoke(driver, screenshotsDir);
   await verifyDerivedLinkSmoke(driver);
   await runInlinePageLinkSmoke(driver, screenshotsDir);
 }
@@ -917,8 +994,12 @@ async function runMoveSmoke(driver, screenshotsDir, activeProjectRoot) {
 async function runReopenSmoke(driver, screenshotsDir, activeProjectRoot, projectName) {
   await driver.click('.brand > button[title="Close project"]');
   await driver.find(".start-screen", 30_000);
-  await driver.click(`.project-list-option[title="${activeProjectRoot}"]`);
-  await driver.find(`.folder-view[aria-label="Folder ${projectName}"]`, 30_000);
+  await openProjectFromStart(driver, activeProjectRoot);
+  await driver.find(".workspace", 30_000);
+  await takeScreenshot(driver, screenshotsDir, "11-reopened-workspace");
+  const reopenedFolder = await driver.find('.folder-view[aria-label^="Folder "]', 30_000);
+  const reopenedFolderLabel = await driver.request("GET", driver.sessionPath(`/element/${reopenedFolder}/attribute/aria-label`));
+  assertSmoke(reopenedFolderLabel.value === `Folder ${projectName}`, `Reopened the wrong folder view: ${reopenedFolderLabel.value}`);
   await driver.find('.editor-group-tab.folder.active button[role="tab"][title="Pages"]');
   const reopenedOnDocument = await driver.executeScript(`return Boolean(document.querySelector('.editor-tab-panel.active .rich-content-editable'));`);
   if (reopenedOnDocument) throw new Error("Reopened project started on a document instead of the project overview.");
@@ -936,7 +1017,65 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await runBufferSwitchSmoke(driver, screenshotsDir);
   await runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot);
   await runMoveSmoke(driver, screenshotsDir, activeProjectRoot);
-  await runReopenSmoke(driver, screenshotsDir, activeProjectRoot, projectName);
+  return { activeProjectRoot, projectName };
+}
+
+async function runForcedTerminationRecoverySmoke(driver, appProcess, log, screenshotsDir, projectRoot, activeProjectRoot, port) {
+  const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>Recovered page</h1><p>Recovered after forced termination.</p></main></body></html>';
+  const recoveryPagePath = "recovered-page.fractal.html";
+  const draftWrite = await driver.executeAsyncScript(`
+    const [projectRoot, pagePath, source] = arguments;
+    const done = arguments[arguments.length - 1];
+    const draft = { pagePath, projectRoot, source, baseSourceHash: "", updatedAt: new Date().toISOString(), version: 1, revision: 17 };
+    window.__TAURI_INTERNALS__.invoke("fractal_write_draft", { draft }).then(() => done({ ok: true }), (error) => done({ ok: false, error }));
+  `, [activeProjectRoot, recoveryPagePath, recoverySource]);
+  assertSmoke(draftWrite?.ok === true, `Forced-termination draft write failed: ${JSON.stringify(draftWrite?.error)}`);
+
+  await driver.deleteSession();
+  appProcess.kill("SIGKILL");
+  await waitForProcessExit(appProcess);
+  log.end();
+
+  const restarted = startApp({ appBinary: process.env.AMANITE_TAURI_APP_BINARY || defaultBinary, artifactsDir: screenshotsDir, port, projectRoot });
+  await waitForWebDriver(port, restarted.child);
+  const nextDriver = new DesktopWebDriverClient(port);
+  await nextDriver.createSession();
+  try {
+    try {
+      await nextDriver.find(".workspace", 5_000);
+    } catch {
+      await nextDriver.find(".start-screen", 30_000);
+      await openProjectFromStart(nextDriver, activeProjectRoot);
+      await nextDriver.find(".workspace", 30_000);
+    }
+    await takeScreenshot(nextDriver, screenshotsDir, "10-after-forced-restart");
+    try {
+      await nextDriver.find(`.explorer-row.page[title="${recoveryPagePath}"]`, 5_000);
+    } catch {
+      await nextDriver.click('.brand > button[title="Close project"]');
+      await nextDriver.find(".start-screen", 30_000);
+      await openProjectFromStart(nextDriver, activeProjectRoot);
+      await nextDriver.find(".workspace", 30_000);
+      await nextDriver.find(`.explorer-row.page[title="${recoveryPagePath}"]`, 30_000);
+    }
+    await nextDriver.click(`.explorer-row.page[title="${recoveryPagePath}"]`);
+    await nextDriver.find(".confirm-dialog", 30_000);
+    await nextDriver.click(".confirm-dialog .primary-action");
+    await nextDriver.find(".save-state.unsaved", 30_000);
+    const recoveredText = await nextDriver.text(".editor-tab-panel.active .rich-content-editable");
+    assertSmoke(recoveredText.includes("Recovered after forced termination."), `Forced-termination recovery returned unexpected text: ${recoveredText}`);
+    await nextDriver.ctrlS();
+    await nextDriver.find(".save-state.saved", 30_000);
+    await takeScreenshot(nextDriver, screenshotsDir, "10-forced-termination-recovery");
+    const persistedSource = await readFile(join(activeProjectRoot, "pages", recoveryPagePath), "utf8");
+    assertSmoke(persistedSource.includes("Recovered after forced termination."), "Recovered forced-termination content was not persisted.");
+  } catch (error) {
+    await deleteDriverSession(nextDriver, restarted.child);
+    stopAppProcess(restarted.child);
+    restarted.log.end();
+    throw error;
+  }
+  return { driver: nextDriver, appProcess: restarted.child, getNativeOutput: restarted.getNativeOutput, log: restarted.log };
 }
 
 function startApp({ appBinary, artifactsDir, port, projectRoot }) {
@@ -1056,7 +1195,10 @@ function installSignalCleanup(cleanup) {
 
 async function runDesktopSession(options, artifactsDir, projectRoot) {
   const appBinary = process.env.AMANITE_TAURI_APP_BINARY || defaultBinary;
-  const { child: appProcess, getNativeOutput, log } = startApp({ appBinary, artifactsDir, port: options.port, projectRoot });
+  const initial = startApp({ appBinary, artifactsDir, port: options.port, projectRoot });
+  let appProcess = initial.child;
+  let getNativeOutput = initial.getNativeOutput;
+  let log = initial.log;
   let driver = null;
   const cleanup = () => cleanupDesktop(driver, appProcess, log);
   installSignalCleanup(cleanup);
@@ -1065,7 +1207,13 @@ async function runDesktopSession(options, artifactsDir, projectRoot) {
     await waitForWebDriver(options.port, appProcess);
     driver = new DesktopWebDriverClient(options.port);
     await driver.createSession();
-    await runSmoke(driver, artifactsDir, projectRoot);
+    const smoke = await runSmoke(driver, artifactsDir, projectRoot);
+    const restarted = await runForcedTerminationRecoverySmoke(driver, appProcess, log, artifactsDir, projectRoot, smoke.activeProjectRoot, options.port);
+    driver = restarted.driver;
+    appProcess = restarted.appProcess;
+    getNativeOutput = restarted.getNativeOutput;
+    log = restarted.log;
+    await runReopenSmoke(driver, artifactsDir, smoke.activeProjectRoot, smoke.projectName);
     if (options.keepOpen) await waitForEnter();
     else await closeSmokeSession(driver, appProcess, getNativeOutput);
   } finally {

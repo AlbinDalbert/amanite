@@ -110,7 +110,7 @@ export function useFractalSession() {
     setActiveProject(taggedProject);
   }, []);
 
-  const { inspectProject, refreshProjectCatalog, revealPage, searchProject, validateProject } = useFractalProjectQueries({
+  const { inspectProject, refreshProjectCatalog, revealPage, validateProject } = useFractalProjectQueries({
     activeProjectRef,
     setCommandResult,
     setError,
@@ -211,7 +211,6 @@ export function useFractalSession() {
     refreshProjectCatalog,
     requestConfirmation: confirm,
     revealPage,
-    searchProject,
     validateProject
   };
 }

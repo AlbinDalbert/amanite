@@ -254,7 +254,6 @@ function App() {
             onRegisterWorkspace={registerWorkspace}
             onRequestConfirmation={session.requestConfirmation}
             onRevealPage={session.revealPage}
-            onSearchProject={session.searchProject}
             onValidate={session.validateProject}
           /></Suspense>
         </div>

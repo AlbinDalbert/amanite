@@ -57,7 +57,6 @@ function props() {
     onRegisterWorkspace: vi.fn(),
     onRequestConfirmation: vi.fn(async () => false),
     onRevealPage: vi.fn(),
-    onSearchProject: vi.fn(async () => []),
     onValidate: vi.fn()
   };
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalCommandResult, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalSearchResult } from "@/lib/fractal/types";
+import type { FractalCommandResult, FractalProject, FractalProjectCatalog, FractalProjectInspection } from "@/lib/fractal/types";
 
 type MutableValue<T> = { current: T };
 type WithBusy = <T>(operation: "catalog" | "command", action: () => Promise<T>) => Promise<T | null>;
@@ -32,17 +32,6 @@ export function useFractalProjectQueries({ activeProjectRef, setCommandResult, s
     return checked;
   }, [activeProjectRef, setInspection, withBusy]);
 
-  const searchProject = useCallback(async (query: string): Promise<FractalSearchResult[]> => {
-    const current = activeProjectRef.current;
-    if (!current || !query.trim()) return [];
-    try {
-      return await fractalClient.searchProject(current, query.trim());
-    } catch (caughtError) {
-      setError(getErrorMessage(caughtError));
-      return [];
-    }
-  }, [activeProjectRef, setError]);
-
   const revealPage = useCallback(async (pagePath?: string) => {
     const current = activeProjectRef.current;
     if (!current) return;
@@ -64,5 +53,5 @@ export function useFractalProjectQueries({ activeProjectRef, setCommandResult, s
     void refreshProjectCatalog();
   }, [refreshProjectCatalog]);
 
-  return { inspectProject, refreshProjectCatalog, revealPage, searchProject, validateProject };
+  return { inspectProject, refreshProjectCatalog, revealPage, validateProject };
 }

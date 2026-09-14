@@ -87,17 +87,6 @@ struct FractalPage {
     links: Vec<fractal::Link>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct FractalSearchResult {
-    path: String,
-    title: Option<String>,
-    snippet: String,
-    catalog_version: u64,
-    catalog_freshness: &'static str,
-    session_generation: u64,
-}
-
 impl From<fractal::Page> for FractalPage {
     fn from(page: fractal::Page) -> Self {
         Self {
@@ -756,34 +745,6 @@ pub(crate) async fn fractal_repair_page_structure(
     })
     .await
     .map_err(|error| FractalCommandError::io(format!("Could not repair page: {error}")))?
-}
-
-#[tauri::command]
-pub(crate) async fn fractal_search_project(
-    project_root: String,
-    query: String,
-) -> FractalResult<Vec<FractalSearchResult>> {
-    tauri::async_runtime::spawn_blocking(move || {
-        project_sessions().with_cached(&project_root, |project, metadata| {
-            Ok(project
-                .search(&query)
-                .into_iter()
-                .map(|result| FractalSearchResult {
-                    path: result.path,
-                    title: result.title,
-                    snippet: result.snippet,
-                    catalog_version: metadata.catalog_version,
-                    catalog_freshness: metadata.freshness.as_str(),
-                    session_generation: metadata.generation,
-                })
-                .collect())
-        })
-    })
-    .await
-    .map_err(|error| FractalCommandError {
-        code: fractal::FractalErrorCode::Io,
-        message: format!("Could not complete project search: {error}"),
-    })?
 }
 
 #[tauri::command]

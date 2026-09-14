@@ -66,7 +66,6 @@ type WorkspaceProps = {
   onRegisterWorkspace: (dirty: boolean, save: (() => Promise<boolean>) | null) => void;
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
   onRevealPage: (pagePath?: string) => void;
-  onSearchProject: (query: string) => Promise<FractalSearchResult[]>;
   onValidate: () => void;
 };
 
@@ -677,7 +676,6 @@ function Workspace(props: WorkspaceProps) {
     documentQueries: documents.documentQueries,
     groups,
     project: documents.project,
-    searchProject: (query: string) => fractalClient.searchProject(documents.project, query)
   }), [documents.buffers, documents.documentQueries, documents.project, groups]);
 
   useWorkspaceEffects(props, ui, documents);

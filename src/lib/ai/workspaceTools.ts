@@ -1,4 +1,4 @@
-import type { FractalSearchResult, FractalProject } from "@/lib/fractal/types";
+import type { FractalProject } from "@/lib/fractal/types";
 import type { DocumentBuffers } from "@/features/workspace/documents/documentBuffers";
 import type { DocumentQueryIndex } from "@/features/workspace/documentQueryIndex";
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
@@ -7,10 +7,9 @@ import type { AiTool, AiToolCall } from "./client";
 
 export type AiWorkspace = {
   buffers: DocumentBuffers;
-  documentQueries?: DocumentQueryIndex;
+  documentQueries: DocumentQueryIndex;
   groups: WorkspaceGroups;
   project: FractalProject;
-  searchProject: (query: string) => Promise<FractalSearchResult[]>;
 };
 
 export const FRACTAL_AI_TOOLS: AiTool[] = [
@@ -48,15 +47,6 @@ export const FRACTAL_AI_TOOLS: AiTool[] = [
   }
 ];
 
-function sourceText(source: string) {
-  const document = new DOMParser().parseFromString(source, "text/html");
-  const root = document.body.querySelector("main[data-fractal-document]");
-  if (!root) return "";
-  const copy = root.cloneNode(true) as HTMLElement;
-  copy.querySelectorAll("script, style").forEach((element) => element.remove());
-  return (copy.textContent ?? "").replace(/\s+/gu, " ").trim();
-}
-
 function groupContext(workspace: AiWorkspace, id: "left" | "right") {
   const group = id === "left" ? workspace.groups.left : workspace.groups.right;
   if (!group) return null;
@@ -88,7 +78,7 @@ export function workspaceSystemPrompt(workspace: AiWorkspace) {
       name: workspace.project.name,
       folders: workspace.project.folders,
       editorGroups,
-      pages: (workspace.documentQueries?.listDocuments() ?? workspace.project.pages).map((page) => ({
+      pages: workspace.documentQueries.listDocuments().map((page) => ({
         path: page.path,
         title: page.title ?? null,
       }))
@@ -115,33 +105,8 @@ function parseArguments(call: AiToolCall) {
   return parsed as Record<string, unknown>;
 }
 
-function snippet(text: string, query: string) {
-  const match = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
-  if (match < 0) return text.slice(0, 180);
-  const start = Math.max(0, match - 70);
-  const end = Math.min(text.length, match + query.length + 110);
-  return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
-}
-
 async function search(workspace: AiWorkspace, query: string) {
-  if (workspace.documentQueries) return workspace.documentQueries.search(query);
-  const savedResults = await workspace.searchProject(query);
-  const byPath = new Map(savedResults.map((result) => [result.path, result]));
-
-  for (const buffer of Object.values(workspace.buffers)) {
-    if (!buffer.dirty) continue;
-    const page = workspace.project.pages.find((candidate) => candidate.path === buffer.path);
-    if (!page) continue;
-    const text = sourceText(buffer.source);
-    const haystack = `${page.title ?? ""} ${page.path} ${text}`;
-    if (haystack.toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
-      byPath.set(page.path, { path: page.path, title: page.title, snippet: snippet(text, query) });
-    } else {
-      byPath.delete(page.path);
-    }
-  }
-
-  return [...byPath.values()].slice(0, 20);
+  return workspace.documentQueries.search(query);
 }
 
 function requiredString(args: Record<string, unknown>, key: string) {
@@ -166,8 +131,8 @@ function pageText(workspace: AiWorkspace, path: string) {
   const page = workspace.project.pages.find((candidate) => candidate.path === path);
   if (!page) throw new Error(`No page exists at ${path}.`);
   const buffer = workspace.buffers[page.path];
-  const document = workspace.documentQueries?.getDocument(path);
-  return { buffer, document, page, text: document?.text ?? (buffer ? sourceText(buffer.source) : page.text), title: document?.title ?? page.title };
+  const document = workspace.documentQueries.getDocument(path);
+  return { buffer, document, page, text: document?.text ?? page.text, title: document?.title ?? page.title };
 }
 
 function executeReadPageTool(args: Record<string, unknown>, workspace: AiWorkspace) {

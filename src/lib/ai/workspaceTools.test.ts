@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { FractalProject } from "@/lib/fractal/types";
 import type { DocumentBuffers } from "@/features/workspace/documents/documentBuffers";
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
@@ -41,11 +41,12 @@ function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
     },
     right: null
   };
+  const documentQueries = new DocumentQueryIndex(project.pages);
   return {
     project,
     groups,
     buffers: {},
-    searchProject: vi.fn().mockResolvedValue([]),
+    documentQueries,
     ...overrides
   };
 }
@@ -134,9 +135,23 @@ describe("executeWorkspaceTool", () => {
         conflict: false
       }
     };
+    const documentQueries = new DocumentQueryIndex(workspace().project.pages);
+    documentQueries.setLiveDocument({
+      documentId: "amanite-document-test-day-one",
+      dirty: true,
+      links: [],
+      model: {
+        counts: { characters: 19, paragraphs: 1, readingMinutes: 1, words: 3 },
+        outline: [],
+        revision: 1,
+        text: "Fresh unsaved thought"
+      },
+      path: "drafts/day-one.fractal.html",
+      title: "Day one"
+    });
     const result = JSON.parse(await executeWorkspaceTool(
       call("fractal_read_page", { path: "drafts/day-one.fractal.html" }),
-      workspace({ buffers })
+      workspace({ buffers, documentQueries })
     )) as Record<string, unknown>;
     expect(result.source).toBe("unsaved_buffer");
     expect(result.content).toBe("Fresh unsaved thought");

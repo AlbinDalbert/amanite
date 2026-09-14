@@ -271,7 +271,6 @@ export type FractalClient = {
   movePage: (project: FractalProject, pagePath: string, destinationFolder: string) => Promise<FractalMutationResult>;
   deletePage: (project: FractalProject, pagePath: string) => Promise<FractalMutationResult>;
   validateProject: (project: FractalProject) => Promise<FractalCommandResult>;
-  searchProject: (project: FractalProject, query: string) => Promise<FractalSearchResult[]>;
   pageContentStates: (project: FractalProject, pagePaths: string[]) => Promise<FractalPageContentState[]>;
   exportHtml: (project: FractalProject, pagePath: string, output: string, includeDerivedLinks: boolean) => Promise<FractalHtmlExportReport>;
   exportFolderHtml: (project: FractalProject, folderPath: string, output: string, options: FractalFolderHtmlExportOptions) => Promise<FractalFolderHtmlExportReport>;

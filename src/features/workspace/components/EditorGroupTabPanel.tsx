@@ -17,7 +17,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   borealisOpen: boolean;
   borealisWorkspace: boolean;
   buffers: Record<string, DocumentBuffer>;
-  documentQueries?: DocumentQueryIndex;
+  documentQueries: DocumentQueryIndex;
   focusMode: boolean;
   focused: boolean;
   isLoading: boolean;

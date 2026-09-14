@@ -26,7 +26,7 @@ type Props = WorkspaceDocumentCallbacks & {
   loadingPaths: Set<string>;
   loadErrors: Record<string, string>;
   pages: FractalPage[];
-  documentQueries?: DocumentQueryIndex;
+  documentQueries: DocumentQueryIndex;
   pageTitleIndex?: PageTitleIndex;
   projectName: string;
   spellCheck: boolean;
@@ -73,7 +73,7 @@ function matchSnippets(text: string, query: string) {
   return matches;
 }
 
-export function buildFolderFindGroups(nodes: FolderExportNode[], pages: FractalPage[], query: string, rootTitle: string, rootPath: string, documentQueries?: DocumentQueryIndex): FolderFindGroup[] {
+export function buildFolderFindGroups(nodes: FolderExportNode[], pages: FractalPage[], query: string, rootTitle: string, rootPath: string, documentQueries: DocumentQueryIndex): FolderFindGroup[] {
   const pageByPath = new Map(pages.map((page) => [page.path, page]));
   const groups: FolderFindGroup[] = [];
   function visit(children: FolderExportNode[], title: string, path: string) {
@@ -82,7 +82,7 @@ export function buildFolderFindGroups(nodes: FolderExportNode[], pages: FractalP
       if (node.kind === "folder") visit(node.children, node.title, node.projectPath);
       else {
         const page = pageByPath.get(node.projectPath);
-        const document = documentQueries?.getDocument(node.projectPath);
+        const document = documentQueries.getDocument(node.projectPath);
         const pageTitle = document?.title ?? page?.title ?? node.title;
         const matches = matchSnippets(`${pageTitle}\n${document?.text ?? page?.text ?? ""}`, query);
         if (matches.length) {
@@ -232,7 +232,7 @@ type FolderSequenceInteractions = {
   onReorderAt: (index: number) => void;
   onSavePage: Props["onSavePage"];
   onTrackDrop: (event: DragEvent, index: number) => void;
-  documentQueries?: DocumentQueryIndex;
+  documentQueries: DocumentQueryIndex;
   pages: FractalPage[];
   pageTitleIndex?: PageTitleIndex;
   spellCheck: boolean;
@@ -278,7 +278,7 @@ function FolderSequenceActions({ buffer, child, isEditing, missing, onBeginEditi
 type FolderSequenceCardProps = Omit<FolderSequenceItemProps, "dropIndex" | "editingPath" | "folderPath" | "index" | "onDragEnd" | "onDragStartName" | "onReorderAt" | "onTrackDrop"> & { isEditing: boolean; page?: FractalPage; path: string };
 
 function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBeginEditing, onOpenFolder, onOpenPage, onRemoveMissing, onSavePage, page, path, buffer }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "folders" | "isEditing" | "onBeginEditing" | "onOpenFolder" | "onOpenPage" | "onRemoveMissing" | "onSavePage" | "page" | "path">) {
-  const document = documentQueries?.getDocument(path);
+  const document = documentQueries.getDocument(path);
   const text = document?.text ?? page?.text ?? "";
   const title = document?.title ?? page?.title?.trim() ?? child.name;
   return (
@@ -294,7 +294,7 @@ function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBe
 }
 
 function FolderSequenceBody({ buffer, child, documentQueries, editorOwner, isBusy, isEditing, loadErrors, loadingPaths, onChangeSource, onModelChange, onRevision, onSnapshot, page, pageTitleIndex, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "editorOwner" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onChangeSource" | "onModelChange" | "onRevision" | "onSnapshot" | "page" | "pageTitleIndex" | "pages" | "path" | "spellCheck">) {
-  const document = documentQueries?.getDocument(path);
+  const document = documentQueries.getDocument(path);
   return (
     <>
       {child.status === "missing" ? <p className="folder-missing-copy">Fractal kept this place because the item was removed outside the project engine.</p> : null}
@@ -615,7 +615,7 @@ function useFolderViewData(props: Props, state: ReturnType<typeof useFolderViewS
     return paths;
   }, [exportTree]);
   const scopedPages = orderedPagePaths.map((path) => props.pages.find((page) => page.path === path)).filter((page): page is FractalPage => Boolean(page));
-  const scopedDocuments = orderedPagePaths.map((path) => props.documentQueries?.getDocument(path)).filter((document): document is NonNullable<ReturnType<DocumentQueryIndex["getDocument"]>> => Boolean(document));
+  const scopedDocuments = orderedPagePaths.map((path) => props.documentQueries.getDocument(path)).filter((document): document is NonNullable<ReturnType<DocumentQueryIndex["getDocument"]>> => Boolean(document));
   const findGroups = useMemo(() => buildFolderFindGroups(exportTree, props.pages, state.findQuery, props.folder.title, props.folder.path, props.documentQueries), [exportTree, props.documentQueries, props.folder.path, props.folder.title, props.pages, state.findQuery]);
   return {
     exportTree,

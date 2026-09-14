@@ -15,7 +15,7 @@ type Props = {
   buffer?: DocumentBuffer;
   buffers: Record<string, DocumentBuffer>;
   draggedTab: DraggedWorkspaceTab | null;
-  documentQueries?: DocumentQueryIndex;
+  documentQueries: DocumentQueryIndex;
   focused: boolean;
   focusMode: boolean;
   group: EditorGroup;

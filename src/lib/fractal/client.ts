@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult, FractalSearchResult } from "./types";
+import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult } from "./types";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -157,11 +157,6 @@ export const fractalClient: FractalClient = {
   validateProject: (project) =>
     invokeFractal<FractalCommandResult>("fractal_validate_project", {
       projectRoot: project.rootPath
-    }),
-  searchProject: (project, query) =>
-    invokeFractal<FractalSearchResult[]>("fractal_search_project", {
-      projectRoot: project.rootPath,
-      query
     }),
   pageContentStates: (project, pagePaths) =>
     invokeFractal<FractalPageContentState[]>("fractal_page_content_states", {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DocumentQueryIndex } from "../documentQueryIndex";
 import { buildFolderFindGroups, directParent, folderChildPath, shouldOpenFolderChild } from "./FolderView";
 import type { FolderExportNode } from "./folderExportTreeBuilder";
 
@@ -38,7 +39,7 @@ describe("folder find", () => {
       { path: "first.fractal.html", title: "First", text: "needle once", kind: "native" as const, contentHash: "a", links: [], iframes: [] },
       { path: "notes/second.fractal.html", title: "Second", text: "needle and needle", kind: "native" as const, contentHash: "b", links: [], iframes: [] }
     ];
-    const groups = buildFolderFindGroups(nodes, pages, "needle", "Pages", "");
+    const groups = buildFolderFindGroups(nodes, pages, "needle", "Pages", "", new DocumentQueryIndex(pages));
     expect(groups.map((group) => group.title)).toEqual(["Pages", "Notes"]);
     expect(groups.flatMap((group) => group.pages).map((page) => page.path)).toEqual(["first.fractal.html", "notes/second.fractal.html"]);
     expect(groups[1].pages[0].matches).toHaveLength(2);

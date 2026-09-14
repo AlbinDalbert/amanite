@@ -1,6 +1,6 @@
 # Amanite document data-flow plan
 
-Status: D0 through D7 complete. D8 is in progress.
+Status: D0 through D8 complete.
 
 This plan improves loading, editing, tab activation, recovery, and persistence
 within the existing Tauri, React, Lexical, and Fractal stack. GPUI work is paused.
@@ -10,8 +10,8 @@ Reducing resident memory is secondary to preserving warm tab switching and undo.
 The plan adopts the document-session and snapshot ideas from the
 [GPUI hybrid experiment](gpui-hybrid-experiment-plan.md) without adopting its
 shell migration. The [native v2 plan](amanite-native-v2-plan.md) defines the
-existing product boundary. This document defines a target architecture, not a
-description of already completed changes.
+existing product boundary. This document records the target architecture and
+the implementation and verification status of each completed work package.
 
 ## Scope and fixed requirements
 
@@ -36,8 +36,10 @@ description of already completed changes.
 
 ## Evidence and limits of the review
 
-The review traced Amanite source and Fractal revision `9f947c7`. It did not
-benchmark the app or reproduce the suspected timing failures. Confirm behavior
+The initial review traced Amanite source and Fractal revision `9f947c7`. D0
+captured the deterministic fixture and integrity baseline; D8 reran that
+fixture benchmark and exercised the app through the real desktop harness. The
+remaining measurement boundary is recorded in the D8 report. Confirm behavior
 against the implementation commit before starting each work package.
 
 | Observed behavior | Consequence to investigate | Source |
@@ -60,9 +62,9 @@ Fractal's pinned `src/project/lifecycle.rs` opens a catalog through `reload`.
 reload. Section mutation paths also reload for correctness and after commit.
 Retaining a project handle alone will not remove those internal reloads.
 
-The existing [architecture document](architecture.md) contains historical claims
-about raw pages and browser-local drafts that no longer match the native-only
-implementation. Update it during this work; do not treat those claims as scope.
+The [architecture document](architecture.md) was updated in D8 and is the
+authoritative description of the shipped implementation. The remaining limits
+listed there are intentional follow-up work, not alternate persistence paths.
 
 ## Target ownership
 
@@ -175,7 +177,7 @@ undo/history behavior explicit. Bound live DOM work before minimizing memory.
 | D5 | Separate catalog, navigation, and derived queries | D3 | Complete |
 | D6 | Retain Rust project state with explicit freshness | D1, D5 contracts | Complete |
 | D7 | Centralize receipt reconciliation and mutation scope | D4, D5, D6 | Complete |
-| D8 | Complete parity, performance, and documentation review | D1 through D7 | In progress |
+| D8 | Complete parity, performance, and documentation review | D1 through D7 | Complete |
 
 Use small reviewable changes. Keep the app runnable at each stage. Transitional
 adapters may feed old consumers, but name them and remove them before D8. Do not
@@ -397,6 +399,8 @@ Exit criteria:
 
 ### D8. Verify and document the completed architecture
 
+Implementation status: complete. See [D8 verification](measurements/document-dataflow-d8.md).
+
 - Run meaningful frontend unit/integration tests, Rust tests, frontend build,
   and relevant repository checks.
 - Use the real Tauri WebDriver harness for desktop behavior. Start with
@@ -407,7 +411,8 @@ Exit criteria:
   views, warm switching, rename, external changes, partial saves, export, and
   forced-termination recovery on the desktop targets.
 - Re-run D0 measurements with the same fixtures and machine. Explain remaining
-  limits rather than changing fixtures to conceal regressions.
+  limits rather than changing fixtures to conceal regressions; D8 records the
+  measurement boundary and remaining Fractal/Lexical limits.
 - Update `architecture.md` to the implementation that shipped. Remove obsolete
   source adapters, event-flush paths, and historical raw-page claims.
 
