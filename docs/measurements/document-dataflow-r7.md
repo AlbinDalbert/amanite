@@ -7,7 +7,14 @@ controller mounted. The shared editor also started a recovered document at
 revision zero instead of the buffer's restored revision. The fixes preserve the
 new request identity, wait up to one second for a controller that is mounting,
 and initialize a new shared session from the buffer revision and incarnation.
-The tested fixes are commit `33bbb1f`.
+Those fixes are commit `33bbb1f`.
+
+The first passing smoke exposed one more scheduling error. A successful
+checkpoint retained its original start time while later revisions arrived, and
+stale React props could briefly queue the just-confirmed revision again. That
+made two reported lags exceed three seconds and wrote revision 11 twice. Commit
+`3d319df` resets the request origin after confirmation and treats the locally
+confirmed revision as authoritative while the callback state catches up.
 
 The final real-desktop run passed with a fresh Tauri WebDriver build. It covered
 both editor groups, folder editing, save and reopen, move and recreation,
@@ -22,23 +29,24 @@ The run used the `debug-webdriver` profile on Linux x86_64 with 8 reported CPUs
 and WebKit 60.5. The user agent reports X11, while the explicit display-backend
 field is `unreported`. Screenshots, logs, exported content, and the two event
 files are under
-`artifacts/tauri-webdriver/2026-09-15T17-23-52-593Z/`.
+`artifacts/tauri-webdriver/2026-09-15T17-56-36-347Z/`.
 
-The pre-termination file contains 295 events. Fourteen successful editor
-imports took 1 to 24 ms for the small smoke documents. Eight requested complete
+The pre-termination file contains 301 events. Fourteen successful editor
+imports took 1 to 15 ms for the small smoke documents. Eight requested complete
 exports took 0 to 2 ms. Six page-read responses were 2,588 to 2,781 bytes, and
 five content-mutation responses were 3,635 to 4,067 bytes. The restarted
-process recorded 39 events, including a 9 ms import and the successful save of
+process recorded 39 events, including a 10 ms import and the successful save of
 the recovered revision. These samples verify the smoke path, but they are not
 the required 20-sample cold-paint, warm-activation, typing-latency, or memory
 distributions.
 
 ## Recovery result
 
-The eight confirmed checkpoint lags were 506, 1,231, 1,803, 3,194, 3,210, 199,
-195, and 196 ms. All writes completed, including the draft restored after
-forced termination. Two confirmations exceeded the 2,000 ms target. The
-confirmed-recovery performance criterion therefore remains open.
+The seven confirmed checkpoint lags were 482, 391, 204, 208, 199, 197, and 189
+ms. All writes completed, including the draft restored after forced
+termination. No confirmation exceeded the 2,000 ms target, and no revision was
+written twice. This passes the target for the local smoke sequence. It is not a
+cross-platform or sustained-load distribution.
 
 The run proves process recovery after a confirmed Linux draft write. It does
 not prove interruption at every temporary-write, sync, rename, directory-sync,
@@ -76,8 +84,8 @@ as an accepted performance result.
 - Collect at least 20 desktop samples for cold paint, warm activation,
   input-to-paint, post-pause stalls, and process memory on a fixed build and
   fixture set.
-- Bring confirmed recovery under two seconds during continuous editing, or
-  record explicit acceptance of the measured exception.
+- Repeat continuous-edit recovery measurements across the platform and load
+  matrix. The current local smoke sequence passes, but it is only one run.
 - Run Linux X11 and Wayland separately, Windows, and macOS where hardware is
   available. Use real OS IME input, not only synthetic composition events.
 - Complete the controlled termination and replacement matrix, including

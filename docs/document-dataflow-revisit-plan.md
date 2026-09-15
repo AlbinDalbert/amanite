@@ -1,7 +1,7 @@
 # Document data-flow revisit plan
 
 Status: in progress. R0 through R6 implementation and the R7 local Linux pass
-are complete. Cross-platform, latency-distribution, and confirmed-recovery
+are complete. Cross-platform, latency-distribution, and recovery fault-matrix
 acceptance remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
@@ -316,9 +316,10 @@ rather than rewriting their results. Remove obsolete adapters and claims.
 Implementation status: the local Linux implementation, repository checks, and
 fresh-build Tauri desktop smoke pass are complete. The smoke run exposed and
 then verified fixes for reused snapshot request IDs, snapshots requested during
-controller mount, and recovered shared-session revisions. Two confirmed draft
-writes took more than two seconds, and the required latency distributions and
-platform matrix have not been collected. See
+controller mount, and recovered shared-session revisions. A confirmed draft
+request initially retained stale timing state; the follow-up run confirmed
+all seven checkpoints in 189 to 482 ms without a duplicate write. The required
+latency distributions and platform matrix have not been collected. See
 [R7 local acceptance evidence](measurements/document-dataflow-r7.md).
 
 ### Completion checklist
