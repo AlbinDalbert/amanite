@@ -9,10 +9,17 @@ export const RECOVERY_IDLE_DELAY_MS = 180;
 export const RECOVERY_MAX_LAG_MS = 2_000;
 export const AUTOSAVE_IDLE_DELAY_MS = 900;
 export const AUTOSAVE_MAX_LAG_MS = 2_000;
+export const RECOVERY_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
 
 type RevisionSchedule = {
   requestedRevision: number;
+  capturedRevision: number;
+  queuedRevision: number;
+  confirmedRevision: number;
   failedRevision: number | null;
+  firstRequestedAt: number | null;
+  requestId: string | null;
+  retryCount: number;
   idleTimer: number | null;
   maxTimer: number | null;
   running: Promise<void> | null;
@@ -36,7 +43,7 @@ function clearSchedule(schedule: RevisionSchedule) {
 }
 
 function newSchedule(): RevisionSchedule {
-  return { requestedRevision: 0, failedRevision: null, idleTimer: null, maxTimer: null, running: null };
+  return { requestedRevision: 0, capturedRevision: 0, queuedRevision: 0, confirmedRevision: 0, failedRevision: null, firstRequestedAt: null, requestId: null, retryCount: 0, idleTimer: null, maxTimer: null, running: null };
 }
 
 export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument, onDraftConfirmed, onDraftError, onStorageError }: Options) {
@@ -66,9 +73,9 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     const buffer = findBuffer(documentId);
     if (!buffer || !buffer.dirty || buffer.revision <= buffer.draftedRevision) return Promise.resolve();
     const targetRevision = buffer.revision;
-    const requestId = nextDataflowRequestId("draft");
-    const started = performance.now();
-    recordDataflowEvent({ documentId, name: "draft.request", requestId, revision: targetRevision, status: "start" });
+    const requestId = schedule.requestId ?? nextDataflowRequestId("draft");
+    const started = schedule.firstRequestedAt ?? performance.now();
+    schedule.capturedRevision = targetRevision;
     const task = (async () => {
       try {
         const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
@@ -79,40 +86,63 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
           || snapshot.incarnation < latest.incarnation)) {
           reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
           schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
           return;
         }
         if (snapshot && snapshot.revision < targetRevision) {
           reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
           schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
           return;
         }
         const revision = snapshot?.revision ?? (latest.snapshotRevision >= targetRevision ? latest.snapshotRevision : 0);
         if (!revision) {
           reportDraftError(documentId, `The recovery snapshot for ${latest.path} is not available yet.`);
           schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
           return;
         }
         const source = snapshot
           ? writeEditablePage(latest.source, latest.title, snapshot.bodyHtml, latest.hasTitleHeading)
           : latest.source;
+        schedule.queuedRevision = revision;
         const result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
         if (result.status === "written") {
-          recordDataflowEvent({ documentId, durationMs: performance.now() - started, name: "draft.confirmed", requestId, revision: result.revision, status: "success" });
+          const confirmedLag = performance.now() - started;
+          schedule.confirmedRevision = result.revision;
+          schedule.failedRevision = null;
+          schedule.retryCount = 0;
+          recordDataflowEvent({ documentId, durationMs: confirmedLag, name: "draft.confirmed", requestId, revision: result.revision, status: "success" });
           onDraftConfirmed?.(documentId, result.revision);
-          onStorageError(null);
+          if (confirmedLag > RECOVERY_MAX_LAG_MS) {
+            reportDraftError(documentId, `Recovery for ${latest.path} completed after ${Math.round(confirmedLag)} ms, beyond the ${RECOVERY_MAX_LAG_MS} ms target.`);
+          } else {
+            onStorageError(null);
+          }
         }
       } catch (error) {
         recordDataflowEvent({ documentId, durationMs: performance.now() - started, name: "draft.confirmed", requestId, revision: targetRevision, status: "failure" });
         const message = errorMessage(error);
         reportDraftError(documentId, message);
         schedule.failedRevision = targetRevision;
+        schedule.retryCount += 1;
       }
     })();
     let settled!: Promise<void>;
     settled = task.finally(() => {
       if (schedule.running === settled) schedule.running = null;
       const latest = findBuffer(documentId);
-      if (latest && latest.dirty && latest.revision > latest.draftedRevision && schedule.failedRevision !== latest.revision) scheduleDraftRef.current(latest);
+      if (!latest || !latest.dirty || latest.revision <= latest.draftedRevision) {
+        schedule.firstRequestedAt = null;
+        schedule.requestId = null;
+        return;
+      }
+      if (schedule.failedRevision === latest.revision && schedule.retryCount <= RECOVERY_RETRY_DELAYS_MS.length) {
+        const delay = RECOVERY_RETRY_DELAYS_MS[schedule.retryCount - 1];
+        schedule.idleTimer = window.setTimeout(() => { schedule.idleTimer = null; void flushDraft(documentId); }, delay);
+        return;
+      }
+      if (schedule.failedRevision !== latest.revision) scheduleDraftRef.current(latest);
     });
     schedule.running = settled;
     return settled;
@@ -149,10 +179,16 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
   const armSchedule = useCallback((map: Map<string, RevisionSchedule>, buffer: DocumentBuffer, idleDelay: number, maxLag: number, flush: (documentId: string) => Promise<void>) => {
     const schedule = map.get(buffer.documentId) ?? newSchedule();
     map.set(buffer.documentId, schedule);
-    if (schedule.running) return;
     if (buffer.revision > schedule.requestedRevision) {
+      if (schedule.firstRequestedAt == null) {
+        schedule.firstRequestedAt = performance.now();
+        schedule.requestId = nextDataflowRequestId(map === draftSchedulesRef.current ? "draft" : "autosave");
+        if (map === draftSchedulesRef.current) recordDataflowEvent({ documentId: buffer.documentId, name: "draft.request", requestId: schedule.requestId, revision: buffer.revision, status: "start" });
+      }
       schedule.requestedRevision = buffer.revision;
       schedule.failedRevision = null;
+      schedule.retryCount = 0;
+      if (schedule.running) return;
       if (schedule.idleTimer != null) window.clearTimeout(schedule.idleTimer);
       schedule.idleTimer = window.setTimeout(() => { schedule.idleTimer = null; void flush(buffer.documentId); }, idleDelay);
     } else if (schedule.failedRevision === buffer.revision) {
@@ -160,7 +196,11 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     } else if (schedule.idleTimer == null) {
       schedule.idleTimer = window.setTimeout(() => { schedule.idleTimer = null; void flush(buffer.documentId); }, idleDelay);
     }
-    if (schedule.maxTimer == null) schedule.maxTimer = window.setTimeout(() => { schedule.maxTimer = null; void flush(buffer.documentId); }, maxLag);
+    if (schedule.running) return;
+    if (schedule.maxTimer == null) {
+      const elapsed = schedule.firstRequestedAt == null ? 0 : performance.now() - schedule.firstRequestedAt;
+      schedule.maxTimer = window.setTimeout(() => { schedule.maxTimer = null; void flush(buffer.documentId); }, Math.max(0, maxLag - elapsed));
+    }
   }, []);
 
   const scheduleDraft = useCallback((buffer: DocumentBuffer) => {

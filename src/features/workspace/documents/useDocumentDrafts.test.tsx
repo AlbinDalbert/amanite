@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bufferFromLoadedPage, type DocumentBuffers } from "./documentBuffers";
-import { AUTOSAVE_IDLE_DELAY_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, useDocumentDrafts } from "./useDocumentDrafts";
+import { AUTOSAVE_IDLE_DELAY_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, useDocumentDrafts } from "./useDocumentDrafts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@/features/editor/components/editorFlush", () => ({ requestEditorSnapshot: vi.fn() }));
@@ -87,6 +87,23 @@ describe("revision-aware document drafts", () => {
 
     expect(mockedSnapshot).toHaveBeenCalledWith(first.documentId, 3);
     expect(confirmed).toHaveBeenCalledWith(first.documentId, 3);
+    await act(async () => root.unmount());
+  });
+
+  it("retries a transient failure without requiring another edit", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const confirmed = vi.fn();
+    const failed = vi.fn();
+    const buffer = dirtyBuffer(1);
+    mockedInvoke.mockRejectedValueOnce(new Error("temporary storage failure")).mockResolvedValue(undefined);
+    await act(async () => root.render(<Harness buffers={{ [buffer.path]: buffer }} onDraftConfirmed={confirmed} onDraftError={failed} />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS); });
+    expect(failed).toHaveBeenCalledWith(buffer.documentId, "temporary storage failure");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_RETRY_DELAYS_MS[0]); });
+    expect(mockedInvoke).toHaveBeenCalledTimes(2);
+    expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
     await act(async () => root.unmount());
   });
 });

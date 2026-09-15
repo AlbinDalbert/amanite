@@ -1,6 +1,7 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 through R3 are complete; R4 through R7 remain open.
+Status: in progress. R0 through R4 implementation is complete. R4 platform
+termination evidence and R5 through R7 remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -45,7 +46,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | R1 | Preserve rich views, history, and attachment state | R0 | Complete |
 | R2 | Complete revision, snapshot, and close contracts | R1 | Complete |
 | R3 | Bound live queries and remove duplicate scans | R1, R2 | Complete |
-| R4 | Verify recovery completion and durability | R2 | Not started |
+| R4 | Verify recovery completion and durability | R2 | Implementation complete; platform evidence open |
 | R5 | Publish compact catalog and document updates | R0 | Not started |
 | R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Not started |
 | R7 | Close desktop parity, performance, and documentation gates | R0–R6 | Not started |
@@ -223,6 +224,12 @@ builds full text lazily. See
 Exit: continuous-edit checkpoint measurements, queue race tests, per-document
 error tests, and a termination matrix. A two-second start deadline alone does
 not pass the two-second confirmed checkpoint criterion.
+
+Implementation status: complete. Scheduling retains the first outstanding
+deadline, records requested, captured, queued, and confirmed revisions, and
+retries unchanged dirty revisions after transient failures. See
+[R4 verification](measurements/document-dataflow-r4.md). Windows replacement
+and power-loss evidence remains open for R7.
 
 ## R5. Finish catalog separation and compact IPC
 

@@ -142,10 +142,14 @@ fn write_draft(app: &AppHandle, draft: PageDraft) -> FractalResult<()> {
         ));
     }
     let directory = draft_dir(app)?;
+    write_draft_in(&directory, draft)
+}
+
+fn write_draft_in(directory: &Path, draft: PageDraft) -> FractalResult<()> {
     fs::create_dir_all(&directory).map_err(|error| {
         FractalCommandError::io(format!("Could not create draft storage: {error}"))
     })?;
-    let target = draft_path(&directory, &draft.project_root, &draft.page_path);
+    let target = draft_path(directory, &draft.project_root, &draft.page_path);
     let temporary = target.with_extension("json.tmp");
     let bytes = serde_json::to_vec_pretty(&draft)
         .map_err(|error| FractalCommandError::json(format!("Could not encode draft: {error}")))?;
@@ -157,7 +161,7 @@ fn write_draft(app: &AppHandle, draft: PageDraft) -> FractalResult<()> {
     fs::rename(&temporary, &target)
         .map_err(|error| FractalCommandError::io(format!("Could not replace draft: {error}")))?;
     #[cfg(unix)]
-    if let Ok(directory_handle) = fs::File::open(&directory) {
+    if let Ok(directory_handle) = fs::File::open(directory) {
         let _ = directory_handle.sync_all();
     }
     Ok(())
@@ -216,7 +220,8 @@ pub(crate) async fn fractal_delete_draft(
 
 #[cfg(test)]
 mod tests {
-    use super::{digest, PageDraft};
+    use super::{digest, draft_path, read_record, write_draft_in, PageDraft};
+    use tempfile::tempdir;
 
     #[test]
     fn draft_names_do_not_expose_paths() {
@@ -258,5 +263,27 @@ mod tests {
         )
         .expect("legacy draft should remain readable");
         assert_eq!(draft.revision, 0);
+    }
+
+    #[test]
+    fn atomic_replacement_leaves_the_latest_complete_record() {
+        let temporary = tempdir().unwrap();
+        let draft = |revision, source: &str| PageDraft {
+            version: 1,
+            project_root: "/tmp/project".into(),
+            page_path: "notes.fractal.html".into(),
+            source: source.into(),
+            base_source_hash: "base".into(),
+            updated_at: format!("2026-09-15T00:00:0{revision}.000Z"),
+            revision,
+        };
+        write_draft_in(temporary.path(), draft(1, "one")).unwrap();
+        write_draft_in(temporary.path(), draft(2, "two")).unwrap();
+
+        let path = draft_path(temporary.path(), "/tmp/project", "notes.fractal.html");
+        let stored = read_record(&path).unwrap();
+        assert_eq!(stored.revision, 2);
+        assert_eq!(stored.source, "two");
+        assert!(!path.with_extension("json.tmp").exists());
     }
 }
