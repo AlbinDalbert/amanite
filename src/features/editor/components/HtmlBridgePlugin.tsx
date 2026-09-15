@@ -8,6 +8,7 @@ import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorIn
 import { cleanEditorHtml } from "./editorHtml";
 import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
 import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import { measureDataflow, nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
 type Props = {
   bodyHtml: string;
@@ -47,10 +48,12 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   const currentRevision = useCallback(() => sharedSession?.getRevision() ?? revisionRef.current, [sharedSession]);
 
   const reportModel = useCallback((state: EditorState, revision: number) => {
-    onModelChangeRef.current?.(readEditorModel(state, revision));
-  }, []);
+    const model = measureDataflow("editor.full-model-scan", { documentId: editorDocumentId, revision }, () => readEditorModel(state, revision));
+    onModelChangeRef.current?.(model);
+  }, [editorDocumentId]);
 
   const exportPendingState = useCallback((minimumRevision = 0): EditorSnapshot | void => {
+    const requestId = nextDataflowRequestId("snapshot");
     const editorRevision = currentRevision();
     const pendingAt = pendingRevision.current ?? -1;
     const revision = Math.max(editorRevision, pendingAt);
@@ -64,15 +67,17 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     if (!state) return lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision ? lastSnapshot.current : undefined;
     pendingState.current = null;
     pendingRevision.current = null;
-    const html = state.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor });
+    recordDataflowEvent({ documentId: editorDocumentId, name: "snapshot.request", requestId, revision, status: "start" });
+    const html = measureDataflow("editor.full-export", { documentId: editorDocumentId, requestId, revision }, () => state.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor }));
     const snapshot = { bodyHtml: html, revision };
     lastSnapshot.current = snapshot;
     lastHtml.current = html;
     sharedSession?.acceptBodyHtml(html);
     onSnapshotRef.current?.(snapshot);
     onChangeRef.current?.(html);
+    recordDataflowEvent({ bytes: new TextEncoder().encode(html).byteLength, documentId: editorDocumentId, name: "snapshot.request", requestId, revision, status: "success" });
     return snapshot;
-  }, [currentRevision, editor]);
+  }, [currentRevision, editor, editorDocumentId]);
 
   useEffect(() => {
     if (sharedSession?.initialized && loadedPage.current === null && (!sharedSession.needsSourceRefresh || bodyHtml === sharedSession.getMirrorHtml())) {
@@ -85,6 +90,9 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     }
     if (loadedPage.current === editorDocumentId && bodyHtml === lastHtml.current) return;
     onLoadingRef.current?.();
+    const importRequestId = nextDataflowRequestId("import");
+    const importStarted = performance.now();
+    recordDataflowEvent({ bytes: new TextEncoder().encode(bodyHtml).byteLength, documentId: editorDocumentId, name: "editor.import", requestId: importRequestId, status: "start" });
     if (sharedSession?.initialized && bodyHtml !== sharedSession.getMirrorHtml()) sharedSession.resetRevision();
     lastSnapshot.current = null;
     const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
@@ -94,6 +102,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
       sharedSession?.markInitialized();
       reportModel(editor.getEditorState(), currentRevision());
       onLoadedRef.current?.();
+      recordDataflowEvent({ documentId: editorDocumentId, durationMs: performance.now() - importStarted, name: "editor.import", requestId: importRequestId, revision: currentRevision(), status: "success" });
     });
     return cancelImport;
   }, [bodyHtml, currentRevision, editor, editorDocumentId, pagePath, reportModel, sharedSession]);

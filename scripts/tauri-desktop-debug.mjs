@@ -1006,6 +1006,22 @@ async function runReopenSmoke(driver, screenshotsDir, activeProjectRoot, project
   await takeScreenshot(driver, screenshotsDir, "09-reopened-project-overview");
 }
 
+async function writeDataflowEvidence(driver, screenshotsDir, phase = "final") {
+  const evidence = await driver.executeScript(`
+    const events = window.__AMANITE_DATAFLOW__?.read?.() ?? [];
+    return {
+      buildProfile: "debug-webdriver",
+      commit: document.documentElement.dataset.commit || null,
+      displayBackend: navigator.userAgent.includes("Wayland") ? "wayland" : "unreported",
+      events,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      platform: navigator.platform,
+      userAgent: navigator.userAgent
+    };
+  `);
+  await writeFile(join(screenshotsDir, `dataflow-events-${phase}.json`), `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+}
+
 async function runSmoke(driver, screenshotsDir, projectRoot) {
   const { activeProjectRoot, projectName } = await prepareSmokeProject(driver, screenshotsDir, projectRoot);
   await runWorkspaceSmoke(driver, screenshotsDir, projectName);
@@ -1208,12 +1224,14 @@ async function runDesktopSession(options, artifactsDir, projectRoot) {
     driver = new DesktopWebDriverClient(options.port);
     await driver.createSession();
     const smoke = await runSmoke(driver, artifactsDir, projectRoot);
+    await writeDataflowEvidence(driver, artifactsDir, "before-termination");
     const restarted = await runForcedTerminationRecoverySmoke(driver, appProcess, log, artifactsDir, projectRoot, smoke.activeProjectRoot, options.port);
     driver = restarted.driver;
     appProcess = restarted.appProcess;
     getNativeOutput = restarted.getNativeOutput;
     log = restarted.log;
     await runReopenSmoke(driver, artifactsDir, smoke.activeProjectRoot, smoke.projectName);
+    await writeDataflowEvidence(driver, artifactsDir, "after-restart");
     if (options.keepOpen) await waitForEnter();
     else await closeSmokeSession(driver, appProcess, getNativeOutput);
   } finally {

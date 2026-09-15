@@ -1,6 +1,6 @@
 # Document data-flow revisit plan
 
-Status: proposed. No revisit implementation has started.
+Status: in progress. R0 is complete; R1 through R7 remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -41,7 +41,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 
 | ID | Work package | Depends on | Initial status |
 | --- | --- | --- | --- |
-| R0 | Establish acceptance evidence and desktop instrumentation | None | Not started |
+| R0 | Establish acceptance evidence and desktop instrumentation | None | Complete |
 | R1 | Preserve rich views, history, and attachment state | R0 | Not started |
 | R2 | Complete revision, snapshot, and close contracts | R1 | Not started |
 | R3 | Bound live queries and remove duplicate scans | R1, R2 | Not started |
@@ -102,6 +102,9 @@ open unless the user explicitly accepts a measured exception.
 
 Exit: a reproducible desktop baseline and a checklist linking every remaining
 acceptance criterion to a test, measurement, or explicitly unverified item.
+
+Implementation status: complete. The event recorder and desktop export are
+described in [R0 baseline evidence](measurements/document-dataflow-r0.md).
 
 ## R1. Restore shared-view parity and stable lifetime
 

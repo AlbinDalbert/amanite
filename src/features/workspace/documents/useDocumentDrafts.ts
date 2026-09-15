@@ -3,6 +3,7 @@ import { writePageDraftSource } from "@/app/pageDrafts";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { errorMessage, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
+import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
 export const RECOVERY_IDLE_DELAY_MS = 180;
 export const RECOVERY_MAX_LAG_MS = 2_000;
@@ -65,6 +66,9 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     const buffer = findBuffer(documentId);
     if (!buffer || !buffer.dirty || buffer.revision <= buffer.draftedRevision) return Promise.resolve();
     const targetRevision = buffer.revision;
+    const requestId = nextDataflowRequestId("draft");
+    const started = performance.now();
+    recordDataflowEvent({ documentId, name: "draft.request", requestId, revision: targetRevision, status: "start" });
     const task = (async () => {
       try {
         const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
@@ -86,10 +90,12 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
           : latest.source;
         const result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
         if (result.status === "written") {
+          recordDataflowEvent({ documentId, durationMs: performance.now() - started, name: "draft.confirmed", requestId, revision: result.revision, status: "success" });
           onDraftConfirmed?.(documentId, result.revision);
           onStorageError(null);
         }
       } catch (error) {
+        recordDataflowEvent({ documentId, durationMs: performance.now() - started, name: "draft.confirmed", requestId, revision: targetRevision, status: "failure" });
         const message = errorMessage(error);
         reportDraftError(documentId, message);
         schedule.failedRevision = targetRevision;

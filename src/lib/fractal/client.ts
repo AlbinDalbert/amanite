@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult } from "./types";
+import { measureDataflowAsync, nextDataflowRequestId, recordDataflowEvent } from "../dataflowTelemetry";
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -18,7 +19,14 @@ async function invokeFractal<T>(command: string, args?: Record<string, unknown>)
   if (!hasTauriRuntime()) {
     throw new Error("Amanite must run through Tauri to access Fractal projects.");
   }
-  return invoke<T>(command, args);
+  const requestId = nextDataflowRequestId("ipc");
+  const requestBytes = new TextEncoder().encode(JSON.stringify(args ?? {})).byteLength;
+  return measureDataflowAsync(`ipc.${command}`, { bytes: requestBytes, requestId }, async () => {
+    const result = await invoke<T>(command, args);
+    const responseBytes = new TextEncoder().encode(JSON.stringify(result ?? null)).byteLength;
+    recordDataflowEvent({ bytes: responseBytes, name: `ipc.${command}.response`, requestId, status: "success" });
+    return result;
+  });
 }
 
 export function isFractalCommandError(error: unknown): error is FractalCommandError {
