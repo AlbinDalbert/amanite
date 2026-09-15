@@ -21,8 +21,8 @@ describe("shared document editor sessions", () => {
     });
 
     await vi.waitFor(() => expect(second.editor.getEditorState().read(() => $getRoot().getTextContent())).toContain("Shared edit"));
-    await vi.waitFor(() => expect(first.getMirrorText()).toContain("Shared edit"));
-    expect(second.getMirrorText()).toBe(first.getMirrorText());
+    await vi.waitFor(() => expect(first.getModel(undefined, first.getRevision() + 1).text).toContain("Shared edit"));
+    expect(second.getModel().text).toBe(first.getModel().text);
 
     first.releaseView();
     second.releaseView();

@@ -3,9 +3,10 @@ import { createEmptyHistoryState, type HistoryState } from "@lexical/history";
 import { $createParagraphNode, $getRoot, $getSelection, type LexicalEditor } from "lexical";
 import { createAmaniteEditor } from "./editorConfig";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG } from "./editorHtml";
-import { readEditorModel } from "./editorModel";
+import { DerivedEditorModel, type EditorModelSnapshot } from "./editorModel";
 import { editorLexicalTheme } from "./editorLexicalTheme";
 import { useEffect, useMemo, type ReactNode } from "react";
+import { measureDataflow } from "@/lib/dataflowTelemetry";
 
 export type SharedDocumentEditorSession = {
   documentId: string;
@@ -19,6 +20,7 @@ export type SharedDocumentEditorSession = {
   nextRevision: () => number;
   getIncarnation: () => number;
   replaceSource: () => number;
+  getModel: (editorState?: import("lexical").EditorState, revision?: number) => EditorModelSnapshot;
   viewCount: number;
   getMirrorHtml: () => string;
   getMirrorText: () => string | null;
@@ -40,6 +42,8 @@ type SessionRecord = SharedDocumentEditorSession & {
   listeners: Set<() => void>;
   viewScroll: Map<string, number>;
   unregisterUpdate: () => void;
+  derivedModel: DerivedEditorModel;
+  model: EditorModelSnapshot | null;
 };
 
 type DocumentSessionRecord = Omit<SessionRecord, "context" | "editor" | "unregisterUpdate"> & {
@@ -65,6 +69,8 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     needsSourceRefresh: false,
     revision: 0,
     incarnation: 1,
+    derivedModel: new DerivedEditorModel(),
+    model: null,
     viewCount: 0,
     mirrorHtml: initialBodyHtml || "<p></p>",
     mirrorText: null,
@@ -89,6 +95,8 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
       document!.viewCount = Math.max(0, document!.viewCount - 1);
     },
     markInitialized() {
+      const authority = document!.attachments.values().next().value as SessionRecord | undefined;
+      if (authority) document!.model = measureDataflow("editor.derived-initialize", { documentId, revision: document!.revision }, () => document!.derivedModel.update(authority.editor.getEditorState(), document!.revision));
       document!.initialized = true;
       document!.needsSourceRefresh = false;
       emit(document!);
@@ -106,6 +114,10 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
       document!.historyState.undoStack = [];
       document!.historyState.redoStack = [];
       return document!.incarnation;
+    },
+    getModel(editorState, revision = document!.revision) {
+      if (editorState && (!document!.model || document!.model.revision !== revision)) document!.model = document!.derivedModel.update(editorState, revision);
+      return document!.model ?? document!.derivedModel.update(editorState ?? document!.attachments.values().next().value!.editor.getEditorState(), revision);
     },
     getViewScroll(key: string) { return document!.viewScroll.get(key) ?? 0; },
     setViewScroll(key: string, scrollTop: number) { document!.viewScroll.set(key, scrollTop); },
@@ -147,6 +159,7 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     nextRevision: document.nextRevision,
     getIncarnation: document.getIncarnation,
     replaceSource: document.replaceSource,
+    getModel: document.getModel,
     getMirrorHtml: document.getMirrorHtml,
     getMirrorText: document.getMirrorText,
     acceptBodyHtml: document.acceptBodyHtml,
@@ -160,7 +173,7 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     unregisterUpdate: () => undefined
   } as SessionRecord;
 
-  session.unregisterUpdate = editor.registerUpdateListener(({ editorState, tags }) => {
+  session.unregisterUpdate = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState, tags }) => {
     if (tags.has(AMANITE_VIEW_SYNC_TAG)) return;
     for (const peer of document!.attachments.values()) {
       if (peer.editor !== editor) {
@@ -177,9 +190,7 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     }
     if (!document!.initialized) return;
     if (tags.has(AMANITE_DERIVED_LINK_TAG)) return;
-    const text = readEditorModel(editorState, document!.revision).text;
-    if (text === document!.mirrorText) return;
-    document!.mirrorText = text;
+    document!.model = measureDataflow("editor.changed-block-scan", { documentId, revision: document!.revision + 1 }, () => document!.derivedModel.update(editorState, document!.revision + 1, dirtyElements, dirtyLeaves));
     emit(document!);
   });
   session.acquireView();

@@ -11,7 +11,7 @@ export type EditorFlushController = {
   documentId?: string;
   incarnation?: number;
   projectGeneration?: number;
-  flush: (minimumRevision?: number, requestId?: string) => void | Promise<EditorSnapshot | void>;
+  flush: (minimumRevision?: number, requestId?: string) => EditorSnapshot | void | Promise<EditorSnapshot | void>;
   getRevision?: () => number;
 };
 

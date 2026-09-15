@@ -1,6 +1,6 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 through R2 are complete; R3 through R7 remain open.
+Status: in progress. R0 through R3 are complete; R4 through R7 remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -44,7 +44,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | R0 | Establish acceptance evidence and desktop instrumentation | None | Complete |
 | R1 | Preserve rich views, history, and attachment state | R0 | Complete |
 | R2 | Complete revision, snapshot, and close contracts | R1 | Complete |
-| R3 | Bound live queries and remove duplicate scans | R1, R2 | Not started |
+| R3 | Bound live queries and remove duplicate scans | R1, R2 | Complete |
 | R4 | Verify recovery completion and durability | R2 | Not started |
 | R5 | Publish compact catalog and document updates | R0 | Not started |
 | R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Not started |
@@ -196,6 +196,11 @@ for ordinary counts or mirror updates. Tests verify counts, nested structures,
 outline, find, Unicode, and unsaved search semantics. Measurements show the
 remaining full computations and their foreground cost. No stale result replaces
 a newer revision, and a body-only save leaves the title index unchanged.
+
+Implementation status: complete. One derived-model service now belongs to each
+document session. It updates cached blocks from Lexical dirty-node sets and
+builds full text lazily. See
+[R3 verification](measurements/document-dataflow-r3.md).
 
 ## R4. Prove confirmed recovery behavior
 

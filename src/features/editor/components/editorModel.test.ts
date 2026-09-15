@@ -1,9 +1,9 @@
 import { $createHeadingNode } from "@lexical/rich-text";
 import { $createListItemNode, $createListNode } from "@lexical/list";
-import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
+import { $createParagraphNode, $createTextNode, $getRoot, $isTextNode } from "lexical";
 import { describe, expect, it, vi } from "vitest";
 import { createAmaniteEditor } from "./editorConfig";
-import { countTextMatchesInText, readEditorModel } from "./editorModel";
+import { countTextMatchesInText, DerivedEditorModel, readEditorModel } from "./editorModel";
 
 describe("editor model queries", () => {
   it("reads counts and outline from the live Lexical model", async () => {
@@ -32,5 +32,30 @@ describe("editor model queries", () => {
   it("matches Unicode text without rebuilding native source", () => {
     expect(countTextMatchesInText("Ångström ångström ANGSTROM", "ångström")).toBe(2);
     expect(countTextMatchesInText("one one", "one")).toBe(2);
+  });
+
+  it("updates cached block counts from Lexical dirty nodes", async () => {
+    const editor = createAmaniteEditor("derived-editor-model-test");
+    editor.update(() => {
+      const first = $createParagraphNode();
+      first.append($createTextNode("One two"));
+      const second = $createParagraphNode();
+      second.append($createTextNode("Three"));
+      $getRoot().clear().append(first, second);
+    }, { discrete: true });
+    const service = new DerivedEditorModel();
+    expect(service.update(editor.getEditorState(), 1)).toMatchObject({ counts: { characters: 13, paragraphs: 2, words: 3 }, text: "One two Three" });
+
+    const updated = new Promise<ReturnType<DerivedEditorModel["update"]>>((resolve) => {
+      const unregister = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState }) => {
+        unregister();
+        resolve(service.update(editorState, 2, dirtyElements, dirtyLeaves));
+      });
+    });
+    editor.update(() => {
+      const text = $getRoot().getLastDescendant();
+      if ($isTextNode(text)) text.setTextContent("Three four");
+    });
+    await expect(updated).resolves.toMatchObject({ counts: { characters: 18, paragraphs: 2, words: 4 }, text: "One two Three four" });
   });
 });

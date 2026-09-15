@@ -92,7 +92,7 @@ function FractalEditor(props: FractalEditorProps) {
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [source]);
-  const matchCount = useMemo(() => liveModel ? countTextMatchesInText(liveModel.text, findQuery) : countTextMatches(source, findQuery, true), [findQuery, liveModel, source]);
+  const matchCount = useMemo(() => !findQuery ? 0 : liveModel ? countTextMatchesInText(liveModel.text, findQuery) : countTextMatches(source, findQuery, true), [findQuery, liveModel, source]);
   const page = nativeAnalysis.page;
   const displayedBodyHtml = bufferBodyHtml ?? page.bodyHtml;
   const displayedTitle = bufferTitle ?? page.title;

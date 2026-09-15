@@ -301,7 +301,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     const buffer = buffersRef.current[path];
     if (!buffer || snapshot.revision > buffer.revision) return;
     const previous = liveModelsRef.current[buffer.documentId];
-    if (previous && (snapshot.revision < previous.revision || snapshot.text === previous.text && snapshot.counts === previous.counts && snapshot.outline === previous.outline)) return;
+    if (previous && snapshot.revision <= previous.revision) return;
     const next = { ...liveModelsRef.current, [buffer.documentId]: snapshot };
     liveModelsRef.current = next;
     setLiveModels(next);

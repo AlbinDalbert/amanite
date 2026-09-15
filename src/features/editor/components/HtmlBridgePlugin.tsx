@@ -48,9 +48,11 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   const currentRevision = useCallback(() => sharedSession?.getRevision() ?? revisionRef.current, [sharedSession]);
 
   const reportModel = useCallback((state: EditorState, revision: number) => {
-    const model = measureDataflow("editor.full-model-scan", { documentId: editorDocumentId, revision }, () => readEditorModel(state, revision));
+    const model = sharedSession?.getModel
+      ? sharedSession.getModel(state, revision)
+      : measureDataflow("editor.full-model-scan", { documentId: editorDocumentId, revision }, () => readEditorModel(state, revision));
     onModelChangeRef.current?.(model);
-  }, [editorDocumentId]);
+  }, [editorDocumentId, sharedSession]);
 
   const exportPendingState = useCallback((minimumRevision = 0, requestedId?: string): EditorSnapshot | void => {
     const requestId = requestedId ?? nextDataflowRequestId("snapshot");
