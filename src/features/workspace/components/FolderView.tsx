@@ -180,7 +180,7 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
   onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
-  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml, viewId);
+  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml, viewId, buffer.revision, buffer.incarnation);
 
   function changeTitle(title: string) {
     const revision = session.nextRevision();

@@ -763,7 +763,19 @@ async function runRichEditorContractSmoke(driver, screenshotsDir) {
   await takeScreenshot(driver, screenshotsDir, "04b-editor-contract");
 
   await driver.ctrlS();
-  await driver.find(".save-state.saved", 30_000);
+  try {
+    await driver.find(".save-state.saved", 30_000);
+  } catch (error) {
+    await takeScreenshot(driver, screenshotsDir, "04c-save-failure");
+    const state = await driver.executeScript(`
+      return {
+        status: document.querySelector('.command-status')?.textContent?.trim() ?? null,
+        save: document.querySelector('.save-state')?.textContent?.trim() ?? null,
+        tab: document.querySelector('.editor-group-tab.active')?.textContent?.trim() ?? null
+      };
+    `);
+    throw new Error(`Rich editor save did not complete: ${JSON.stringify(state)}; ${error}`);
+  }
 }
 
 async function runEditorBasicsSmoke(driver, screenshotsDir) {
@@ -1103,7 +1115,20 @@ async function runForcedTerminationRecoverySmoke(driver, appProcess, log, screen
     const recoveredText = await nextDriver.text(".editor-tab-panel.active .rich-content-editable");
     assertSmoke(recoveredText.includes("Recovered after forced termination."), `Forced-termination recovery returned unexpected text: ${recoveredText}`);
     await nextDriver.ctrlS();
-    await nextDriver.find(".save-state.saved", 30_000);
+    try {
+      await nextDriver.find(".save-state.saved", 30_000);
+    } catch (error) {
+      await takeScreenshot(nextDriver, screenshotsDir, "10-save-failure");
+      const state = await nextDriver.executeScript(`
+        return {
+          error: document.querySelector('.document-error, .error')?.textContent?.trim() ?? null,
+          save: document.querySelector('.save-state')?.textContent?.trim() ?? null,
+          editable: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.getAttribute('contenteditable') ?? null,
+          events: window.__AMANITE_DATAFLOW__?.read().filter((event) => event.name.startsWith('snapshot.')) ?? []
+        };
+      `);
+      throw new Error(`Recovered document save did not complete: ${JSON.stringify(state)}; ${error}`);
+    }
     await takeScreenshot(nextDriver, screenshotsDir, "10-forced-termination-recovery");
     const persistedSource = await readFile(join(activeProjectRoot, "pages", recoveryPagePath), "utf8");
     assertSmoke(persistedSource.includes("Recovered after forced termination."), "Recovered forced-termination content was not persisted.");

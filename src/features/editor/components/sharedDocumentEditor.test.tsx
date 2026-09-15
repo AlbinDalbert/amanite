@@ -68,4 +68,13 @@ describe("shared document editor sessions", () => {
     session.releaseView();
     session.dispose();
   });
+
+  it("starts a recovered session at the buffer revision and incarnation", () => {
+    const session = acquireSharedDocumentEditor("amanite-document-recovered", 42, "<p>Recovered</p>", "left", 9, 3);
+
+    expect(session.getRevision()).toBe(9);
+    expect(session.getIncarnation()).toBe(3);
+    session.releaseView();
+    session.dispose();
+  });
 });

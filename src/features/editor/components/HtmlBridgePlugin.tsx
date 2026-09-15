@@ -56,17 +56,18 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
 
   const exportPendingState = useCallback((minimumRevision = 0, requestedId?: string): EditorSnapshot | void => {
     const requestId = requestedId ?? nextDataflowRequestId("snapshot");
+    const reuseSnapshot = (snapshot: EditorSnapshot | null) => snapshot ? { ...snapshot, requestId } : undefined;
     const editorRevision = currentRevision();
     const pendingAt = pendingRevision.current ?? -1;
     const revision = Math.max(editorRevision, pendingAt);
-    if (!pendingState.current && lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision && lastSnapshot.current.revision >= revision) return lastSnapshot.current;
-    if (revision < minimumRevision) return lastSnapshot.current?.revision === revision ? lastSnapshot.current : undefined;
+    if (!pendingState.current && lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision && lastSnapshot.current.revision >= revision) return reuseSnapshot(lastSnapshot.current);
+    if (revision < minimumRevision) return lastSnapshot.current?.revision === revision ? reuseSnapshot(lastSnapshot.current) : undefined;
     const state = pendingState.current && pendingAt >= editorRevision
       ? pendingState.current
       : minimumRevision > 0 && revision > 0
         ? editor.getEditorState()
         : null;
-    if (!state) return lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision ? lastSnapshot.current : undefined;
+    if (!state) return lastSnapshot.current && lastSnapshot.current.revision >= minimumRevision ? reuseSnapshot(lastSnapshot.current) : undefined;
     pendingState.current = null;
     pendingRevision.current = null;
     recordDataflowEvent({ documentId: editorDocumentId, name: "snapshot.request", requestId, revision, status: "start" });

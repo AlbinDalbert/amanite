@@ -58,7 +58,7 @@ function emit(session: { listeners: Set<() => void> }) {
   for (const listener of session.listeners) listener();
 }
 
-export function acquireSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default"): SharedDocumentEditorSession {
+export function acquireSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default", initialRevision = 0, initialIncarnation = 1): SharedDocumentEditorSession {
   let document = sessions.get(documentId);
   if (!document) {
     document = {
@@ -67,8 +67,8 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     historyState: createEmptyHistoryState(),
     initialized: false,
     needsSourceRefresh: false,
-    revision: 0,
-    incarnation: 1,
+    revision: initialRevision,
+    incarnation: initialIncarnation,
     derivedModel: new DerivedEditorModel(),
     model: null,
     viewCount: 0,
@@ -198,9 +198,9 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
   return session;
 }
 
-export function useSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default") {
+export function useSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default", initialRevision = 0, initialIncarnation = 1) {
   const session = useMemo(
-    () => acquireSharedDocumentEditor(documentId, projectGeneration, initialBodyHtml, viewId),
+    () => acquireSharedDocumentEditor(documentId, projectGeneration, initialBodyHtml, viewId, initialRevision, initialIncarnation),
     [documentId, projectGeneration, viewId]
   );
   useEffect(() => () => releaseSharedDocumentEditor(session), [session]);

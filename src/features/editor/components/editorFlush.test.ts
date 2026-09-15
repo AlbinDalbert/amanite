@@ -61,4 +61,16 @@ describe("editor flush coordination", () => {
     await expect(requestEditorSnapshot("current", 5)).rejects.toThrow("obsolete document state");
     stop();
   });
+
+  it("waits for a controller that mounts just after a recovery decision", async () => {
+    const pending = requestEditorSnapshot("recovering", 2);
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    const stop = registerEditorFlush("recovering", {
+      getRevision: () => 2,
+      flush: (_revision, requestId = "") => ({ bodyHtml: "<p>Recovered</p>", documentId: "recovering", incarnation: 2, projectGeneration: 3, requestId, revision: 2 })
+    });
+
+    await expect(pending).resolves.toMatchObject({ documentId: "recovering", revision: 2 });
+    stop();
+  });
 });

@@ -1,3 +1,5 @@
+import { recordDataflowEvent } from "@/lib/dataflowTelemetry";
+
 export type EditorSnapshot = {
   bodyHtml: string;
   documentId: string;
@@ -23,27 +25,50 @@ export function registerEditorFlush(key: string, controller: EditorFlushControll
   const registered = controllers.get(key) ?? new Set<EditorFlushController>();
   registered.add(controller);
   controllers.set(key, registered);
+  recordDataflowEvent({ documentId: key, name: "snapshot.controller", status: "success" });
   return () => {
     registered.delete(controller);
     if (!registered.size) controllers.delete(key);
+    recordDataflowEvent({ documentId: key, name: "snapshot.controller", status: "superseded" });
   };
+}
+
+function currentController(documentId: string) {
+  return Array.from(controllers.get(documentId) ?? [])
+    .sort((left, right) => (right.getRevision?.() ?? -1) - (left.getRevision?.() ?? -1))[0];
+}
+
+function waitForController(documentId: string, timeoutMs = 1_000): Promise<EditorFlushController | null> {
+  const deadline = performance.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const check = () => {
+      const controller = currentController(documentId);
+      if (controller || performance.now() >= deadline) resolve(controller ?? null);
+      else window.setTimeout(check, 16);
+    };
+    check();
+  });
 }
 
 export function requestEditorSnapshot(documentId: string, minimumRevision = 0): Promise<EditorSnapshot | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
   const pending = inFlight.get(documentId);
   if (pending && pending.minimumRevision >= minimumRevision) return pending.promise;
-  const controller = Array.from(controllers.get(documentId) ?? [])
-    .sort((left, right) => (right.getRevision?.() ?? -1) - (left.getRevision?.() ?? -1))[0];
-  if (!controller) return Promise.resolve(null);
   const requestId = `editor-snapshot-${++requestSequence}`;
-  const promise = Promise.resolve(controller.flush(minimumRevision, requestId)).then((snapshot) => {
+  const invoke = async (controller: EditorFlushController | null) => {
+    if (!controller) {
+      recordDataflowEvent({ documentId, name: "snapshot.controller-missing", revision: minimumRevision, status: "failure" });
+      return null;
+    }
+    const snapshot = await controller.flush(minimumRevision, requestId);
     if (!snapshot) return null;
     if (snapshot.documentId !== documentId || snapshot.requestId !== requestId || snapshot.revision < minimumRevision) {
       throw new Error(`Snapshot ${requestId} returned obsolete document state.`);
     }
     return snapshot;
-  }).finally(() => {
+  };
+  const controller = currentController(documentId);
+  const promise = (controller ? invoke(controller) : waitForController(documentId).then(invoke)).finally(() => {
     if (inFlight.get(documentId)?.promise === promise) inFlight.delete(documentId);
   });
   inFlight.set(documentId, { minimumRevision, promise });

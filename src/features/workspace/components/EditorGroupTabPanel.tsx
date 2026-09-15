@@ -115,7 +115,7 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
 
 function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
   const viewId = `${groupId}:${tabBuffer.documentId}`;
-  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml, viewId);
+  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml, viewId, tabBuffer.revision, tabBuffer.incarnation);
   const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">

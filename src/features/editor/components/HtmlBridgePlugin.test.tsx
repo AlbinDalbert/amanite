@@ -80,10 +80,17 @@ describe("HTML bridge loading", () => {
     expect(onChange).not.toHaveBeenCalled();
 
     let snapshot;
-    await act(async () => { snapshot = await requestEditorSnapshot("amanite-document-snapshot-contract", 1); });
+    let firstRequestId = "";
+    await act(async () => {
+      snapshot = await requestEditorSnapshot("amanite-document-snapshot-contract", 1);
+      firstRequestId = snapshot?.requestId ?? "";
+    });
     expect(snapshot).toMatchObject({ bodyHtml: "<p><span>One changed</span></p>", revision: 1 });
     expect(onSnapshot).toHaveBeenCalledWith(snapshot);
     expect(onChange).toHaveBeenCalledWith("<p><span>One changed</span></p>");
+    const cached = await requestEditorSnapshot("amanite-document-snapshot-contract", 1);
+    expect(cached).toMatchObject({ bodyHtml: "<p><span>One changed</span></p>", revision: 1 });
+    expect(cached?.requestId).not.toBe(firstRequestId);
 
     await act(async () => root.unmount());
   });
