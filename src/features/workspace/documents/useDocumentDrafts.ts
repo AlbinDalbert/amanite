@@ -71,7 +71,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     clearSchedule(schedule);
 
     const buffer = findBuffer(documentId);
-    if (!buffer || !buffer.dirty || buffer.revision <= buffer.draftedRevision) return Promise.resolve();
+    if (!buffer || !buffer.dirty || buffer.revision <= Math.max(buffer.draftedRevision, schedule.confirmedRevision)) return Promise.resolve();
     const targetRevision = buffer.revision;
     const requestId = schedule.requestId ?? nextDataflowRequestId("draft");
     const started = schedule.firstRequestedAt ?? performance.now();
@@ -112,6 +112,10 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
           schedule.confirmedRevision = result.revision;
           schedule.failedRevision = null;
           schedule.retryCount = 0;
+          if (result.revision >= schedule.requestedRevision) {
+            schedule.firstRequestedAt = null;
+            schedule.requestId = null;
+          }
           recordDataflowEvent({ documentId, durationMs: confirmedLag, name: "draft.confirmed", requestId, revision: result.revision, status: "success" });
           onDraftConfirmed?.(documentId, result.revision);
           if (confirmedLag > RECOVERY_MAX_LAG_MS) {
@@ -132,7 +136,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     settled = task.finally(() => {
       if (schedule.running === settled) schedule.running = null;
       const latest = findBuffer(documentId);
-      if (!latest || !latest.dirty || latest.revision <= latest.draftedRevision) {
+      if (!latest || !latest.dirty || latest.revision <= Math.max(latest.draftedRevision, schedule.confirmedRevision)) {
         schedule.firstRequestedAt = null;
         schedule.requestId = null;
         return;
@@ -216,9 +220,9 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     const active = new Set<string>();
     for (const buffer of Object.values(buffers)) {
       active.add(buffer.documentId);
-      if (buffer.dirty && buffer.revision > buffer.draftedRevision) scheduleDraft(buffer);
+      const schedule = draftSchedulesRef.current.get(buffer.documentId);
+      if (buffer.dirty && buffer.revision > Math.max(buffer.draftedRevision, schedule?.confirmedRevision ?? 0)) scheduleDraft(buffer);
       else {
-        const schedule = draftSchedulesRef.current.get(buffer.documentId);
         if (schedule && !schedule.running) clearSchedule(schedule);
       }
       if (autoSave && buffer.dirty && !buffer.conflict && !buffer.operation && buffer.revision > buffer.savedRevision) scheduleSave(buffer);

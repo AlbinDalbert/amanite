@@ -64,6 +64,9 @@ describe("revision-aware document drafts", () => {
     expect(mockedInvoke).toHaveBeenCalledWith("fractal_write_draft", { draft: expect.objectContaining({ revision: 1, source: expect.stringContaining("Edited") }) });
     expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
 
+    await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS * 2); });
+    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+
     await act(async () => root.render(<Harness buffers={{ [buffer.path]: { ...buffer, draftedRevision: 1 } }} onDraftConfirmed={confirmed} />));
     await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_MAX_LAG_MS + AUTOSAVE_IDLE_DELAY_MS); });
     expect(mockedInvoke).toHaveBeenCalledTimes(1);
