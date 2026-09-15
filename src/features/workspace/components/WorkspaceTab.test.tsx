@@ -8,7 +8,7 @@ const project: FractalProject = {
   name: "Test project",
   version: 2,
   rootPath: "/tmp/test-project",
-  pages: [{ path: "notes.fractal.html", contentHash: "notes-hash", title: "Notes", text: "", links: [] }],
+  pages: [{ path: "notes.fractal.html", contentHash: "notes-hash", title: "Notes" }],
   folders: [],
   activePagePath: "notes.fractal.html",
   activePageSource: "",

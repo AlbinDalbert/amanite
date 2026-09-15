@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createdPagePath, mapFolderPath, mapPagePath, mutationScope, pagePathFromProjectPath, reconcileMutationResult, receiptMappings } from "./reconcile";
+import { applyProjectUpdate, createdPagePath, mapFolderPath, mapPagePath, mutationScope, pagePathFromProjectPath, reconcileMutationResult, receiptMappings } from "./reconcile";
 import type { FractalMutationResult, FractalProject } from "./types";
 
 function project(pages: FractalProject["pages"] = []): FractalProject {
@@ -85,5 +85,21 @@ describe("receipt reconciliation", () => {
     expect(reconciled.result.project.pages[0]).toBe(unchanged);
     expect(reconciled.result.project.pages[1]).toBe(next.pages[1]);
     expect(reconciled.scope.mappings.pages.get("old.fractal.html")).toBe("new.fractal.html");
+  });
+
+  it("applies a compact update without replacing unrelated catalog entries", () => {
+    const untouched = { path: "same.fractal.html", contentHash: "same", title: "Same" };
+    const current = project([untouched, { path: "old.fractal.html", contentHash: "old", title: "Old" }]);
+    const update = { ...project([{ path: "new.fractal.html", contentHash: "new", title: "New" }]), catalogVersion: 2 };
+    const receipt = {
+      operation: "set_page_title" as const,
+      warnings: [],
+      changes: [{ change: "moved" as const, from: "pages/old.fractal.html", to: "pages/new.fractal.html", entry: "file" as const }]
+    };
+
+    const result = applyProjectUpdate(current, update, [receipt]);
+    expect(result.pages.find((page) => page.path === "same.fractal.html")).toBe(untouched);
+    expect(result.pages.find((page) => page.path === "old.fractal.html")).toBeUndefined();
+    expect(result.pages.find((page) => page.path === "new.fractal.html")?.title).toBe("New");
   });
 });

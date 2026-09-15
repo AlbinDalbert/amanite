@@ -21,8 +21,6 @@ function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
         path: "drafts/day-one.fractal.html",
         contentHash: "saved-hash",
         title: "Day one",
-        text: "Saved private page text",
-        links: []
       }
     ],
     activePagePath: "drafts/day-one.fractal.html",
@@ -42,6 +40,14 @@ function workspace(overrides: Partial<AiWorkspace> = {}): AiWorkspace {
     right: null
   };
   const documentQueries = new DocumentQueryIndex(project.pages);
+  documentQueries.setSavedDocument({
+    counts: { characters: 23, paragraphs: 1, readingMinutes: 1, words: 4 },
+    links: [],
+    outline: [],
+    path: "drafts/day-one.fractal.html",
+    text: "Saved private page text",
+    title: "Day one"
+  });
   return {
     project,
     groups,

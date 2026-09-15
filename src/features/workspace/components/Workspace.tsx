@@ -81,7 +81,7 @@ function QuickOpen({ documentQueries, onClose, onOpen }: {
   useEffect(() => {
     let disposed = false;
     const timeout = window.setTimeout(() => {
-      if (!disposed) setResults(documentQueries.search(query));
+      void documentQueries.search(query).then((next) => { if (!disposed) setResults(next); });
     }, 120);
     return () => { disposed = true; window.clearTimeout(timeout); };
   }, [documentQueries, query]);

@@ -26,6 +26,8 @@ export type DocumentQueryEntry = {
   title: string;
 };
 
+export type SavedDocumentModel = Pick<DocumentQueryEntry, "counts" | "links" | "outline" | "path" | "text" | "title">;
+
 function countsFromText(text: string): DocumentCounts {
   const words = text.trim() ? text.trim().split(/\s+/u).length : 0;
   return {
@@ -60,10 +62,15 @@ export class DocumentQueryIndex {
   private catalogOrder: string[] = [];
   private liveByDocumentId = new Map<string, LiveDocumentModel>();
   private liveByPath = new Map<string, LiveDocumentModel>();
+  private savedByPath = new Map<string, SavedDocumentModel>();
+  private catalogVersion?: number;
+  private sessionGeneration?: number;
   private _version = 0;
+  private savedSearch?: (query: string, limit: number) => Promise<FractalSearchResult[]>;
 
-  constructor(pages: FractalPage[] = []) {
+  constructor(pages: FractalPage[] = [], savedSearch?: (query: string, limit: number) => Promise<FractalSearchResult[]>) {
     this.titleIndex = new PageTitleIndex(pages);
+    this.savedSearch = savedSearch;
     this.updateCatalog(pages);
   }
 
@@ -71,10 +78,12 @@ export class DocumentQueryIndex {
     return this._version;
   }
 
-  updateCatalog(pages: FractalPage[]) {
+  updateCatalog(pages: FractalPage[], catalogVersion?: number, sessionGeneration?: number) {
     const changed = this.titleIndex.update(pages);
     this.catalogByPath = new Map(pages.map((page) => [page.path, page]));
     this.catalogOrder = pages.map((page) => page.path);
+    this.catalogVersion = catalogVersion ?? this.catalogVersion;
+    this.sessionGeneration = sessionGeneration ?? this.sessionGeneration;
     if (changed) this._version += 1;
     return changed;
   }
@@ -85,9 +94,22 @@ export class DocumentQueryIndex {
     if (previous) this.liveByPath.delete(previous.path);
     this.liveByDocumentId.set(document.documentId, document);
     this.liveByPath.set(document.path, document);
+    if (!document.dirty) this.savedByPath.set(document.path, {
+      counts: document.model.counts,
+      links: document.links,
+      outline: document.model.outline,
+      path: document.path,
+      text: document.model.text,
+      title: document.title
+    });
     this.titleIndex.setLiveTitle(document.path, document.title);
     this._version += 1;
     return true;
+  }
+
+  setSavedDocument(document: SavedDocumentModel) {
+    this.savedByPath.set(document.path, document);
+    this._version += 1;
   }
 
   removeLiveDocument(documentId: string) {
@@ -127,16 +149,17 @@ export class DocumentQueryIndex {
     }
     const page = this.catalogByPath.get(path);
     if (!page) return null;
+    const saved = this.savedByPath.get(path);
     return {
-      counts: countsFromText(page.text),
+      counts: saved?.counts ?? countsFromText(""),
       dirty: false,
       freshness: "saved",
-      links: page.links,
-      outline: [],
+      links: saved?.links ?? [],
+      outline: saved?.outline ?? [],
       path,
       revision: 0,
-      text: page.text,
-      title: this.titleIndex.getTitle(path) ?? page.title?.trim() ?? path
+      text: saved?.text ?? "",
+      title: saved?.title ?? this.titleIndex.getTitle(path) ?? page.title?.trim() ?? path
     };
   }
 
@@ -156,9 +179,10 @@ export class DocumentQueryIndex {
     return this.catalogOrder.map((path) => this.getDocument(path)).filter((document): document is DocumentQueryEntry => Boolean(document));
   }
 
-  search(query: string, prefix = ""): FractalSearchResult[] {
+  async search(query: string, prefix = ""): Promise<FractalSearchResult[]> {
     const needle = query.trim().toLocaleLowerCase();
-    return this.listDocuments()
+    const version = this._version;
+    const local = this.listDocuments()
       .filter((document) => !prefix || document.path === prefix || document.path.startsWith(`${prefix}/`))
       .filter((document) => !needle || `${document.title} ${document.path} ${document.text}`.toLocaleLowerCase().includes(needle))
       .map((document) => ({
@@ -169,6 +193,18 @@ export class DocumentQueryIndex {
         title: document.title
       }))
       .slice(0, 20);
+    if (!needle || !this.savedSearch) return local;
+    const saved = await this.savedSearch(query, 20);
+    if (version !== this._version) return this.search(query, prefix);
+    const currentSaved = saved.filter((result) =>
+      (this.catalogVersion == null || result.catalogVersion == null || result.catalogVersion === this.catalogVersion)
+      && (this.sessionGeneration == null || result.sessionGeneration == null || result.sessionGeneration === this.sessionGeneration));
+    const livePaths = new Set(local.filter((result) => result.freshness === "live").map((result) => result.path));
+    const validPaths = new Set(this.catalogOrder);
+    return [
+      ...local.filter((result) => result.freshness === "live"),
+      ...currentSaved.filter((result) => validPaths.has(result.path) && !livePaths.has(result.path) && (!prefix || result.path === prefix || result.path.startsWith(`${prefix}/`)))
+    ].slice(0, 20);
   }
 
   matchingPages(query: string, excludedPath: string, limit = 8) {

@@ -85,7 +85,7 @@ export function buildFolderFindGroups(nodes: FolderExportNode[], pages: FractalP
         const page = pageByPath.get(node.projectPath);
         const document = documentQueries.getDocument(node.projectPath);
         const pageTitle = document?.title ?? page?.title ?? node.title;
-        const matches = matchSnippets(`${pageTitle}\n${document?.text ?? page?.text ?? ""}`, query);
+        const matches = matchSnippets(`${pageTitle}\n${document?.text ?? ""}`, query);
         if (matches.length) {
           if (!group) { group = { path, title, pages: [] }; groups.push(group); }
           group.pages.push({ path: node.projectPath, title: pageTitle, matches });
@@ -278,7 +278,7 @@ type FolderSequenceCardProps = Omit<FolderSequenceItemProps, "dropIndex" | "edit
 
 function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBeginEditing, onOpenFolder, onOpenPage, onRemoveMissing, onSavePage, page, path, buffer }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "folders" | "isEditing" | "onBeginEditing" | "onOpenFolder" | "onOpenPage" | "onRemoveMissing" | "onSavePage" | "page" | "path">) {
   const document = documentQueries.getDocument(path);
-  const text = document?.text ?? page?.text ?? "";
+  const text = document?.text ?? "";
   const title = document?.title ?? page?.title?.trim() ?? child.name;
   return (
     <header>
@@ -297,7 +297,7 @@ function FolderSequenceBody({ buffer, child, documentQueries, editorOwner, isBus
   return (
     <>
       {child.status === "missing" ? <p className="folder-missing-copy">Fractal kept this place because the item was removed outside the project engine.</p> : null}
-      {page && !isEditing ? <p className="folder-page-preview">{document?.text.trim() || page.text.trim() || "This page is empty."}</p> : null}
+      {page && !isEditing ? <p className="folder-page-preview">{document?.text.trim() || "Open this page to load its preview."}</p> : null}
       {isEditing && loadingPaths.has(path) ? <p className="folder-inline-state">Loading page…</p> : null}
       {isEditing && loadErrors[path] ? <p className="folder-inline-state error">{loadErrors[path]}</p> : null}
       {isEditing && buffer ? (
@@ -620,8 +620,8 @@ function useFolderViewData(props: Props, state: ReturnType<typeof useFolderViewS
     exportTree,
     findCount: findGroups.reduce((total, group) => total + group.pages.reduce((subtotal, page) => subtotal + page.matches.length, 0), 0),
     findGroups,
-    folderCharacters: scopedDocuments.length ? scopedDocuments.reduce((total, document) => total + document.text.length, 0) : scopedPages.reduce((total, page) => total + page.text.length, 0),
-    folderWords: scopedDocuments.length ? scopedDocuments.reduce((total, document) => total + document.counts.words, 0) : scopedPages.reduce((total, page) => total + (page.text.trim() ? page.text.trim().split(/\s+/u).length : 0), 0),
+    folderCharacters: scopedDocuments.reduce((total, document) => total + document.text.length, 0),
+    folderWords: scopedDocuments.reduce((total, document) => total + document.counts.words, 0),
     orderedNames: props.folder.children.map((child) => child.name),
     scopedPages
   };

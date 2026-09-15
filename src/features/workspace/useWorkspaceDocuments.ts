@@ -93,7 +93,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const pathAliasesRef = useRef(new Map<string, string>());
   const [liveModels, setLiveModels] = useState<Record<string, EditorModelSnapshot>>({});
   const liveModelsRef = useRef(liveModels);
-  const [documentQueries] = useState(() => new DocumentQueryIndex(initialProject.pages));
+  const [documentQueries] = useState(() => new DocumentQueryIndex(initialProject.pages, (query, limit) =>
+    fractalClient.searchProject(projectRef.current, query, limit)));
 
   const commitBuffers = useCallback((updater: BufferUpdater) => {
     const next = updater(buffersRef.current);
@@ -399,7 +400,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 
-  documentQueries.updateCatalog(project.pages);
+  documentQueries.updateCatalog(project.pages, project.catalogVersion, project.sessionGeneration);
   const liveDocuments: LiveDocumentModel[] = Object.values(buffers).flatMap((buffer) => {
     const model = liveModels[buffer.documentId];
     return model ? [{ documentId: buffer.documentId, dirty: buffer.dirty, links: buffer.links, model, path: buffer.path, title: buffer.title }] : [];

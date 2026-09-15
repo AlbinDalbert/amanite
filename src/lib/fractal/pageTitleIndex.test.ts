@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { FractalPage } from "./types";
 import { PageTitleIndex } from "./pageTitleIndex";
 
-function page(path: string, title: string, text = "saved text"): FractalPage {
-  return { contentHash: `${path}:hash`, links: [], path, text, title };
+function page(path: string, title: string, _text = "saved text"): FractalPage {
+  return { contentHash: `${path}:hash`, path, title };
 }
 
 describe("PageTitleIndex", () => {

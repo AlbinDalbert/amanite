@@ -4,6 +4,8 @@ import type { DocumentQueryIndex } from "@/features/workspace/documentQueryIndex
 import { BOREALIS_TAB_ID, type WorkspaceGroups } from "@/features/workspace/workspaceGroups";
 import { folderPathFromTabId, isFolderTab } from "@/features/workspace/folderTabs";
 import type { AiTool, AiToolCall } from "./client";
+import { fractalClient } from "@/lib/fractal/client";
+import { analyzeEditablePage } from "@/features/editor/components/pageSource";
 
 export type AiWorkspace = {
   buffers: DocumentBuffers;
@@ -127,17 +129,23 @@ function readPageLimit(args: Record<string, unknown>) {
   return { limit: Math.max(1, Math.min(50000, requestedLimit)), offset };
 }
 
-function pageText(workspace: AiWorkspace, path: string) {
+async function pageText(workspace: AiWorkspace, path: string) {
   const page = workspace.project.pages.find((candidate) => candidate.path === path);
   if (!page) throw new Error(`No page exists at ${path}.`);
   const buffer = workspace.buffers[page.path];
   const document = workspace.documentQueries.getDocument(path);
-  return { buffer, document, page, text: document?.text ?? page.text, title: document?.title ?? page.title };
+  if (buffer?.dirty || document?.text) {
+    return { buffer, document, page, text: document?.text ?? "", title: document?.title ?? page.title };
+  }
+  const loaded = await fractalClient.readPage(workspace.project, path);
+  const analyzed = analyzeEditablePage(loaded.source);
+  const text = new DOMParser().parseFromString(analyzed.page.bodyHtml, "text/html").body.textContent ?? "";
+  return { buffer, document, page, text, title: analyzed.page.title || page.title };
 }
 
-function executeReadPageTool(args: Record<string, unknown>, workspace: AiWorkspace) {
+async function executeReadPageTool(args: Record<string, unknown>, workspace: AiWorkspace) {
   const path = requiredString(args, "path");
-  const { buffer, document, page, text, title } = pageText(workspace, path);
+  const { buffer, document, page, text, title } = await pageText(workspace, path);
   const { limit, offset } = readPageLimit(args);
   const content = text.slice(offset, offset + limit);
   const nextOffset = offset + content.length < text.length ? offset + content.length : null;

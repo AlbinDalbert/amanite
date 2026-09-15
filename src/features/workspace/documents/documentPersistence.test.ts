@@ -42,7 +42,7 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
     name: "Test",
     version: 2,
     rootPath: "/tmp/amanite-test",
-    pages: [{ path, contentHash: parts.sourceHash, title: parts.title, text: "Before", links: [] }],
+    pages: [{ path, contentHash: parts.sourceHash, title: parts.title }],
     folders: [],
     activePagePath: path,
     activePageSource: source,

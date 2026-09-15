@@ -7,7 +7,7 @@ function folder(path: string, title: string, children: FractalFolder["children"]
 }
 
 function page(path: string, title: string): FractalPage {
-  return { contentHash: path, links: [], path, text: "", title };
+  return { contentHash: path, path, title };
 }
 
 describe("folder export tree", () => {

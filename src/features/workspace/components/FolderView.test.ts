@@ -36,10 +36,13 @@ describe("folder find", () => {
       { kind: "folder", projectPath: "notes", relativePath: "notes", title: "Notes", children: [{ kind: "page", projectPath: "notes/second.fractal.html", relativePath: "notes/second.fractal.html", title: "Second", children: [] }] }
     ];
     const pages = [
-      { path: "first.fractal.html", title: "First", text: "needle once", kind: "native" as const, contentHash: "a", links: [], iframes: [] },
-      { path: "notes/second.fractal.html", title: "Second", text: "needle and needle", kind: "native" as const, contentHash: "b", links: [], iframes: [] }
+      { path: "first.fractal.html", title: "First", contentHash: "a" },
+      { path: "notes/second.fractal.html", title: "Second", contentHash: "b" }
     ];
-    const groups = buildFolderFindGroups(nodes, pages, "needle", "Pages", "", new DocumentQueryIndex(pages));
+    const queries = new DocumentQueryIndex(pages);
+    queries.setSavedDocument({ counts: { characters: 11, paragraphs: 1, readingMinutes: 1, words: 2 }, links: [], outline: [], path: pages[0].path, text: "needle once", title: "First" });
+    queries.setSavedDocument({ counts: { characters: 17, paragraphs: 1, readingMinutes: 1, words: 3 }, links: [], outline: [], path: pages[1].path, text: "needle and needle", title: "Second" });
+    const groups = buildFolderFindGroups(nodes, pages, "needle", "Pages", "", queries);
     expect(groups.map((group) => group.title)).toEqual(["Pages", "Notes"]);
     expect(groups.flatMap((group) => group.pages).map((page) => page.path)).toEqual(["first.fractal.html", "notes/second.fractal.html"]);
     expect(groups[1].pages[0].matches).toHaveLength(2);

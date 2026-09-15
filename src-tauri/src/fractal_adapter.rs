@@ -3,6 +3,7 @@ use crate::project_session::{ProjectSessionStore, SessionMetadata};
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::{
+    collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -83,8 +84,6 @@ struct FractalPage {
     path: String,
     content_hash: String,
     title: Option<String>,
-    text: String,
-    links: Vec<fractal::Link>,
 }
 
 impl From<fractal::Page> for FractalPage {
@@ -93,10 +92,19 @@ impl From<fractal::Page> for FractalPage {
             path: page.path,
             content_hash: page.content_hash,
             title: page.title,
-            text: page.text,
-            links: page.links,
         }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FractalSearchResult {
+    path: String,
+    title: Option<String>,
+    snippet: String,
+    catalog_version: u64,
+    catalog_freshness: &'static str,
+    session_generation: u64,
 }
 
 #[derive(Serialize)]
@@ -239,12 +247,16 @@ fn project_sessions() -> &'static ProjectSessionStore {
 pub(crate) struct FractalMutationResult {
     project: FractalProject,
     receipt: fractal::MutationReceipt,
+    #[serde(rename = "baseCatalogVersion")]
+    base_catalog_version: u64,
 }
 
 #[derive(Serialize)]
 pub(crate) struct FractalMutationBatchResult {
     project: FractalProject,
     receipts: Vec<fractal::MutationReceipt>,
+    #[serde(rename = "baseCatalogVersion")]
+    base_catalog_version: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     failure: Option<FractalCommandError>,
 }
@@ -357,10 +369,9 @@ fn project_snapshot(
         .into_iter()
         .map(FractalPage::from)
         .collect::<Vec<_>>();
-    let active_path = match active_path {
-        Some(path) => Some(project.page(path)?.path),
-        None => pages.first().map(|page| page.path.clone()),
-    };
+    let active_path = active_path
+        .map(|path| project.page(path).map(|page| page.path))
+        .transpose()?;
     let active_page_native_document_parts = active_path
         .as_deref()
         .and_then(|path| project.native_document_parts(path).ok())
@@ -514,10 +525,67 @@ fn mutation_result_with_metadata(
     metadata: SessionMetadata,
 ) -> FractalResult<FractalMutationResult> {
     let active_page_path = page_path_after_receipt(active_page_path, &receipt);
+    let snapshot = compact_mutation_snapshot(
+        project_snapshot_with_metadata(project, active_page_path.as_deref(), metadata)?,
+        std::slice::from_ref(&receipt),
+    );
     Ok(FractalMutationResult {
-        project: project_snapshot_with_metadata(project, active_page_path.as_deref(), metadata)?,
+        project: snapshot,
         receipt,
+        base_catalog_version: metadata.catalog_version.saturating_sub(1),
     })
+}
+
+fn compact_mutation_snapshot(
+    mut snapshot: FractalProject,
+    receipts: &[fractal::MutationReceipt],
+) -> FractalProject {
+    let mut paths = HashSet::new();
+    let mut moved_directories = Vec::new();
+    for change in receipts.iter().flat_map(|receipt| &receipt.changes) {
+        match change {
+            fractal::ProjectChange::Created { path, .. }
+            | fractal::ProjectChange::Updated { path, .. }
+            | fractal::ProjectChange::Deleted { path, .. } => {
+                paths.insert(path.as_str().to_string());
+            }
+            fractal::ProjectChange::Moved {
+                from, to, entry, ..
+            } => {
+                paths.insert(from.as_str().to_string());
+                paths.insert(to.as_str().to_string());
+                if *entry == fractal::ProjectEntryKind::Directory {
+                    moved_directories.push(to.as_str().to_string());
+                }
+            }
+        }
+    }
+    snapshot.pages.retain(|page| {
+        let path = format!("pages/{}", page.path);
+        paths.contains(&path)
+            || moved_directories
+                .iter()
+                .any(|directory| path.starts_with(&format!("{directory}/")))
+    });
+    snapshot.folders.retain(|folder| {
+        let directory = if folder.path.is_empty() {
+            "pages".to_string()
+        } else {
+            format!("pages/{}", folder.path)
+        };
+        let metadata = format!("{directory}/.fractal-folder.json");
+        paths.contains(&directory)
+            || paths.contains(&metadata)
+            || paths.iter().any(|path| {
+                Path::new(path)
+                    .parent()
+                    .is_some_and(|parent| parent == Path::new(&directory))
+            })
+            || moved_directories
+                .iter()
+                .any(|moved| directory.starts_with(&format!("{moved}/")))
+    });
+    snapshot
 }
 
 pub(crate) fn fractal_list_projects_blocking(
@@ -748,6 +816,33 @@ pub(crate) async fn fractal_repair_page_structure(
 }
 
 #[tauri::command]
+pub(crate) async fn fractal_search_project(
+    project_root: String,
+    query: String,
+    limit: Option<usize>,
+) -> FractalResult<Vec<FractalSearchResult>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_sessions().with_cached(&project_root, |project, metadata| {
+            Ok(project
+                .search(&query)
+                .into_iter()
+                .take(limit.unwrap_or(20).min(100))
+                .map(|result| FractalSearchResult {
+                    path: result.path,
+                    title: result.title,
+                    snippet: result.snippet,
+                    catalog_version: metadata.catalog_version,
+                    catalog_freshness: metadata.freshness.as_str(),
+                    session_generation: metadata.generation,
+                })
+                .collect())
+        })
+    })
+    .await
+    .map_err(|error| FractalCommandError::io(format!("Could not search project: {error}")))?
+}
+
+#[tauri::command]
 pub(crate) async fn fractal_page_content_states(
     project_root: String,
     page_paths: Vec<String>,
@@ -970,9 +1065,14 @@ pub(crate) fn fractal_duplicate_page_blocking(
                 }
             }
         }
+        let snapshot = compact_mutation_snapshot(
+            project_snapshot_with_metadata(project, Some(&duplicate_path), metadata)?,
+            &receipts,
+        );
         Ok(FractalMutationBatchResult {
-            project: project_snapshot_with_metadata(project, Some(&duplicate_path), metadata)?,
+            project: snapshot,
             receipts,
+            base_catalog_version: metadata.catalog_version.saturating_sub(1),
             failure,
         })
     })
@@ -1214,7 +1314,8 @@ mod tests {
         fractal_create_folder_blocking, fractal_create_page_blocking,
         fractal_export_folder_html_blocking, fractal_export_html_blocking,
         fractal_move_page_blocking, fractal_reorder_folder_blocking,
-        fractal_set_folder_title_blocking, relative_folder_path, relative_page_path,
+        fractal_set_folder_title_blocking, project_snapshot, relative_folder_path,
+        relative_page_path,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -1420,5 +1521,55 @@ mod tests {
         assert_eq!(value["project"]["catalogVersion"], 2);
         assert_eq!(value["project"]["catalogFreshness"], "mutated");
         assert!(value["project"]["sessionGeneration"].is_number());
+    }
+
+    #[test]
+    fn catalog_omits_document_content_and_open_requires_an_explicit_read() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let mut project = fractal::Project::init(&root, "Test").unwrap();
+        project.create_page("Private").unwrap();
+        let snapshot = project_snapshot(&project, None).unwrap();
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert!(value["pages"][0].get("text").is_none());
+        assert!(value["pages"][0].get("links").is_none());
+        assert!(value["activePagePath"].is_null());
+        assert!(value["activePageSource"].is_null());
+    }
+
+    #[test]
+    fn mutation_payload_does_not_include_unrelated_page_text() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        fractal::Project::init(&root, "Test").unwrap();
+        let root_string = root.to_string_lossy().into_owned();
+        let mut project = fractal::Project::open(&root).unwrap();
+        for index in 0..100 {
+            let title = format!("Unrelated {index:03}");
+            project.create_page(&title).unwrap();
+        }
+        let baseline_result =
+            fractal_create_page_blocking(root_string.clone(), "Before Payload".into(), None)
+                .unwrap();
+        let baseline = serde_json::to_vec(&baseline_result).unwrap().len();
+        for index in 0..100 {
+            let path = format!("unrelated-{index:03}.fractal.html");
+            let parts = project.native_document_parts(&path).unwrap();
+            project
+                .set_page_content(
+                    &path,
+                    &format!("<p>{}</p>", "x".repeat(2_500)),
+                    &parts.content_hash,
+                )
+                .unwrap();
+        }
+        let legacy_catalog_pages = serde_json::to_vec(&project.pages()).unwrap().len();
+        let second =
+            fractal_create_page_blocking(root_string, "After Payload".into(), None).unwrap();
+        let with_unrelated_text = serde_json::to_vec(&second).unwrap().len();
+
+        println!("legacy_catalog_pages_bytes={legacy_catalog_pages} baseline_bytes={baseline} many_page_250kb_bytes={with_unrelated_text}");
+        assert!(with_unrelated_text < baseline + 1_000);
     }
 }

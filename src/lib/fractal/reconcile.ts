@@ -239,6 +239,33 @@ export function reconcileProjectSnapshot(current: FractalProject, next: FractalP
   };
 }
 
+export function applyProjectUpdate(current: FractalProject, update: FractalProject, receipts: readonly FractalMutationReceipt[]): FractalProject {
+  const scope = mutationScope(receipts);
+  const pages = new Map<string, FractalPage>();
+  for (const page of current.pages) {
+    if (scope.mappings.deletedPages.has(page.path)) continue;
+    const path = mapPagePath(page.path, scope.mappings);
+    if (Array.from(scope.mappings.deletedFolders).some((folder) => page.path === folder || page.path.startsWith(`${folder}/`))) continue;
+    pages.set(path, path === page.path ? page : { ...page, path });
+  }
+  for (const page of update.pages) pages.set(page.path, page);
+
+  const folders = new Map<string, FractalFolder>();
+  for (const folder of current.folders) {
+    if (scope.mappings.deletedFolders.has(folder.path)) continue;
+    const path = mapFolderPath(folder.path, scope.mappings);
+    folders.set(path, path === folder.path ? folder : { ...folder, path });
+  }
+  for (const folder of update.folders) folders.set(folder.path, folder);
+
+  return reconcileProjectSnapshot(current, {
+    ...current,
+    ...update,
+    pages: Array.from(pages.values()).sort((left, right) => left.path.localeCompare(right.path)),
+    folders: Array.from(folders.values()).sort((left, right) => left.path.localeCompare(right.path))
+  });
+}
+
 export type ReconciledMutation = {
   result: FractalMutationResult;
   scope: MutationScope;

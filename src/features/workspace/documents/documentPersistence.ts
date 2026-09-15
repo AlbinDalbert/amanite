@@ -200,7 +200,7 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
     source: failed || hasPendingNativeEdits || hasNewerEdits
       ? currentBuffer.source
       : savedProject.activePageSource ?? currentBuffer.source,
-    links: savedPage?.links ?? savedProject.activePageLinks,
+    links: savedProject.activePageLinks,
     backlinks: savedProject.activePageBacklinks,
     contentHash: fullyAcknowledged
       ? savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash

@@ -1,7 +1,7 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 through R4 implementation is complete. R4 platform
-termination evidence and R5 through R7 remain open.
+Status: in progress. R0 through R5 implementation is complete. R4 platform
+termination evidence and R6 through R7 remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -47,7 +47,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | R2 | Complete revision, snapshot, and close contracts | R1 | Complete |
 | R3 | Bound live queries and remove duplicate scans | R1, R2 | Complete |
 | R4 | Verify recovery completion and durability | R2 | Implementation complete; platform evidence open |
-| R5 | Publish compact catalog and document updates | R0 | Not started |
+| R5 | Publish compact catalog and document updates | R0 | Complete |
 | R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Not started |
 | R7 | Close desktop parity, performance, and documentation gates | R0–R6 | Not started |
 
@@ -252,6 +252,13 @@ and a body-only mutation response does not grow with unrelated project text.
 Record actual before/after IPC bytes on the many-page fixture. Query tests cover
 saved fallback, live overlays, renamed paths, and stale-result rejection.
 
+Implementation status: complete. Catalog pages now contain path, title, and
+content hash only. Document reads and bounded saved searches are explicit;
+live query entries override saved results. Mutation publications carry a base
+catalog version and only affected page/folder entries, and the client requests
+a full catalog resynchronization when versions do not join. See
+[R5 verification](measurements/document-dataflow-r5.md).
+
 ## R6. Verify ordered backend work and receipt reconciliation
 
 - Audit ordering across cached reads, explicit opens, refreshes, and mutations.
@@ -303,7 +310,7 @@ rather than rewriting their results. Remove obsolete adapters and claims.
 - [ ] Revision, snapshot, stale-result, and close contracts pass R2.
 - [ ] Derived work is bounded and query semantics pass R3.
 - [ ] Confirmed recovery and termination behavior pass R4.
-- [ ] Compact catalog/content contracts and IPC measurements pass R5.
+- [x] Compact catalog/content contracts and IPC measurements pass R5.
 - [ ] Backend ordering and receipt reconciliation pass R6.
 - [ ] Required platform parity checks have recorded evidence.
 - [ ] Performance and recovery targets pass, or specific measured exceptions

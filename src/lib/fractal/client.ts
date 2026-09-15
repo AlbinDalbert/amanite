@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult } from "./types";
+import type { FractalClient, FractalCommandError, FractalCommandResult, FractalConditionalWriteResult, FractalFolderHtmlExportReport, FractalHtmlExportReport, FractalLoadedPage, FractalMutationBatchResult, FractalMutationResult, FractalPageContentState, FractalProject, FractalProjectCatalog, FractalProjectInspection, FractalRecoveryResult, FractalRepairResult, FractalSearchResult } from "./types";
 import { measureDataflowAsync, nextDataflowRequestId, recordDataflowEvent } from "../dataflowTelemetry";
+import { applyProjectUpdate } from "./reconcile";
+
+type WireMutationResult = Omit<FractalMutationResult, "project"> & { baseCatalogVersion: number; project: FractalProject };
+type WireMutationBatchResult = Omit<FractalMutationBatchResult, "project"> & { baseCatalogVersion: number; project: FractalProject };
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -35,9 +39,31 @@ export function isFractalCommandError(error: unknown): error is FractalCommandEr
     && "message" in error && typeof error.message === "string");
 }
 
-async function invokeConditional(command: string, args: Record<string, unknown>): Promise<FractalConditionalWriteResult> {
+async function reconcileWireProject(current: FractalProject, wire: { baseCatalogVersion: number; project: FractalProject }, receipts: FractalMutationResult["receipt"][]) {
+  const currentVersion = current.catalogVersion;
+  if (currentVersion != null && currentVersion !== wire.baseCatalogVersion) {
+    recordDataflowEvent({ name: "ipc.catalog-resync", requestId: `${currentVersion}->${wire.baseCatalogVersion}`, status: "superseded" });
+    const refreshed = await invokeFractal<FractalProject>("fractal_open_project_path", { projectRoot: current.rootPath });
+    return refreshed.catalogVersion === wire.project.catalogVersion
+      ? applyProjectUpdate(refreshed, wire.project, receipts)
+      : refreshed;
+  }
+  return applyProjectUpdate(current, wire.project, receipts);
+}
+
+async function invokeMutation(project: FractalProject, command: string, args: Record<string, unknown>): Promise<FractalMutationResult> {
+  const wire = await invokeFractal<WireMutationResult>(command, args);
+  return { receipt: wire.receipt, project: await reconcileWireProject(project, wire, [wire.receipt]) };
+}
+
+async function invokeMutationBatch(project: FractalProject, command: string, args: Record<string, unknown>): Promise<FractalMutationBatchResult> {
+  const wire = await invokeFractal<WireMutationBatchResult>(command, args);
+  return { failure: wire.failure, receipts: wire.receipts, project: await reconcileWireProject(project, wire, wire.receipts) };
+}
+
+async function invokeConditional(project: FractalProject, command: string, args: Record<string, unknown>): Promise<FractalConditionalWriteResult> {
   try {
-    return { status: "saved", result: await invokeFractal<FractalMutationResult>(command, args) };
+    return { status: "saved", result: await invokeMutation(project, command, args) };
   } catch (error) {
     if (isFractalCommandError(error) && error.code === "conflict") return { status: "conflict", error };
     throw error;
@@ -65,7 +91,7 @@ export const fractalClient: FractalClient = {
     const value = await invokeFractal<FractalRepairResult & { inspection: FractalProjectInspection & { proposed_repairs?: FractalProjectInspection["proposedRepairs"] } }>("fractal_repair_project", { projectRoot });
     return { ...value, inspection: normalizeInspection(value.inspection) };
   },
-  recreatePage: (project, pagePath, source) => invokeFractal<FractalMutationResult>("fractal_recreate_page", { projectRoot: project.rootPath, pagePath, source }),
+  recreatePage: (project, pagePath, source) => invokeMutation(project, "fractal_recreate_page", { projectRoot: project.rootPath, pagePath, source }),
   openPage: (project, pagePath) =>
     invokeFractal<FractalProject>("fractal_open_page", {
       pagePath,
@@ -77,87 +103,87 @@ export const fractalClient: FractalClient = {
       projectRoot: project.rootPath
     }),
   setPageTitle: (project, title, expectedHash) =>
-    invokeConditional("fractal_set_page_title", {
+    invokeConditional(project, "fractal_set_page_title", {
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       title
     }),
   setPageContent: (project, contentHtml, expectedHash) =>
-    invokeConditional("fractal_set_page_content", {
+    invokeConditional(project, "fractal_set_page_content", {
       contentHtml,
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath
     }),
   setPageStyle: (project, styleCss, expectedHash) =>
-    invokeConditional("fractal_set_page_style", {
+    invokeConditional(project, "fractal_set_page_style", {
       expectedHash,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath,
       styleCss
     }),
   setPageMetadata: (project, metadataHtml, expectedHash) =>
-    invokeConditional("fractal_set_page_metadata", {
+    invokeConditional(project, "fractal_set_page_metadata", {
       expectedHash,
       metadataHtml,
       pagePath: project.activePagePath,
       projectRoot: project.rootPath
     }),
   repairPageStructure: (project, pagePath) =>
-    invokeFractal<FractalMutationResult>("fractal_repair_page_structure", {
+    invokeMutation(project, "fractal_repair_page_structure", {
       pagePath,
       projectRoot: project.rootPath
     }),
   createPage: (project, title, folderPath) =>
-    invokeFractal<FractalMutationResult>("fractal_create_page", {
+    invokeMutation(project, "fractal_create_page", {
       folderPath,
       projectRoot: project.rootPath,
       title
     }),
   duplicatePage: (project, pagePath, title, folderPath) =>
-    invokeFractal<FractalMutationBatchResult>("fractal_duplicate_page", {
+    invokeMutationBatch(project, "fractal_duplicate_page", {
       folderPath,
       pagePath,
       projectRoot: project.rootPath,
       title
     }),
   createFolder: (project, parent, title) =>
-    invokeFractal<FractalMutationResult>("fractal_create_folder", {
+    invokeMutation(project, "fractal_create_folder", {
       activePagePath: project.activePagePath,
       parent,
       projectRoot: project.rootPath,
       title
     }),
   setFolderTitle: (project, folderPath, title) =>
-    invokeFractal<FractalMutationResult>("fractal_set_folder_title", {
+    invokeMutation(project, "fractal_set_folder_title", {
       activePagePath: project.activePagePath,
       folderPath,
       projectRoot: project.rootPath,
       title
     }),
   reorderFolder: (project, folderPath, order) =>
-    invokeFractal<FractalMutationResult>("fractal_reorder_folder", {
+    invokeMutation(project, "fractal_reorder_folder", {
       activePagePath: project.activePagePath,
       folderPath,
       order,
       projectRoot: project.rootPath
     }),
   deleteFolder: (project, folderPath) =>
-    invokeFractal<FractalMutationResult>("fractal_delete_folder", {
+    invokeMutation(project, "fractal_delete_folder", {
       activePagePath: project.activePagePath,
       folderPath,
       projectRoot: project.rootPath
     }),
   movePage: (project, pagePath, destinationFolder) =>
-    invokeFractal<FractalMutationResult>("fractal_move_page", {
+    invokeMutation(project, "fractal_move_page", {
       activePagePath: project.activePagePath,
       destinationFolder,
       pagePath,
       projectRoot: project.rootPath
     }),
   deletePage: (project, pagePath) =>
-    invokeFractal<FractalMutationResult>("fractal_delete_page", {
+    invokeMutation(project, "fractal_delete_page", {
       activePagePath: project.activePagePath,
       pagePath,
       projectRoot: project.rootPath
@@ -165,6 +191,12 @@ export const fractalClient: FractalClient = {
   validateProject: (project) =>
     invokeFractal<FractalCommandResult>("fractal_validate_project", {
       projectRoot: project.rootPath
+    }),
+  searchProject: (project, query, limit = 20) =>
+    invokeFractal<FractalSearchResult[]>("fractal_search_project", {
+      limit,
+      projectRoot: project.rootPath,
+      query
     }),
   pageContentStates: (project, pagePaths) =>
     invokeFractal<FractalPageContentState[]>("fractal_page_content_states", {
