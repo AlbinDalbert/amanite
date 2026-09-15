@@ -37,3 +37,18 @@ AMANITE_TAURI_WEBDRIVER_SKIP_BUILD=1 pnpm run tauri:webdriver:smoke
 ```
 
 Never enable the `webdriver` Cargo feature for production builds; it exposes local automation over HTTP.
+
+## Typing and autosave regression
+
+```sh
+pnpm run tauri:webdriver:smoke -- --typing-regression
+pnpm run tauri:webdriver:smoke -- --typing-regression --skip-build
+```
+
+This scenario opens existing native documents from the project overview, enables
+autosave, and types one character every 250 ms plus WebDriver overhead. It checks
+that the complete text reaches both the editor and disk without another HTML
+import, a recovery dialog, or a disk-conflict banner. It exercises a small file
+and a file with 1,500 paragraphs. Screenshots, frame timings, and data-flow events
+are recorded in `typing-regression.json` and `typing-*.png` under the run's artifact
+directory. Frame timings describe this debug desktop run, not production latency.

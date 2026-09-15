@@ -93,6 +93,27 @@ describe("revision-aware document drafts", () => {
     await act(async () => root.unmount());
   });
 
+  it("coalesces normal-speed typing while retaining the maximum recovery deadline", async () => {
+    const root = createRoot(document.createElement("div"));
+    const confirmed = vi.fn();
+    const first = dirtyBuffer(1);
+    try {
+      await act(async () => root.render(<Harness buffers={{ [first.path]: first }} onDraftConfirmed={confirmed} />));
+      for (let revision = 2; revision <= 6; revision += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+        const buffer = { ...first, revision };
+        mockedSnapshot.mockResolvedValue(snapshot(buffer, revision, "<p>Typing</p>"));
+        await act(async () => root.render(<Harness buffers={{ [buffer.path]: buffer }} onDraftConfirmed={confirmed} />));
+      }
+      expect(mockedSnapshot).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      expect(mockedSnapshot).toHaveBeenCalledTimes(1);
+      expect(confirmed).toHaveBeenCalledWith(first.documentId, 6);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("retries a transient failure without requiring another edit", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -108,5 +129,33 @@ describe("revision-aware document drafts", () => {
     expect(mockedInvoke).toHaveBeenCalledTimes(2);
     expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
     await act(async () => root.unmount());
+  });
+});
+
+describe("autosave deadlines", () => {
+  it("starts a fresh deadline after a save instead of saving each subsequent keystroke", async () => {
+    vi.useFakeTimers();
+    const root = createRoot(document.createElement("div"));
+    const save = vi.fn(async () => true);
+    const first = { ...dirtyBuffer(1), draftedRevision: 1 };
+    function SaveHarness({ buffer }: { buffer: ReturnType<typeof dirtyBuffer> }) {
+      useDocumentDrafts({ autoSave: true, buffers: { [buffer.path]: buffer }, projectRoot: "/tmp/autosave-deadline", saveDocument: save, onStorageError: vi.fn() });
+      return null;
+    }
+    try {
+      await act(async () => root.render(<SaveHarness buffer={first} />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS); });
+      expect(save).toHaveBeenCalledTimes(1);
+      await act(async () => root.render(<SaveHarness buffer={{ ...first, dirty: false, savedRevision: 1 }} />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      await act(async () => root.render(<SaveHarness buffer={{ ...first, revision: 2, draftedRevision: 2, savedRevision: 1 }} />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS - 1); });
+      expect(save).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(save).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+    }
   });
 });

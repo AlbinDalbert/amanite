@@ -19,7 +19,7 @@ export type SharedDocumentEditorSession = {
   getRevision: () => number;
   nextRevision: () => number;
   getIncarnation: () => number;
-  replaceSource: () => number;
+  replaceSource: (incarnation?: number) => number;
   getModel: (editorState?: import("lexical").EditorState, revision?: number) => EditorModelSnapshot;
   viewCount: number;
   getMirrorHtml: () => string;
@@ -107,8 +107,8 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
       return document!.revision;
     },
     getIncarnation() { return document!.incarnation; },
-    replaceSource() {
-      document!.incarnation += 1;
+    replaceSource(incarnation?: number) {
+      document!.incarnation = Math.max(document!.incarnation + 1, incarnation ?? 0);
       document!.revision += 1;
       document!.historyState.current = null;
       document!.historyState.undoStack = [];

@@ -13,6 +13,7 @@ import { measureDataflow, nextDataflowRequestId, recordDataflowEvent } from "@/l
 type Props = {
   bodyHtml: string;
   documentId?: string;
+  sourceIncarnation?: number;
   pagePath: string;
   sharedSession?: SharedDocumentEditorSession;
   onChange?: (html: string) => void;
@@ -23,10 +24,14 @@ type Props = {
   onLoading?: () => void;
 };
 
-function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onChange, onModelChange, onRevision, onSnapshot, onLoaded, onLoading }: Props) {
+function HtmlBridgePlugin({ bodyHtml, sourceIncarnation, documentId, pagePath, sharedSession, onChange, onModelChange, onRevision, onSnapshot, onLoaded, onLoading }: Props) {
   const [editor] = useLexicalComposerContext();
   const editorDocumentId = documentId ?? pagePath;
   const loadedPage = useRef<string | null>(null);
+  const importing = useRef(false);
+  const bodyHtmlRef = useRef(bodyHtml);
+  bodyHtmlRef.current = bodyHtml;
+  const sourceHtmlDependency = sharedSession && sourceIncarnation != null ? null : bodyHtml;
   const lastHtml = useRef(bodyHtml);
   const onChangeRef = useRef(onChange);
   const onModelChangeRef = useRef(onModelChange);
@@ -55,6 +60,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   }, [editorDocumentId, sharedSession]);
 
   const exportPendingState = useCallback((minimumRevision = 0, requestedId?: string): EditorSnapshot | void => {
+    if (importing.current) return;
     const requestId = requestedId ?? nextDataflowRequestId("snapshot");
     const reuseSnapshot = (snapshot: EditorSnapshot | null) => snapshot ? { ...snapshot, requestId } : undefined;
     const editorRevision = currentRevision();
@@ -90,7 +96,19 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   }, [currentRevision, editor, editorDocumentId]);
 
   useEffect(() => {
-    if (sharedSession?.initialized && loadedPage.current === null && bodyHtml === sharedSession.getMirrorHtml()) {
+    const bodyHtml = bodyHtmlRef.current;
+    // Buffer snapshots can arrive out of order relative to live Lexical edits.
+    // Only a new source incarnation authorizes replacing an initialized editor.
+    if (sharedSession?.initialized && sourceIncarnation != null
+      && sourceIncarnation <= sharedSession.getIncarnation()) {
+      if (loadedPage.current === null) {
+        loadedPage.current = editorDocumentId;
+        reportModel(editor.getEditorState(), currentRevision());
+        onLoadedRef.current?.();
+      }
+      return;
+    }
+    if (sourceIncarnation == null && sharedSession?.initialized && loadedPage.current === null && bodyHtml === sharedSession.getMirrorHtml()) {
       loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
       sharedSession.markInitialized();
@@ -98,14 +116,18 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
       onLoadedRef.current?.();
       return;
     }
-    if (loadedPage.current === editorDocumentId && bodyHtml === lastHtml.current) return;
+    if ((sourceIncarnation == null || !sharedSession) && loadedPage.current === editorDocumentId && bodyHtml === lastHtml.current) return;
+    importing.current = true;
+    pendingState.current = null;
+    pendingRevision.current = null;
     onLoadingRef.current?.();
     const importRequestId = nextDataflowRequestId("import");
     const importStarted = performance.now();
     recordDataflowEvent({ bytes: new TextEncoder().encode(bodyHtml).byteLength, documentId: editorDocumentId, name: "editor.import", requestId: importRequestId, status: "start" });
-    if (sharedSession?.initialized && bodyHtml !== sharedSession.getMirrorHtml()) sharedSession.replaceSource();
+    if (sharedSession?.initialized) sharedSession.replaceSource(sourceIncarnation);
     lastSnapshot.current = null;
     const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
+      importing.current = false;
       loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
       sharedSession?.acceptBodyHtml(bodyHtml);
@@ -115,7 +137,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
       recordDataflowEvent({ documentId: editorDocumentId, durationMs: performance.now() - importStarted, name: "editor.import", requestId: importRequestId, revision: currentRevision(), status: "success" });
     });
     return cancelImport;
-  }, [bodyHtml, currentRevision, editor, editorDocumentId, pagePath, reportModel, sharedSession]);
+  }, [sourceHtmlDependency, currentRevision, editor, editorDocumentId, pagePath, reportModel, sharedSession, sourceIncarnation]);
 
   const getRevision = useCallback(() => currentRevision(), [currentRevision]);
 

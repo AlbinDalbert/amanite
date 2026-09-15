@@ -5,8 +5,12 @@ import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { errorMessage, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
 import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
-export const RECOVERY_IDLE_DELAY_MS = 180;
+// Normal typing often leaves 200–300 ms between characters. Keep full-document
+// recovery exports out of those gaps; the maximum-lag timer still bounds recovery.
+export const RECOVERY_IDLE_DELAY_MS = 500;
 export const RECOVERY_MAX_LAG_MS = 2_000;
+// Leave time for HTML export and the durable draft write before the lag target.
+export const RECOVERY_MAX_WAIT_MS = 1_500;
 export const AUTOSAVE_IDLE_DELAY_MS = 900;
 export const AUTOSAVE_MAX_LAG_MS = 2_000;
 export const RECOVERY_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -161,6 +165,9 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     const buffer = findBuffer(documentId);
     if (!buffer || !buffer.dirty || buffer.conflict || buffer.operation) return Promise.resolve();
     const targetRevision = buffer.revision;
+    // A new save cycle gets a new deadline, even after continuous typing.
+    schedule.firstRequestedAt = null;
+    schedule.requestId = null;
     const task = (async () => {
       try {
         const succeeded = await saveDocument(buffer.path);
@@ -208,7 +215,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
   }, []);
 
   const scheduleDraft = useCallback((buffer: DocumentBuffer) => {
-    armSchedule(draftSchedulesRef.current, buffer, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, flushDraft);
+    armSchedule(draftSchedulesRef.current, buffer, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_WAIT_MS, flushDraft);
   }, [armSchedule, flushDraft]);
   const scheduleSave = useCallback((buffer: DocumentBuffer) => {
     armSchedule(saveSchedulesRef.current, buffer, AUTOSAVE_IDLE_DELAY_MS, AUTOSAVE_MAX_LAG_MS, flushSave);

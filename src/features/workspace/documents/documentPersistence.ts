@@ -252,6 +252,7 @@ function updateBufferAfterSave({ clearDraft, current, currentPath, projectRoot, 
 type SaveContext = PersistenceOptions & {
   clearDraft: (projectRoot: string, pagePath: string) => void;
   forceRequests: Set<string>;
+  drainRequests: Set<string>;
   registerSavePath: (path: string) => void;
 };
 
@@ -362,7 +363,7 @@ async function runSaveQueue(context: SaveContext, originalPath: string) {
       || (currentPath !== originalPath && context.forceRequests.delete(originalPath));
     const pass = await savePass(context, currentPath, force);
     currentPath = pass.path;
-    if (pass.kind === "retry") continue;
+    if (pass.kind === "retry" && (context.drainRequests.has(originalPath) || context.drainRequests.has(currentPath))) continue;
     if (pass.success) {
       context.forceRequests.delete(currentPath);
       return true;
@@ -375,10 +376,14 @@ async function runSaveQueue(context: SaveContext, originalPath: string) {
 export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
+  const drainRequests = new Set<string>();
 
   function releaseSavePromise(savePromise: Promise<boolean>) {
     for (const [path, queuedPromise] of savePromises) {
-      if (queuedPromise === savePromise) savePromises.delete(path);
+      if (queuedPromise === savePromise) {
+        savePromises.delete(path);
+        drainRequests.delete(path);
+      }
     }
   }
 
@@ -388,7 +393,8 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
     });
   }
 
-  function saveDocument(path: string, force = false): Promise<boolean> {
+  function saveDocument(path: string, force = false, drain = true): Promise<boolean> {
+    if (drain) drainRequests.add(path);
     if (force) forceRequests.add(path);
     const inFlight = savePromises.get(path);
     if (inFlight) return inFlight;
@@ -407,6 +413,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
       commitBuffers,
       flushDocument,
       forceRequests,
+      drainRequests,
       onDocumentPathChange,
       onDraftStorageError,
       projectRef,
@@ -449,5 +456,8 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
     }
   }
 
-  return { saveAll, saveDocument, savePaths };
+  // Autosave commits one captured revision. Newer typing is scheduled by the
+  // idle/max-lag timers, while explicit saves and close barriers drain the queue.
+  const autosaveDocument = (path: string) => saveDocument(path, false, false);
+  return { autosaveDocument, saveAll, saveDocument, savePaths };
 }

@@ -35,6 +35,7 @@ type Props = {
   spellCheck: boolean;
   title: string;
   documentId?: string;
+  sourceIncarnation?: number;
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
   onChangeBody: (html: string) => void;
@@ -46,7 +47,7 @@ type Props = {
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "historyOwner" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "sourceIncarnation" | "documentId" | "historyOwner" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
@@ -101,7 +102,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
+function WritingArea({ bodyHtml, sourceIncarnation, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -150,7 +151,7 @@ function WritingArea({ bodyHtml, documentId, historyOwner = true, isBusy, pagePa
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} sourceIncarnation={sourceIncarnation} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pageTitleIndex={pageTitleIndex} pages={pages} />
           <ViewAttachmentPlugin session={sharedSession} viewId={viewId} />
         </div>
@@ -159,7 +160,7 @@ function WritingArea({ bodyHtml, documentId, historyOwner = true, isBusy, pagePa
   );
 }
 
-function RichDocumentEditor({ bodyHtml, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, sourceIncarnation, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -171,6 +172,7 @@ function RichDocumentEditor({ bodyHtml, documentId, embedded = false, historyOwn
       </header>
       <WritingArea
         bodyHtml={bodyHtml}
+        sourceIncarnation={sourceIncarnation}
         documentId={documentId}
         historyOwner={historyOwner}
         isBusy={editorBusy}

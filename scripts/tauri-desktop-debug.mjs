@@ -14,6 +14,7 @@ const ctrlKey = "\uE009";
 function createDefaultOptions() {
   return {
     doctor: false,
+    typingRegression: false,
     keepOpen: false,
     port: Number(process.env.TAURI_WEBDRIVER_PORT || 4445),
     projectRoot: process.env.AMANITE_PROJECT_ROOT || "",
@@ -30,6 +31,7 @@ function splitOption(arg) {
 }
 
 const booleanOptionHandlers = new Map([
+  ["--typing-regression", (options) => { options.typingRegression = true; }],
   ["--doctor", (options) => { options.doctor = true; }],
   ["--keep-open", (options) => { options.keepOpen = true; }],
   ["--skip-build", (options) => { options.skipBuild = true; }]
@@ -99,6 +101,7 @@ Options:
   --doctor                    Check the local setup and exit.
   --keep-open                 Leave the Tauri app open until Enter is pressed.
   --skip-build                Reuse src-tauri/target/debug/amanite.
+  --typing-regression         Exercise sustained typing with autosave on small and large files.
   --port <port>               Embedded WebDriver port. Default: 4445.
   --project-root <path>       Fractal project library for the run.
   --screenshots-dir <path>    Where screenshots/logs are written.
@@ -1256,6 +1259,73 @@ function installSignalCleanup(cleanup) {
   });
 }
 
+async function runTypingRegression(driver, artifactsDir, projectRoot) {
+  await driver.find("body");
+  await driver.executeScript(`
+    const settings = JSON.parse(localStorage.getItem("amanite.appearance.v1") || "{}");
+    localStorage.setItem("amanite.appearance.v1", JSON.stringify({ ...settings, autoSave: true }));
+  `);
+  const { activeProjectRoot } = await prepareSmokeProject(driver, artifactsDir, projectRoot);
+  await driver.click('.brand > button[title="Close project"]');
+  await driver.find('.start-screen');
+  for (const [name, blocks] of [["small", 5], ["large", 1500]]) {
+    const body = Array.from({ length: blocks }, (_, i) => `<p>Paragraph ${i} has ordinary words for the typing regression check.</p>`).join("");
+    await writeFile(join(activeProjectRoot, "pages", `${name}.fractal.html`), `<!doctype html><html><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>${name}</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>${name}</h1>${body}</main></body></html>`);
+  }
+  await openProjectFromStart(driver, activeProjectRoot);
+  await driver.find('.workspace');
+  const reports = [];
+  for (const name of ["small", "large"]) {
+    await driver.click(`[title="${name}.fractal.html"]`);
+    const selector = `.editor-tab-panel.active .rich-content-editable[aria-label="Body for ${name}.fractal.html"]`;
+    await waitForScript(driver, `return document.querySelector(arguments[0])?.contentEditable === "true"`, [selector]);
+    await driver.executeScript(`
+      window.__AMANITE_DATAFLOW__.clear();
+      const root = document.querySelector(arguments[0]);
+      root.focus();
+      const range = document.createRange(); range.selectNodeContents(root); range.collapse(false);
+      const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      window.__typingBaseline = root.textContent;
+      window.__typingFrames = []; window.__typingRunning = true;
+      let previous = performance.now();
+      function frame(now) { window.__typingFrames.push(now - previous); previous = now; if (window.__typingRunning) requestAnimationFrame(frame); }
+      requestAnimationFrame(frame);
+    `, [selector]);
+    const typed = " Testing ordinary typing through several autosaves.";
+    for (const char of typed) {
+      await driver.sendKeys(selector, char);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    const report = await driver.executeScript(`
+      window.__typingRunning = false;
+      const root = document.querySelector(arguments[0]);
+      const events = window.__AMANITE_DATAFLOW__.read();
+      return { textPreserved: root.textContent === window.__typingBaseline + arguments[1],
+        tail: root.textContent.slice(-120),
+        dialogs: [...document.querySelectorAll('[role="dialog"]')].map(el => el.textContent),
+        conflict: !!document.querySelector('.document-buffer-actions'),
+        imports: events.filter(e => e.name === 'editor.import' && e.status === 'start').length,
+        longestFrameMs: Math.max(...window.__typingFrames),
+        p95FrameMs: window.__typingFrames.slice().sort((a, b) => a - b)[Math.floor(window.__typingFrames.length * 0.95)],
+        exports: events.filter(e => e.name === 'editor.full-export').length,
+        saves: events.filter(e => e.name === 'ipc.fractal_set_page_content' && e.status === 'start').length,
+        events };
+    `, [selector, typed]);
+    report.name = name;
+    const diskSource = await readFile(join(activeProjectRoot, "pages", `${name}.fractal.html`), 'utf8');
+    report.diskBytes = Buffer.byteLength(diskSource);
+    report.diskPreserved = diskSource.includes(typed.trim())
+      && [...diskSource.matchAll(/Paragraph \d+ has ordinary words for the typing regression check\./g)].length === (name === "small" ? 5 : 1500);
+    reports.push(report);
+    await takeScreenshot(driver, artifactsDir, `typing-${name}`);
+    await writeFile(join(artifactsDir, 'typing-regression.json'), JSON.stringify(reports, null, 2));
+    console.log(JSON.stringify({ ...report, events: undefined }));
+    if (report.dialogs.length) break;
+  }
+  assertSmoke(reports.length === 2 && reports.every(r => r.textPreserved && r.diskPreserved && !r.conflict && !r.dialogs.length && !r.imports), "Typing caused data loss, a reload, or a false conflict. See typing-regression.json.");
+}
+
 async function runDesktopSession(options, artifactsDir, projectRoot) {
   const appBinary = process.env.AMANITE_TAURI_APP_BINARY || defaultBinary;
   const initial = startApp({ appBinary, artifactsDir, port: options.port, projectRoot });
@@ -1270,6 +1340,10 @@ async function runDesktopSession(options, artifactsDir, projectRoot) {
     await waitForWebDriver(options.port, appProcess);
     driver = new DesktopWebDriverClient(options.port);
     await driver.createSession();
+    if (options.typingRegression) {
+      await runTypingRegression(driver, artifactsDir, projectRoot);
+      return;
+    }
     const smoke = await runSmoke(driver, artifactsDir, projectRoot);
     await writeDataflowEvidence(driver, artifactsDir, "before-termination");
     const restarted = await runForcedTerminationRecoverySmoke(driver, appProcess, log, artifactsDir, projectRoot, smoke.activeProjectRoot, options.port);

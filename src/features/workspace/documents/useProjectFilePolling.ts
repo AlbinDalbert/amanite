@@ -19,6 +19,7 @@ function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentStat
   }
   const hashes = state.nativeDocumentHashes;
   const pendingSections = Object.keys(buffer.nativeEdits) as Array<keyof typeof buffer.nativeEdits>;
+  if (buffer.revision > buffer.snapshotRevision && !pendingSections.includes("content")) pendingSections.push("content");
   if (pendingSections.length) {
     return pendingSections.some((section) => {
       const hashKey = `${section}Hash` as keyof typeof hashes;
@@ -31,6 +32,7 @@ function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentStat
 export function useProjectFilePolling({ buffersRef, commitBuffers, onError, projectRef }: Options) {
   useEffect(() => {
     let checking = false;
+    let disposed = false;
     const interval = window.setInterval(async () => {
       if (checking) return;
       const buffers = Object.values(buffersRef.current);
@@ -41,14 +43,18 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
       checking = true;
       try {
         const states = await fractalClient.pageContentStates(projectRef.current, snapshot.map((buffer) => buffer.path));
+        if (disposed) return;
         const expected = new Map(snapshot.map((buffer) => [buffer.path, buffer]));
         commitBuffers((current) => {
           let next = current;
           for (const state of states) {
             const checked = expected.get(state.path);
             const latest = current[state.path];
-            if (!checked || !latest || latest.contentHash !== checked.contentHash || latest.operation) continue;
-            if (!hasExternalChange(checked, state)) continue;
+            if (!checked || !latest || latest.contentHash !== checked.contentHash
+              || latest.nativeDocumentParts !== checked.nativeDocumentParts
+              || latest.documentId !== checked.documentId || latest.incarnation !== checked.incarnation
+              || latest.operation) continue;
+            if (!hasExternalChange(latest, state)) continue;
             if (next === current) next = { ...current };
             next[state.path] = {
               ...latest,
@@ -62,11 +68,12 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
           return next;
         });
       } catch (error) {
+        if (disposed) return;
         onError(errorMessage(error));
       } finally {
         checking = false;
       }
     }, 3000);
-    return () => window.clearInterval(interval);
+    return () => { disposed = true; window.clearInterval(interval); };
   }, [buffersRef, commitBuffers, onError, projectRef]);
 }

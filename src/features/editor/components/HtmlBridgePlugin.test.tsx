@@ -140,3 +140,45 @@ describe("HTML bridge loading", () => {
     expect(onSnapshot).toHaveBeenCalledTimes(2);
   });
 });
+
+it("ignores delayed snapshot echoes and imports only an explicit source replacement", async () => {
+  const { acquireSharedDocumentEditor, releaseSharedDocumentEditor, disposeSharedDocumentEditors, SharedLexicalComposer } = await import("./sharedDocumentEditor");
+  const session = acquireSharedDocumentEditor("snapshot-echo-regression", 927, "<p>Before</p>");
+  const root = createRoot(document.createElement("div"));
+  const loaded = vi.fn();
+  const render = (bodyHtml: string, sourceIncarnation = 1) => root.render(
+    <SharedLexicalComposer session={session}>
+      <HtmlBridgePlugin bodyHtml={bodyHtml} sourceIncarnation={sourceIncarnation} sharedSession={session} documentId={session.documentId} pagePath="notes.fractal.html" onLoaded={loaded} />
+    </SharedLexicalComposer>
+  );
+  const append = async (text: string) => act(async () => session.editor.update(() => {
+    const paragraph = $getRoot().getFirstChild();
+    if ($isElementNode(paragraph)) paragraph.append($createTextNode(text));
+  }));
+  try {
+    await act(async () => render("<p>Before</p>"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    await append(" one");
+    const older = await requestEditorSnapshot(session.documentId, 1);
+    await append(" two");
+    const newer = await requestEditorSnapshot(session.documentId, 2);
+    expect(newer?.bodyHtml).toContain("Before one two");
+    await act(async () => render(older!.bodyHtml));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("Before one two");
+    expect(loaded).toHaveBeenCalledTimes(1);
+    await act(async () => render("<p>External reload</p>", 2));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("External reload");
+    expect(loaded).toHaveBeenCalledTimes(2);
+    await act(async () => render("<p>External reload</p>", 3));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    await append(" edited");
+    const afterReload = await requestEditorSnapshot(session.documentId, session.getRevision());
+    expect(afterReload).toMatchObject({ incarnation: 3, bodyHtml: "<p><span>External reload edited</span></p>" });
+  } finally {
+    await act(async () => root.unmount());
+    releaseSharedDocumentEditor(session);
+    disposeSharedDocumentEditors(927);
+  }
+});

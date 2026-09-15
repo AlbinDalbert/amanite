@@ -33,9 +33,11 @@ type Options = {
 
 function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
   const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
-  const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
   const [project, setProject] = useState(initialProject);
-  const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
+  const [buffers, setBuffers] = useState<DocumentBuffers>(() => {
+    const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
+    return initialBuffer ? { [initialBuffer.path]: initialBuffer } : {};
+  });
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const [pollingNotice, setPollingNotice] = useState<{ id: number; message: string } | null>(null);
@@ -167,7 +169,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     commitBuffers((current) => {
       const buffer = current[path];
       return buffer
-        ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), draftError: null, error: null } }
+        ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), draftError: null, error: buffer.conflict ? buffer.error : null } }
         : current;
     });
   }, [commitBuffers]);
@@ -198,7 +200,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
           dirty: true,
           revision: buffer.revision + (reported ? 0 : 1),
           draftError: null,
-          error: null
+          error: buffer.conflict ? buffer.error : null
         }
       };
     });
@@ -223,7 +225,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
           nativeEdits: buffer.nativeDocumentParts ? { ...buffer.nativeEdits, content: snapshot.bodyHtml } : buffer.nativeEdits,
           dirty: true,
           snapshotRevision: snapshot.revision,
-          error: null
+          error: buffer.conflict ? buffer.error : null
         }
       };
     });
@@ -390,7 +392,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     autoSave,
     buffers,
     projectRoot: project.rootPath,
-    saveDocument: persistence.saveDocument,
+    saveDocument: persistence.autosaveDocument,
     onDraftConfirmed: confirmDraft,
     onDraftError: reportDraftError,
     onStorageError: setDraftStorageError

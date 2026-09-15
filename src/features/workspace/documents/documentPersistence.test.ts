@@ -180,6 +180,33 @@ describe("document persistence", () => {
     expect(publishProject).toHaveBeenCalled();
   });
 
+  it.each([false, true])("bounds autosave work and lets explicit save upgrade it: %s", async (manualSave) => {
+    const path = "notes.fractal.html";
+    const project = nativeProject(path);
+    const buffer = { ...bufferFromProject(project)!, dirty: true, revision: 1, nativeEdits: { content: "<p>One</p>" } };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const projectRef = { current: project };
+    const firstWrite = deferred<FractalConditionalWriteResult>();
+    const write = vi.spyOn(fractalClient, "setPageContent")
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockResolvedValueOnce(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "Two"), nativeParts({ contentHtml: "<p>Two</p>", contentHash: "two", sourceHash: "source-two" }))));
+    const persistence = createDocumentPersistence({ buffersRef, projectRef, commitBuffers: updater => { buffersRef.current = updater(buffersRef.current); }, onDocumentPathChange: vi.fn(), publishProject: next => { projectRef.current = next; } });
+    const saving = persistence.autosaveDocument(path);
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    buffersRef.current = { [path]: { ...buffersRef.current[path], revision: 2, nativeEdits: { content: "<p>Two</p>" } } };
+    if (manualSave) expect(persistence.saveDocument(path)).toBe(saving);
+    firstWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "One"), nativeParts({ contentHtml: "<p>One</p>", contentHash: "one", sourceHash: "source-one" }))));
+    await expect(saving).resolves.toBe(true);
+    expect(write).toHaveBeenCalledTimes(manualSave ? 2 : 1);
+    expect(buffersRef.current[path].dirty).toBe(!manualSave);
+    if (!manualSave) {
+      expect(buffersRef.current[path].nativeEdits.content).toBe("<p>Two</p>");
+      await expect(persistence.autosaveDocument(path)).resolves.toBe(true);
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(buffersRef.current[path].dirty).toBe(false);
+    }
+  });
+
   it("rescans dirty buffers before save-all returns", async () => {
     const firstPath = "first.fractal.html";
     const secondPath = "second.fractal.html";

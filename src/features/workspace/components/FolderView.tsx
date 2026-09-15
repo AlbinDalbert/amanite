@@ -157,17 +157,17 @@ function InlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages
   onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
-  const analysis = useMemo(() => analyzeEditablePage(buffer.source), [buffer.source]);
+  // Routine editor snapshots preserve the imported markup contract.
+  const analysis = useMemo(() => analyzeEditablePage(buffer.source), [buffer.documentId, buffer.incarnation]);
   const protectedDocument = !buffer.nativeDocumentParts || analysis.inspection.compatibilityIssues.length;
   if (protectedDocument) {
     return <p className="folder-inline-protected">This page contains HTML the rich editor cannot preserve. Open it in its own tab to inspect it.</p>;
   }
 
-  return <LoadedInlineFolderEditor analysis={analysis} buffer={buffer} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onChangeSource={onChangeSource} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />;
+  return <LoadedInlineFolderEditor buffer={buffer} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onChangeSource={onChangeSource} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />;
 }
 
-function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
-  analysis: ReturnType<typeof analyzeEditablePage>;
+function LoadedInlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
   buffer: DocumentBuffer;
   editorOwner: boolean;
   isBusy: boolean;
@@ -180,7 +180,7 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
   onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
-  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml, viewId, buffer.revision, buffer.incarnation);
+  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, buffer.bodyHtml, viewId, buffer.revision, buffer.incarnation);
 
   function changeTitle(title: string) {
     const revision = session.nextRevision();
@@ -190,16 +190,17 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
 
   return (
     <RichDocumentEditor
-      bodyHtml={analysis.page.bodyHtml}
+      bodyHtml={buffer.bodyHtml}
       embedded
       documentId={buffer.documentId}
+      sourceIncarnation={buffer.incarnation}
       historyOwner={editorOwner}
       isBusy={isBusy || !editorOwner}
       pagePath={buffer.path}
       pageTitleIndex={pageTitleIndex}
       pages={pages}
       spellCheck={spellCheck}
-      title={analysis.page.title}
+      title={buffer.title}
       sharedSession={session}
       viewId={viewId}
       onChangeBody={() => undefined}
@@ -297,7 +298,7 @@ function FolderSequenceBody({ buffer, child, documentQueries, editorOwner, isBus
   return (
     <>
       {child.status === "missing" ? <p className="folder-missing-copy">Fractal kept this place because the item was removed outside the project engine.</p> : null}
-      {page && !isEditing ? <p className="folder-page-preview">{document?.text.trim() || "Open this page to load its preview."}</p> : null}
+      {/*{page && !isEditing ? <p className="folder-page-preview">{document?.text.trim() || "Open this page to load its preview."}</p> : null}*/}
       {isEditing && loadingPaths.has(path) ? <p className="folder-inline-state">Loading page…</p> : null}
       {isEditing && loadErrors[path] ? <p className="folder-inline-state error">{loadErrors[path]}</p> : null}
       {isEditing && buffer ? (

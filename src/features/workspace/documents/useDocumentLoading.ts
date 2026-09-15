@@ -24,12 +24,14 @@ function loadingKey(projectRoot: string, pagePath: string) {
 }
 
 export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors, setLoadingPaths }: Options) {
-  const checkedDraftsRef = useRef(new Set<string>());
+  const initializedProjectsRef = useRef(new Set<string>());
   const loadingPromisesRef = useRef(new Map<string, Promise<boolean>>());
 
   const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.activePagePath;
+    const expectedBuffer = path ? buffersRef.current[path] : undefined;
     const isCurrent = () => projectRef.current.rootPath === projectRoot
+      && (!path || buffersRef.current[path] === expectedBuffer)
       && (loaded.sessionGeneration == null || projectRef.current.sessionGeneration === loaded.sessionGeneration);
     if (!path || loaded.activePageSource == null || loaded.rootPath !== projectRoot || !isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
@@ -46,20 +48,20 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const buffer = bufferFromProject(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!buffer || !isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
-    if (!isCurrent()) return false;
     setLoadErrors((current) => {
       const next = { ...current };
       delete next[path];
       return next;
     });
-    if (!isCurrent()) return false;
     publishProject(loaded);
     return true;
   }, [commitBuffers, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors]);
 
   const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.path;
+    const expectedBuffer = buffersRef.current[path];
     const isCurrent = () => projectRef.current.rootPath === projectRoot
+      && (!path || buffersRef.current[path] === expectedBuffer)
       && (loaded.sessionGeneration == null || projectRef.current.sessionGeneration === loaded.sessionGeneration);
     if (!isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
@@ -76,13 +78,11 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const buffer = bufferFromLoadedPage(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
-    if (!isCurrent()) return false;
     setLoadErrors((current) => {
       const next = { ...current };
       delete next[path];
       return next;
     });
-    if (!isCurrent()) return false;
     const currentProject = projectRef.current;
     publishProject({
       ...currentProject,
@@ -99,13 +99,14 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
   }, [commitBuffers, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors]);
 
   useEffect(() => {
-    const path = initialProject.activePagePath;
-    if (!path || initialProject.activePageSource == null) return;
-    const key = `${initialProject.rootPath}\u0000${path}`;
-    if (checkedDraftsRef.current.has(key)) return;
-    checkedDraftsRef.current.add(key);
+    // Bootstrap recovery belongs to project entry. Later snapshots from saves
+    // and renames must never reinstall an already live editor buffer.
+    const key = `${initialProject.rootPath}\u0000${projectGeneration}`;
+    if (initializedProjectsRef.current.has(key)) return;
+    initializedProjectsRef.current.add(key);
+    if (!initialProject.activePagePath || initialProject.activePageSource == null) return;
     void installLoadedProject(initialProject, true, initialProject.rootPath);
-  }, [initialProject, installLoadedProject]);
+  }, [initialProject, installLoadedProject, projectGeneration]);
 
   const openDocument = useCallback((path: string, knownProject?: FractalProject): Promise<boolean> => {
     if (buffersRef.current[path]) return Promise.resolve(true);

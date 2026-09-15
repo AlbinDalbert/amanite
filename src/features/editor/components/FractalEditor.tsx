@@ -35,6 +35,7 @@ type FractalEditorProps = {
   hasTitleHeading?: boolean;
   title?: string;
   documentId?: string;
+  sourceIncarnation?: number;
   editable?: boolean;
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
@@ -81,7 +82,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -91,7 +92,10 @@ function FractalEditor(props: FractalEditorProps) {
   const [liveModel, setLiveModel] = useState<EditorModelSnapshot | null>(null);
   const [inspectorWidth, setInspectorWidth] = useState(292);
   const editorRootRef = useRef<HTMLDivElement>(null);
-  const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [source]);
+  // Local snapshots come from the already validated rich editor. Inspect native
+  // markup again only when a new disk source is installed.
+  const inspectionVersion = sourceIncarnation ?? source;
+  const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [documentId, inspectionVersion]);
   const matchCount = useMemo(() => !findQuery ? 0 : liveModel ? countTextMatchesInText(liveModel.text, findQuery) : countTextMatches(source, findQuery, true), [findQuery, liveModel, source]);
   const page = nativeAnalysis.page;
   const displayedBodyHtml = bufferBodyHtml ?? page.bodyHtml;
@@ -211,6 +215,7 @@ function FractalEditor(props: FractalEditorProps) {
             <RichDocumentEditor
               bodyHtml={displayedBodyHtml}
               documentId={documentId}
+              sourceIncarnation={sourceIncarnation}
               historyOwner={editable}
               isBusy={isBusy || !editable}
               pagePath={pagePath}

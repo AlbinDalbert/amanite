@@ -1,6 +1,5 @@
 import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
-import { readEditablePage } from "@/features/editor/components/pageSource";
 import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
@@ -115,7 +114,7 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
 
 function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
   const viewId = `${groupId}:${tabBuffer.documentId}`;
-  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml, viewId, tabBuffer.revision, tabBuffer.incarnation);
+  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, tabBuffer.bodyHtml, viewId, tabBuffer.revision, tabBuffer.incarnation);
   const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">
@@ -125,6 +124,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         backlinks={tabBuffer.backlinks}
         bodyHtml={tabBuffer.bodyHtml}
         documentId={tabBuffer.documentId}
+        sourceIncarnation={tabBuffer.incarnation}
         editable={editable}
         focusMode={context.focusMode}
         isBusy={context.workspaceBusy || (active && context.isLoading)}
