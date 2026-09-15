@@ -1,4 +1,5 @@
 import DocumentLoadingPreview from "@/features/editor/components/DocumentLoadingPreview";
+import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
@@ -30,7 +31,7 @@ type Props = {
   onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onModelChange?: (path: string, snapshot: import("@/features/editor/components/editorModel").EditorModelSnapshot) => void;
   onRevision: (path: string) => void;
-  onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
+  onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onCreateFolder: (path: string) => void;
   onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFirstPage?: () => void;

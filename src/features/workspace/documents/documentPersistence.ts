@@ -3,6 +3,7 @@ import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
 import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 import { mapPagePath, mutationScope, reconcileMutationResult, reconcileProjectSnapshot } from "@/lib/fractal/reconcile";
 import type { FractalMutationReceipt } from "@/lib/fractal/types";
+import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import {
   errorMessage,
   type BufferUpdater,
@@ -15,7 +16,7 @@ type MutableValue<T> = { current: T };
 type PersistenceOptions = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
-  flushDocument?: (buffer: DocumentBuffer) => void | Promise<void>;
+  flushDocument?: (buffer: DocumentBuffer) => EditorSnapshot | null | void | Promise<EditorSnapshot | null | void>;
   onDocumentPathChange: (from: string, to: string) => void;
   onDraftStorageError?: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
@@ -310,7 +311,10 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
   const beforeFlush = context.buffersRef.current[path];
   if (!beforeFlush) return { kind: "finished", path, success: true };
   try {
-    await context.flushDocument?.(beforeFlush);
+    const snapshot = await context.flushDocument?.(beforeFlush);
+    if (context.flushDocument && beforeFlush.revision > beforeFlush.snapshotRevision && !snapshot) {
+      throw new Error(`The editor for ${beforeFlush.path} is unavailable, so Amanite kept the document open.`);
+    }
   } catch (error) {
     context.commitBuffers((current) => {
       const buffer = current[path];

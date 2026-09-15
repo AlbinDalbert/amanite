@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft } from "@/app/pageDrafts";
-import { requestEditorFlush } from "@/features/editor/components/editorFlush";
+import { requestEditorSnapshot, type EditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
 import { mapPagePath, reconcileMutationResult } from "@/lib/fractal/reconcile";
@@ -124,7 +124,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
-    flushDocument: (buffer) => requestEditorFlush(buffer.documentId, buffer.revision),
+    flushDocument: (buffer) => requestEditorSnapshot(buffer.documentId, buffer.revision),
     onDocumentPathChange: notifyDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
@@ -206,20 +206,25 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     });
   }, [commitBuffers]);
 
-  const updateSnapshot = useCallback((path: string, bodyHtml: string, snapshotRevision: number) => {
+  const updateSnapshot = useCallback((path: string, snapshot: EditorSnapshot) => {
     commitBuffers((current) => {
       const buffer = current[path];
-      if (!buffer || snapshotRevision < buffer.snapshotRevision) return current;
-      const source = writeEditablePage(buffer.source, buffer.title, bodyHtml, buffer.hasTitleHeading);
+      if (!buffer
+        || snapshot.documentId !== buffer.documentId
+        || snapshot.projectGeneration !== buffer.projectGeneration
+        || snapshot.incarnation < buffer.incarnation
+        || snapshot.revision < buffer.snapshotRevision) return current;
+      const source = writeEditablePage(buffer.source, buffer.title, snapshot.bodyHtml, buffer.hasTitleHeading);
       return {
         ...current,
         [path]: {
           ...buffer,
           source,
-          bodyHtml,
-          nativeEdits: buffer.nativeDocumentParts ? { ...buffer.nativeEdits, content: bodyHtml } : buffer.nativeEdits,
+          bodyHtml: snapshot.bodyHtml,
+          incarnation: Math.max(buffer.incarnation, snapshot.incarnation),
+          nativeEdits: buffer.nativeDocumentParts ? { ...buffer.nativeEdits, content: snapshot.bodyHtml } : buffer.nativeEdits,
           dirty: true,
-          snapshotRevision,
+          snapshotRevision: snapshot.revision,
           error: null
         }
       };

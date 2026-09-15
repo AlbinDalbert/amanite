@@ -113,6 +113,7 @@ describe("executeWorkspaceTool", () => {
       "drafts/day-one.fractal.html": {
         documentId: "amanite-document-test-day-one",
         projectGeneration: 1,
+  incarnation: 1,
         path: "drafts/day-one.fractal.html",
         baseSource: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',
         source: '<!doctype html><html><body><main data-fractal-document><p>Fresh unsaved thought</p></main></body></html>',

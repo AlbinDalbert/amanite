@@ -3,7 +3,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import type { EditorState } from "lexical";
 import { useCallback, useEffect, useRef } from "react";
-import { registerEditorFlush, type EditorSnapshot } from "./editorFlush";
+import { registerEditorFlush, settleEditorComposition, type EditorSnapshot } from "./editorFlush";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
 import { cleanEditorHtml } from "./editorHtml";
 import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
@@ -52,8 +52,8 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     onModelChangeRef.current?.(model);
   }, [editorDocumentId]);
 
-  const exportPendingState = useCallback((minimumRevision = 0): EditorSnapshot | void => {
-    const requestId = nextDataflowRequestId("snapshot");
+  const exportPendingState = useCallback((minimumRevision = 0, requestedId?: string): EditorSnapshot | void => {
+    const requestId = requestedId ?? nextDataflowRequestId("snapshot");
     const editorRevision = currentRevision();
     const pendingAt = pendingRevision.current ?? -1;
     const revision = Math.max(editorRevision, pendingAt);
@@ -69,7 +69,14 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     pendingRevision.current = null;
     recordDataflowEvent({ documentId: editorDocumentId, name: "snapshot.request", requestId, revision, status: "start" });
     const html = measureDataflow("editor.full-export", { documentId: editorDocumentId, requestId, revision }, () => state.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor }));
-    const snapshot = { bodyHtml: html, revision };
+    const snapshot = {
+      bodyHtml: html,
+      documentId: editorDocumentId,
+      incarnation: sharedSession?.getIncarnation?.() ?? 1,
+      projectGeneration: sharedSession?.projectGeneration ?? 0,
+      requestId,
+      revision
+    };
     lastSnapshot.current = snapshot;
     lastHtml.current = html;
     sharedSession?.acceptBodyHtml(html);
@@ -93,7 +100,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     const importRequestId = nextDataflowRequestId("import");
     const importStarted = performance.now();
     recordDataflowEvent({ bytes: new TextEncoder().encode(bodyHtml).byteLength, documentId: editorDocumentId, name: "editor.import", requestId: importRequestId, status: "start" });
-    if (sharedSession?.initialized && bodyHtml !== sharedSession.getMirrorHtml()) sharedSession.resetRevision();
+    if (sharedSession?.initialized && bodyHtml !== sharedSession.getMirrorHtml()) sharedSession.replaceSource();
     lastSnapshot.current = null;
     const cancelImport = importHtmlIntoEditorInBatches(editor, bodyHtml, () => {
       loadedPage.current = editorDocumentId;
@@ -107,28 +114,18 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
     return cancelImport;
   }, [bodyHtml, currentRevision, editor, editorDocumentId, pagePath, reportModel, sharedSession]);
 
-  useEffect(() => {
-    const root = editor.getRootElement();
-    if (!root) return;
-    const handleFocusOut = (event: FocusEvent) => {
-      if (!root.contains(event.relatedTarget as Node | null)) exportPendingState();
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") exportPendingState();
-    };
-    root.addEventListener("focusout", handleFocusOut);
-    root.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => {
-      root.removeEventListener("focusout", handleFocusOut);
-      root.removeEventListener("keydown", handleKeyDown, { capture: true });
-    };
-  }, [editor, exportPendingState]);
-
   const getRevision = useCallback(() => currentRevision(), [currentRevision]);
 
-  useEffect(() => registerEditorFlush(editorDocumentId, { flush: (minimumRevision) => Promise.resolve(exportPendingState(minimumRevision)), getRevision }), [editorDocumentId, exportPendingState, getRevision]);
-
-  useEffect(() => () => { void exportPendingState(); }, [exportPendingState]);
+  useEffect(() => registerEditorFlush(editorDocumentId, {
+    documentId: editorDocumentId,
+    incarnation: sharedSession?.getIncarnation?.() ?? 1,
+    projectGeneration: sharedSession?.projectGeneration ?? 0,
+    flush: async (minimumRevision, requestId) => {
+      if (editor.isComposing()) await settleEditorComposition(editor.getRootElement());
+      return exportPendingState(minimumRevision, requestId);
+    },
+    getRevision
+  }), [editor, editorDocumentId, exportPendingState, getRevision, sharedSession]);
 
   function handleChange(state: EditorState, _editor: unknown, tags: Set<string>) {
     if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG) || tags.has(AMANITE_VIEW_SYNC_TAG)) return;

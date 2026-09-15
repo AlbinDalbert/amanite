@@ -21,6 +21,7 @@ const project: FractalProject = {
 const buffer: DocumentBuffer = {
   documentId: "amanite-document-test-notes",
   projectGeneration: 1,
+  incarnation: 1,
   path: "notes.fractal.html",
   baseSource: "",
   source: "",

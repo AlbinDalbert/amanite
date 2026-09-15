@@ -3,6 +3,7 @@ import Icon from "@/components/ui/Icon";
 import TreeLocation from "@/components/ui/TreeLocation";
 import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
 import RichDocumentEditor from "@/features/editor/components/RichDocumentEditor";
+import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import { analyzeEditablePage } from "@/features/editor/components/pageSource";
 import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
@@ -153,7 +154,7 @@ function InlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages
   viewId: string;
   onModelChange?: Props["onModelChange"];
   onRevision?: (path: string, revision?: number) => void;
-  onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
+  onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
   const analysis = useMemo(() => analyzeEditablePage(buffer.source), [buffer.source]);
@@ -176,7 +177,7 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
   viewId: string;
   onModelChange?: Props["onModelChange"];
   onRevision?: (path: string, revision?: number) => void;
-  onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
+  onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
   const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml, viewId);
@@ -205,7 +206,7 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
       onChangeTitle={changeTitle}
       onModelChange={(snapshot) => onModelChange?.(buffer.path, snapshot)}
       onRevision={(revision) => onRevision?.(buffer.path, revision)}
-      onSnapshot={(snapshot) => onSnapshot?.(buffer.path, snapshot.bodyHtml, snapshot.revision)}
+      onSnapshot={(snapshot) => onSnapshot?.(buffer.path, snapshot)}
     />
   );
 }

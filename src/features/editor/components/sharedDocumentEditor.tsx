@@ -17,7 +17,8 @@ export type SharedDocumentEditorSession = {
   needsSourceRefresh: boolean;
   getRevision: () => number;
   nextRevision: () => number;
-  resetRevision: () => void;
+  getIncarnation: () => number;
+  replaceSource: () => number;
   viewCount: number;
   getMirrorHtml: () => string;
   getMirrorText: () => string | null;
@@ -35,6 +36,7 @@ type SessionRecord = SharedDocumentEditorSession & {
   mirrorHtml: string;
   mirrorText: string | null;
   revision: number;
+  incarnation: number;
   listeners: Set<() => void>;
   viewScroll: Map<string, number>;
   unregisterUpdate: () => void;
@@ -62,6 +64,7 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     initialized: false,
     needsSourceRefresh: false,
     revision: 0,
+    incarnation: 1,
     viewCount: 0,
     mirrorHtml: initialBodyHtml || "<p></p>",
     mirrorText: null,
@@ -95,7 +98,15 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
       document!.revision += 1;
       return document!.revision;
     },
-    resetRevision() { document!.revision = 0; },
+    getIncarnation() { return document!.incarnation; },
+    replaceSource() {
+      document!.incarnation += 1;
+      document!.revision += 1;
+      document!.historyState.current = null;
+      document!.historyState.undoStack = [];
+      document!.historyState.redoStack = [];
+      return document!.incarnation;
+    },
     getViewScroll(key: string) { return document!.viewScroll.get(key) ?? 0; },
     setViewScroll(key: string, scrollTop: number) { document!.viewScroll.set(key, scrollTop); },
     dispose() {
@@ -134,7 +145,8 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     get viewCount() { return document!.viewCount; },
     getRevision: document.getRevision,
     nextRevision: document.nextRevision,
-    resetRevision: document.resetRevision,
+    getIncarnation: document.getIncarnation,
+    replaceSource: document.replaceSource,
     getMirrorHtml: document.getMirrorHtml,
     getMirrorText: document.getMirrorText,
     acceptBodyHtml: document.acceptBodyHtml,

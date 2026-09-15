@@ -41,7 +41,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
       sourceHash: loaded.activePageContentHash
     });
     if (!isCurrent()) return false;
-    const buffer = bufferFromProject(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, projectGeneration, revision: resolved.revision });
+    const previousIncarnation = buffersRef.current[path]?.incarnation ?? 0;
+    const buffer = bufferFromProject(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!buffer || !isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
     if (!isCurrent()) return false;
@@ -69,7 +70,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
       sourceHash: loaded.contentHash
     });
     if (!isCurrent()) return false;
-    const buffer = bufferFromLoadedPage(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, projectGeneration, revision: resolved.revision });
+    const previousIncarnation = buffersRef.current[path]?.incarnation ?? 0;
+    const buffer = bufferFromLoadedPage(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!isCurrent()) return false;
     commitBuffers((current) => ({ ...current, [path]: buffer }));
     if (!isCurrent()) return false;

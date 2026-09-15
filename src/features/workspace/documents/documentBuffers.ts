@@ -5,6 +5,7 @@ import { documentIdentity } from "./documentSessions";
 export type DocumentBuffer = {
   documentId: string;
   projectGeneration: number;
+  incarnation: number;
   path: string;
   baseSource: string;
   source: string;
@@ -74,6 +75,7 @@ function editableFields(source: string) {
 
 type BufferIdentityOptions = {
   draftedRevision?: number;
+  incarnation?: number;
   projectGeneration?: number;
   revision?: number;
 };
@@ -95,6 +97,7 @@ export function bufferFromProject(
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
+    incarnation: options.incarnation ?? 1,
     path: project.activePagePath,
     baseSource: project.activePageSource,
     source,
@@ -126,6 +129,7 @@ export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
+    incarnation: options.incarnation ?? 1,
     path: loaded.path,
     baseSource: loaded.source,
     source,

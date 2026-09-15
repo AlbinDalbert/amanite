@@ -143,7 +143,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
         onModelChange={(snapshot) => context.onModelChange?.(path, snapshot)}
         onRevision={editable ? (revision) => context.onRevision?.(path, revision) : () => undefined}
-        onSnapshot={(snapshot) => context.onSnapshot?.(path, snapshot.bodyHtml, snapshot.revision)}
+        onSnapshot={(snapshot) => context.onSnapshot?.(path, snapshot)}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}
         onNavigatePage={(nextPath) => context.onNavigatePage(groupId, nextPath)}
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}

@@ -20,6 +20,10 @@ function dirtyBuffer(revision: number, draftedRevision = 0) {
   return { ...buffer, dirty: true, draftedRevision, revision };
 }
 
+function snapshot(buffer: ReturnType<typeof dirtyBuffer>, revision: number, bodyHtml: string) {
+  return { bodyHtml, documentId: buffer.documentId, incarnation: 1, projectGeneration: buffer.projectGeneration, requestId: `test-${revision}`, revision };
+}
+
 function Harness({ buffers, autoSave = false, onDraftConfirmed, onDraftError }: { buffers: DocumentBuffers; autoSave?: boolean; onDraftConfirmed: (documentId: string, revision: number) => void; onDraftError?: (documentId: string, message: string) => void }) {
   useDocumentDrafts({
     autoSave,
@@ -40,7 +44,8 @@ describe("revision-aware document drafts", () => {
     vi.clearAllMocks();
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     mockedInvoke.mockResolvedValue(undefined);
-    mockedSnapshot.mockResolvedValue({ bodyHtml: "<p>Edited</p>", revision: 1 });
+    const buffer = dirtyBuffer(1);
+    mockedSnapshot.mockResolvedValue(snapshot(buffer, 1, "<p>Edited</p>"));
   });
 
   afterEach(() => {
@@ -69,8 +74,8 @@ describe("revision-aware document drafts", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     const confirmed = vi.fn();
-    mockedSnapshot.mockResolvedValue({ bodyHtml: "<p>Latest</p>", revision: 3 });
     const first = dirtyBuffer(1);
+    mockedSnapshot.mockResolvedValue(snapshot(first, 3, "<p>Latest</p>"));
     await act(async () => root.render(<Harness buffers={{ [first.path]: first }} onDraftConfirmed={confirmed} />));
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     const second = { ...first, revision: 2 };

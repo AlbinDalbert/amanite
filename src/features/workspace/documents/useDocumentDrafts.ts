@@ -74,6 +74,13 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
         const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
         const latest = findBuffer(documentId);
         if (!latest) return;
+        if (snapshot && (snapshot.documentId !== latest.documentId
+          || snapshot.projectGeneration !== latest.projectGeneration
+          || snapshot.incarnation < latest.incarnation)) {
+          reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
+          schedule.failedRevision = targetRevision;
+          return;
+        }
         if (snapshot && snapshot.revision < targetRevision) {
           reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
           schedule.failedRevision = targetRevision;

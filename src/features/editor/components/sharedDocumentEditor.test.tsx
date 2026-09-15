@@ -56,4 +56,16 @@ describe("shared document editor sessions", () => {
     second.releaseView();
     first.dispose();
   });
+
+  it("advances the source incarnation without resetting revision identity", () => {
+    const session = acquireSharedDocumentEditor("amanite-document-incarnation", 42, "<p>Initial</p>", "left");
+    session.nextRevision();
+    session.historyState.undoStack.push({ editor: session.editor, editorState: session.editor.getEditorState() });
+
+    expect(session.replaceSource()).toBe(2);
+    expect(session.getRevision()).toBe(2);
+    expect(session.historyState.undoStack).toEqual([]);
+    session.releaseView();
+    session.dispose();
+  });
 });
