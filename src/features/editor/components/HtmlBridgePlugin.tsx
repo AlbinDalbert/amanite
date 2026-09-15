@@ -7,7 +7,7 @@ import { registerEditorFlush, type EditorSnapshot } from "./editorFlush";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG, importHtmlIntoEditorInBatches } from "./editorHtml";
 import { cleanEditorHtml } from "./editorHtml";
 import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
-import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import { AMANITE_VIEW_SYNC_TAG, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 import { measureDataflow, nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
 type Props = {
@@ -80,7 +80,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   }, [currentRevision, editor, editorDocumentId]);
 
   useEffect(() => {
-    if (sharedSession?.initialized && loadedPage.current === null && (!sharedSession.needsSourceRefresh || bodyHtml === sharedSession.getMirrorHtml())) {
+    if (sharedSession?.initialized && loadedPage.current === null && bodyHtml === sharedSession.getMirrorHtml()) {
       loadedPage.current = editorDocumentId;
       lastHtml.current = bodyHtml;
       sharedSession.markInitialized();
@@ -131,7 +131,7 @@ function HtmlBridgePlugin({ bodyHtml, documentId, pagePath, sharedSession, onCha
   useEffect(() => () => { void exportPendingState(); }, [exportPendingState]);
 
   function handleChange(state: EditorState, _editor: unknown, tags: Set<string>) {
-    if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG)) return;
+    if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG) || tags.has(AMANITE_VIEW_SYNC_TAG)) return;
     const revision = sharedSession?.nextRevision() ?? (revisionRef.current += 1);
     onRevisionRef.current?.(revision);
     reportModel(state, revision);

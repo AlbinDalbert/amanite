@@ -114,7 +114,8 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
 }
 
 function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
-  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml);
+  const viewId = `${groupId}:${tabBuffer.documentId}`;
+  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, readEditablePage(tabBuffer.source).bodyHtml, viewId);
   const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">
@@ -137,7 +138,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         source={tabBuffer.source}
         spellCheck={context.settings.spellCheck}
         title={tabBuffer.title}
-        viewId={`${groupId}:${tabBuffer.documentId}`}
+        viewId={viewId}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
         onModelChange={(snapshot) => context.onModelChange?.(path, snapshot)}

@@ -8,7 +8,7 @@ import type {
 import { countTextMatches, DocumentStatusBar, FindBar, replaceDocumentText, replaceEditorText } from "./DocumentTools";
 import InspectorPanel from "./InspectorPanel";
 import { analyzeEditablePage } from "./pageSource";
-import RichDocumentEditor, { ReadOnlyDocumentMirror, resolveEditorLinkTarget } from "./RichDocumentEditor";
+import RichDocumentEditor, { resolveEditorLinkTarget } from "./RichDocumentEditor";
 import { safeExternalHref } from "./linkNavigation";
 import { fractalClient } from "@/lib/fractal/client";
 import { startPointerResize } from "@/components/ui/pointerResize";
@@ -208,13 +208,11 @@ function FractalEditor(props: FractalEditorProps) {
             </div>
           </section>
         ) : (
-          !editable && sharedSession ? (
-            <ReadOnlyDocumentMirror bodyHtml={displayedBodyHtml} pagePath={pagePath} session={sharedSession} title={displayedTitle} />
-          ) : (
             <RichDocumentEditor
               bodyHtml={displayedBodyHtml}
               documentId={documentId}
-              isBusy={isBusy}
+              historyOwner={editable}
+              isBusy={isBusy || !editable}
               pagePath={pagePath}
               pageTitleIndex={pageTitleIndex}
               pages={pages}
@@ -231,7 +229,6 @@ function FractalEditor(props: FractalEditorProps) {
               onOpenFolder={onOpenFolder}
               onToggleInspector={() => setIsInspectorOpen((open) => !open)}
             />
-          )
         )}
         <FindBar
           currentMatch={currentMatch}

@@ -1,6 +1,6 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 is complete; R1 through R7 remain open.
+Status: in progress. R0 and R1 are complete; R2 through R7 remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -42,7 +42,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | ID | Work package | Depends on | Initial status |
 | --- | --- | --- | --- |
 | R0 | Establish acceptance evidence and desktop instrumentation | None | Complete |
-| R1 | Preserve rich views, history, and attachment state | R0 | Not started |
+| R1 | Preserve rich views, history, and attachment state | R0 | Complete |
 | R2 | Complete revision, snapshot, and close contracts | R1 | Not started |
 | R3 | Bound live queries and remove duplicate scans | R1, R2 | Not started |
 | R4 | Verify recovery completion and durability | R2 | Not started |
@@ -135,6 +135,12 @@ Exit: deterministic ownership/history tests plus desktop checks for cross-view
 undo/redo, independent selections and scroll, formatting, table editing, links,
 composition, toolbar actions, and conflicting pending input. Warm activation
 and rename produce no disk read, source import, or history reset.
+
+Implementation status: complete. Each view now has a session-owned Lexical
+controller, while the session shares editor states directly and owns one
+external history state. Only the current input owner registers history. Rich
+inactive views no longer fall back to plain text. See
+[R1 verification](measurements/document-dataflow-r1.md).
 
 ## R2. Complete snapshot and operation barriers
 

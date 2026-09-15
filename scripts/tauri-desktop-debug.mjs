@@ -815,6 +815,17 @@ async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   `);
   if (groupCounts.left < 4 || groupCounts.right !== 2) throw new Error(`Unexpected editor group tab counts: ${JSON.stringify(groupCounts)}`);
 
+  await driver.click('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable');
+  try {
+    await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 5_000);
+  } catch (error) {
+    const state = await driver.executeScript(`
+      const group = document.querySelector('.editor-group[data-group-id="right"]');
+      const editor = group?.querySelector('.editor-tab-panel.active .rich-content-editable');
+      return { contenteditable: editor?.getAttribute('contenteditable'), focused: group?.classList.contains('focused'), imports: window.__AMANITE_DATAFLOW__?.read?.().filter((event) => event.name === 'editor.import').slice(-8), loading: Boolean(group?.querySelector('.document-loading-preview')), titleDisabled: group?.querySelector('.document-title-field input')?.disabled };
+    `);
+    throw new Error(`${error.message}; right editor state: ${JSON.stringify(state)}`);
+  }
   await driver.setValue('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable', "Local edit before an external change.");
   const externalPagePath = join(activeProjectRoot, "pages", "my-file.fractal.html");
   const externalSource = await readFile(externalPagePath, "utf8");
@@ -822,7 +833,17 @@ async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   await driver.find('.editor-group[data-group-id="right"] .document-buffer-alert.conflict', 10_000);
   await driver.click('.editor-group[data-group-id="right"] .document-buffer-actions button:first-child');
   await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
-  await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  await driver.click('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable');
+  try {
+    await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 5_000);
+  } catch (error) {
+    const state = await driver.executeScript(`
+      const group = document.querySelector('.editor-group[data-group-id="right"]');
+      const editor = group?.querySelector('.editor-tab-panel.active .rich-content-editable');
+      return { contenteditable: editor?.getAttribute('contenteditable'), focused: group?.classList.contains('focused'), imports: window.__AMANITE_DATAFLOW__?.read?.().filter((event) => event.name === 'editor.import').slice(-8), loading: Boolean(group?.querySelector('.document-loading-preview')), titleDisabled: group?.querySelector('.document-title-field input')?.disabled };
+    `);
+    throw new Error(`${error.message}; reloaded right editor state: ${JSON.stringify(state)}`);
+  }
   await driver.setValue('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', "Written in the right editor group.");
   await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab-state.dirty');
   await takeScreenshot(driver, screenshotsDir, "04b-split-pane");
@@ -910,6 +931,7 @@ async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) 
   await driver.find(".confirm-dialog");
   await driver.click(".confirm-dialog .primary-action");
   await driver.find(".save-state.unsaved");
+  await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
   const recoveredText = await driver.text(".editor-tab-panel.active .rich-content-editable");
   if (!recoveredText.includes("Recovered from Amanite local storage.")) {
     throw new Error(`Draft recovery returned unexpected text: ${recoveredText}`);

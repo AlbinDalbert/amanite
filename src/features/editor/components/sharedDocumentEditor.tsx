@@ -1,16 +1,18 @@
 import { createLexicalComposerContext, LexicalComposerContext, type LexicalComposerContextType } from "@lexical/react/LexicalComposerContext";
-import { $createParagraphNode, $getRoot, type LexicalEditor } from "lexical";
+import { createEmptyHistoryState, type HistoryState } from "@lexical/history";
+import { $createParagraphNode, $getRoot, $getSelection, type LexicalEditor } from "lexical";
 import { createAmaniteEditor } from "./editorConfig";
-import { AMANITE_DERIVED_LINK_TAG } from "./editorHtml";
+import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG } from "./editorHtml";
 import { readEditorModel } from "./editorModel";
 import { editorLexicalTheme } from "./editorLexicalTheme";
-import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 
 export type SharedDocumentEditorSession = {
   documentId: string;
   projectGeneration: number;
   editor: LexicalEditor;
   context: LexicalComposerContextType;
+  historyState: HistoryState;
   initialized: boolean;
   needsSourceRefresh: boolean;
   getRevision: () => number;
@@ -38,26 +40,25 @@ type SessionRecord = SharedDocumentEditorSession & {
   unregisterUpdate: () => void;
 };
 
-const sessions = new Map<string, SessionRecord>();
+type DocumentSessionRecord = Omit<SessionRecord, "context" | "editor" | "unregisterUpdate"> & {
+  attachments: Map<string, SessionRecord>;
+  historyState: HistoryState;
+};
 
-function emit(session: SessionRecord) {
+export const AMANITE_VIEW_SYNC_TAG = "amanite-view-sync";
+const sessions = new Map<string, DocumentSessionRecord>();
+
+function emit(session: { listeners: Set<() => void> }) {
   for (const listener of session.listeners) listener();
 }
 
-export function acquireSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string): SharedDocumentEditorSession {
-  const existing = sessions.get(documentId);
-  if (existing) {
-    existing.acquireView();
-    return existing;
-  }
-
-  const editor = createAmaniteEditor(`amanite-document-${documentId}`);
-  const context = createLexicalComposerContext(null, editorLexicalTheme);
-  const session = {
+export function acquireSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default"): SharedDocumentEditorSession {
+  let document = sessions.get(documentId);
+  if (!document) {
+    document = {
     documentId,
     projectGeneration,
-    editor,
-    context,
+    historyState: createEmptyHistoryState(),
     initialized: false,
     needsSourceRefresh: false,
     revision: 0,
@@ -66,67 +67,118 @@ export function acquireSharedDocumentEditor(documentId: string, projectGeneratio
     mirrorText: null,
     listeners: new Set<() => void>(),
     viewScroll: new Map<string, number>(),
-    unregisterUpdate: () => undefined,
-    getMirrorHtml() { return session.mirrorHtml; },
-    getMirrorText() { return session.mirrorText; },
+    attachments: new Map<string, SessionRecord>(),
+    getMirrorHtml() { return document!.mirrorHtml; },
+    getMirrorText() { return document!.mirrorText; },
     acceptBodyHtml(bodyHtml: string) {
-      if (session.mirrorHtml === bodyHtml) return;
-      session.mirrorHtml = bodyHtml;
-      emit(session);
+      if (document!.mirrorHtml === bodyHtml) return;
+      document!.mirrorHtml = bodyHtml;
+      emit(document!);
     },
     subscribe(listener: () => void) {
-      session.listeners.add(listener);
-      return () => session.listeners.delete(listener);
+      document!.listeners.add(listener);
+      return () => document!.listeners.delete(listener);
     },
     acquireView() {
-      if (session.viewCount === 0 && session.initialized) session.needsSourceRefresh = true;
-      session.viewCount += 1;
+      document!.viewCount += 1;
     },
     releaseView() {
-      session.viewCount = Math.max(0, session.viewCount - 1);
-      if (session.viewCount === 0) session.needsSourceRefresh = true;
+      document!.viewCount = Math.max(0, document!.viewCount - 1);
     },
     markInitialized() {
-      session.mirrorText = readEditorModel(session.editor.getEditorState(), session.revision).text;
-      session.initialized = true;
-      session.needsSourceRefresh = false;
-      emit(session);
+      document!.initialized = true;
+      document!.needsSourceRefresh = false;
+      emit(document!);
     },
-    getRevision() { return session.revision; },
+    getRevision() { return document!.revision; },
     nextRevision() {
-      session.revision += 1;
-      return session.revision;
+      document!.revision += 1;
+      return document!.revision;
     },
-    resetRevision() { session.revision = 0; },
-    getViewScroll(viewId: string) { return session.viewScroll.get(viewId) ?? 0; },
-    setViewScroll(viewId: string, scrollTop: number) { session.viewScroll.set(viewId, scrollTop); },
+    resetRevision() { document!.revision = 0; },
+    getViewScroll(key: string) { return document!.viewScroll.get(key) ?? 0; },
+    setViewScroll(key: string, scrollTop: number) { document!.viewScroll.set(key, scrollTop); },
     dispose() {
-      session.unregisterUpdate();
-      sessions.delete(session.documentId);
-      session.listeners.clear();
+      for (const attachment of document!.attachments.values()) attachment.unregisterUpdate();
+      sessions.delete(document!.documentId);
+      document!.listeners.clear();
+      document!.attachments.clear();
     }
+    } as DocumentSessionRecord;
+    sessions.set(documentId, document);
+  }
+
+  const existing = document.attachments.get(viewId);
+  if (existing) {
+    existing.acquireView();
+    return existing;
+  }
+
+  const editor = createAmaniteEditor(`amanite-document-${documentId}-${viewId}`);
+  const sourceAttachment = document.attachments.values().next().value as SessionRecord | undefined;
+  if (sourceAttachment) {
+    editor.setEditorState(sourceAttachment.editor.getEditorState().clone(null), { tag: AMANITE_VIEW_SYNC_TAG });
+  } else {
+    editor.update(() => {
+      if (!$getRoot().getChildrenSize()) $getRoot().append($createParagraphNode());
+    }, { discrete: true, tag: AMANITE_VIEW_SYNC_TAG });
+  }
+  const session = {
+    documentId,
+    projectGeneration,
+    editor,
+    context: createLexicalComposerContext(null, editorLexicalTheme),
+    historyState: document.historyState,
+    get initialized() { return document!.initialized; },
+    get needsSourceRefresh() { return document!.needsSourceRefresh; },
+    get viewCount() { return document!.viewCount; },
+    getRevision: document.getRevision,
+    nextRevision: document.nextRevision,
+    resetRevision: document.resetRevision,
+    getMirrorHtml: document.getMirrorHtml,
+    getMirrorText: document.getMirrorText,
+    acceptBodyHtml: document.acceptBodyHtml,
+    subscribe: document.subscribe,
+    acquireView: document.acquireView,
+    releaseView: document.releaseView,
+    markInitialized: document.markInitialized,
+    getViewScroll: document.getViewScroll,
+    setViewScroll: document.setViewScroll,
+    dispose: document.dispose,
+    unregisterUpdate: () => undefined
   } as SessionRecord;
 
   session.unregisterUpdate = editor.registerUpdateListener(({ editorState, tags }) => {
-    if (!session.initialized) return;
+    if (tags.has(AMANITE_VIEW_SYNC_TAG)) return;
+    for (const peer of document!.attachments.values()) {
+      if (peer.editor !== editor) {
+        let selection = tags.has(AMANITE_HTML_LOAD_TAG) ? null : peer.editor.getEditorState().read(() => $getSelection()?.clone() ?? null);
+        if (selection) {
+          try {
+            editorState.read(() => selection?.getNodes(), { editor: peer.editor });
+          } catch {
+            selection = null;
+          }
+        }
+        peer.editor.setEditorState(editorState.clone(selection), { tag: AMANITE_VIEW_SYNC_TAG });
+      }
+    }
+    if (!document!.initialized) return;
     if (tags.has(AMANITE_DERIVED_LINK_TAG)) return;
-    const text = readEditorModel(editorState, session.revision).text;
-    if (text === session.mirrorText) return;
-    session.mirrorText = text;
-    emit(session);
+    const text = readEditorModel(editorState, document!.revision).text;
+    if (text === document!.mirrorText) return;
+    document!.mirrorText = text;
+    emit(document!);
   });
-  editor.update(() => {
-    if (!$getRoot().getChildrenSize()) $getRoot().append($createParagraphNode());
-  }, { tag: "history-merge" });
   session.acquireView();
-  sessions.set(documentId, session);
+  document.attachments.set(viewId, session);
   return session;
 }
 
-export function useSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string) {
+export function useSharedDocumentEditor(documentId: string, projectGeneration: number, initialBodyHtml: string, viewId = "default") {
   const session = useMemo(
-    () => acquireSharedDocumentEditor(documentId, projectGeneration, initialBodyHtml),
-    [documentId, projectGeneration]
+    () => acquireSharedDocumentEditor(documentId, projectGeneration, initialBodyHtml, viewId),
+    [documentId, projectGeneration, viewId]
   );
   useEffect(() => () => releaseSharedDocumentEditor(session), [session]);
   return session;
@@ -134,10 +186,6 @@ export function useSharedDocumentEditor(documentId: string, projectGeneration: n
 
 export function releaseSharedDocumentEditor(session: SharedDocumentEditorSession) {
   session.releaseView();
-}
-
-export function useSharedDocumentMirror(session: SharedDocumentEditorSession) {
-  return useSyncExternalStore(session.subscribe, session.getMirrorText, session.getMirrorText);
 }
 
 export function SharedLexicalComposer({ children, session }: { children: ReactNode; session: SharedDocumentEditorSession }) {

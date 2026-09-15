@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, t
 import Icon from "@/components/ui/Icon";
 import TreeLocation from "@/components/ui/TreeLocation";
 import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
-import RichDocumentEditor, { ReadOnlyDocumentMirror } from "@/features/editor/components/RichDocumentEditor";
+import RichDocumentEditor from "@/features/editor/components/RichDocumentEditor";
 import { analyzeEditablePage } from "@/features/editor/components/pageSource";
 import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
@@ -179,10 +179,7 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
   onSnapshot?: (path: string, bodyHtml: string, revision: number) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
-  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml);
-  if (!editorOwner) {
-    return <ReadOnlyDocumentMirror bodyHtml={analysis.page.bodyHtml} embedded pagePath={buffer.path} session={session} title={analysis.page.title} />;
-  }
+  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, analysis.page.bodyHtml, viewId);
 
   function changeTitle(title: string) {
     const revision = session.nextRevision();
@@ -195,7 +192,8 @@ function LoadedInlineFolderEditor({ analysis, buffer, editorOwner, isBusy, pageT
       bodyHtml={analysis.page.bodyHtml}
       embedded
       documentId={buffer.documentId}
-      isBusy={isBusy}
+      historyOwner={editorOwner}
+      isBusy={isBusy || !editorOwner}
       pagePath={buffer.path}
       pageTitleIndex={pageTitleIndex}
       pages={pages}

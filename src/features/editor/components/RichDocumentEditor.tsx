@@ -21,12 +21,13 @@ import DocumentLoadingPreview from "./DocumentLoadingPreview";
 import { editorConfig } from "./editorConfig";
 import type { EditorSnapshot } from "./editorFlush";
 import type { EditorModelSnapshot } from "./editorModel";
-import { SharedLexicalComposer, useSharedDocumentMirror, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import { SharedLexicalComposer, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 
 type Props = {
   bodyHtml: string;
   embedded?: boolean;
   isBusy: boolean;
+  historyOwner?: boolean;
   pagePath: string;
   pageTitleIndex?: PageTitleIndex;
   pages: FractalPage[];
@@ -45,7 +46,7 @@ type Props = {
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "historyOwner" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
@@ -53,28 +54,6 @@ type WritingAreaProps = Pick<Props, "bodyHtml" | "documentId" | "isBusy" | "page
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
 };
-
-export function ReadOnlyDocumentMirror({ bodyHtml, embedded = false, pagePath, session, title }: { bodyHtml: string; embedded?: boolean; pagePath: string; session: SharedDocumentEditorSession; title: string }) {
-  const liveText = useSharedDocumentMirror(session);
-  return (
-    <section aria-label="Read-only document view" className={embedded ? "rich-document-shell embedded document-mirror" : "rich-document-shell document-mirror"}>
-      <article className="rich-page-canvas">
-        <div className="rich-page-column">
-          <div className="document-page-heading">
-            <label className="document-title-field"><input aria-label="Document title" disabled placeholder="Untitled" value={title} readOnly /></label>
-          </div>
-          <div className="rich-body-frame">
-            {liveText === null ? (
-              <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-            ) : (
-              <div aria-label={`Read-only body for ${pagePath}`} className="rich-content-editable document-mirror-content">{liveText}</div>
-            )}
-          </div>
-        </div>
-      </article>
-    </section>
-  );
-}
 
 function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
@@ -122,7 +101,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -164,7 +143,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pageTitleIndex, p
             placeholder={<div className="rich-placeholder">Start writing…</div>}
             ErrorBoundary={LexicalErrorBoundary}
           />
-          <HistoryPlugin />
+          {historyOwner ? <HistoryPlugin externalHistoryState={sharedSession?.historyState} /> : null}
           <EditableStatePlugin isBusy={isBusy} />
           <ListPlugin />
           <TabIndentationPlugin />
@@ -180,7 +159,7 @@ function WritingArea({ bodyHtml, documentId, isBusy, pagePath, pageTitleIndex, p
   );
 }
 
-function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -193,6 +172,7 @@ function RichDocumentEditor({ bodyHtml, documentId, embedded = false, isBusy, pa
       <WritingArea
         bodyHtml={bodyHtml}
         documentId={documentId}
+        historyOwner={historyOwner}
         isBusy={editorBusy}
         pagePath={pagePath}
         pageTitleIndex={pageTitleIndex}
