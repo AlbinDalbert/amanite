@@ -1,6 +1,9 @@
 # Amanite document data-flow plan
 
-Status: D0 through D8 complete.
+Status: D0 through D8 implementation complete. Its acceptance claim is
+historical and is superseded by the
+[document data-flow revisit](document-dataflow-revisit-plan.md), whose remaining
+platform and measurement gates stay open until evidence is recorded.
 
 This plan improves loading, editing, tab activation, recovery, and persistence
 within the existing Tauri, React, Lexical, and Fractal stack. GPUI work is paused.

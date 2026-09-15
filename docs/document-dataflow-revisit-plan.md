@@ -1,7 +1,8 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 through R6 implementation is complete. R4 platform
-termination evidence and R7 acceptance remain open.
+Status: in progress. R0 through R6 implementation and the R7 local Linux pass
+are complete. Cross-platform, latency-distribution, and confirmed-recovery
+acceptance remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -49,7 +50,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | R4 | Verify recovery completion and durability | R2 | Implementation complete; platform evidence open |
 | R5 | Publish compact catalog and document updates | R0 | Complete |
 | R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Complete |
-| R7 | Close desktop parity, performance, and documentation gates | R0–R6 | Not started |
+| R7 | Close desktop parity, performance, and documentation gates | R0–R6 | Local Linux checks complete; platform and performance evidence open |
 
 R0 captures the unchanged baseline before optimizations. R1 is a gate for
 further editor migration. R5 can proceed independently of editor ownership work.
@@ -312,18 +313,26 @@ plan's status to distinguish completed implementation from outstanding
 acceptance, and link this revisit and its evidence. Preserve historical reports
 rather than rewriting their results. Remove obsolete adapters and claims.
 
+Implementation status: the local Linux implementation, repository checks, and
+fresh-build Tauri desktop smoke pass are complete. The smoke run exposed and
+then verified fixes for reused snapshot request IDs, snapshots requested during
+controller mount, and recovered shared-session revisions. Two confirmed draft
+writes took more than two seconds, and the required latency distributions and
+platform matrix have not been collected. See
+[R7 local acceptance evidence](measurements/document-dataflow-r7.md).
+
 ### Completion checklist
 
-- [ ] Rich multi-view behavior and session-owned history pass R1.
-- [ ] Revision, snapshot, stale-result, and close contracts pass R2.
-- [ ] Derived work is bounded and query semantics pass R3.
+- [x] Rich multi-view behavior and session-owned history pass R1.
+- [x] Revision, snapshot, stale-result, and close contracts pass R2.
+- [x] Derived work is bounded and query semantics pass R3.
 - [ ] Confirmed recovery and termination behavior pass R4.
 - [x] Compact catalog/content contracts and IPC measurements pass R5.
 - [x] Backend ordering and receipt reconciliation pass R6.
 - [ ] Required platform parity checks have recorded evidence.
 - [ ] Performance and recovery targets pass, or specific measured exceptions
       have explicit user acceptance and remain visible in the report.
-- [ ] Repository checks pass and documentation describes the shipped behavior.
+- [x] Repository checks pass and documentation describes the shipped behavior.
 
 Completion requires evidence for these items. A passing smoke test or a list of
 remaining limits cannot substitute for an unmet acceptance criterion.
