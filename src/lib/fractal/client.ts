@@ -92,11 +92,6 @@ export const fractalClient: FractalClient = {
     return { ...value, inspection: normalizeInspection(value.inspection) };
   },
   recreatePage: (project, pagePath, source) => invokeMutation(project, "fractal_recreate_page", { projectRoot: project.rootPath, pagePath, source }),
-  openPage: (project, pagePath) =>
-    invokeFractal<FractalProject>("fractal_open_page", {
-      pagePath,
-      projectRoot: project.rootPath
-    }),
   readPage: (project, pagePath) =>
     invokeFractal<FractalLoadedPage>("fractal_read_page", {
       pagePath,

@@ -107,17 +107,15 @@ export function useFractalProjectActions({ acceptProject, acceptMutation, active
   const duplicateProjectPage = useCallback(async (pagePath: string) => {
     const current = activeProjectRef.current;
     if (!current || busyRef.current) return null;
-    const sourceProject = current.activePagePath === pagePath
-      ? current
-      : await withBusy("page", () => fractalClient.openPage(current, pagePath));
-    if (!sourceProject?.activePageSource) return null;
-    const page = sourceProject.pages.find((candidate) => candidate.path === pagePath);
+    const loaded = await withBusy("page", () => fractalClient.readPage(current, pagePath));
+    if (!loaded) return null;
+    const page = current.pages.find((candidate) => candidate.path === pagePath);
     if (!page) return null;
-    if (!sourceProject.activePageNativeDocumentParts) {
+    if (!loaded.nativeDocumentParts) {
       setError("This native page is missing the sections required for duplication.");
       return null;
     }
-    const title = duplicatePageTitle(page.title, sourceProject.pages);
+    const title = duplicatePageTitle(page.title, current.pages);
     const folderPath = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : undefined;
     const result = await withBusy("page", () => fractalClient.duplicatePage(current, pagePath, title, folderPath));
     if (!result) return null;

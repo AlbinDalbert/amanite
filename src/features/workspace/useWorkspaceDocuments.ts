@@ -34,7 +34,7 @@ type Options = {
 function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
   const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
   const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
-  const [project, setProject] = useState(() => ({ ...initialProject, sessionGeneration: projectGeneration }));
+  const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => initialBuffer ? { [initialBuffer.path]: initialBuffer } : {});
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
@@ -104,11 +104,10 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   }, []);
 
   const publishProject = useCallback((next: FractalProject) => {
-    const tagged = { ...next, sessionGeneration: projectGeneration };
-    projectRef.current = tagged;
-    setProject(tagged);
-    onProjectSnapshot(tagged);
-  }, [onProjectSnapshot, projectGeneration]);
+    projectRef.current = next;
+    setProject(next);
+    onProjectSnapshot(next);
+  }, [onProjectSnapshot]);
 
   const rememberPathChange = useCallback((from: string, to: string) => {
     for (const [alias, target] of pathAliasesRef.current) {
@@ -138,19 +137,17 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       previousGenerationRef.current = projectGeneration;
       const nextBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
       const nextBuffers = nextBuffer ? { [nextBuffer.path]: nextBuffer } : {};
-      const tagged = { ...initialProject, sessionGeneration: projectGeneration };
-      projectRef.current = tagged;
+      projectRef.current = initialProject;
       buffersRef.current = nextBuffers;
       pathAliasesRef.current.clear();
-      setProject(tagged);
+      setProject(initialProject);
       setBuffers(nextBuffers);
       setLoadingPaths(new Set());
       setLoadErrors({});
       return;
     }
-    const tagged = { ...initialProject, sessionGeneration: projectGeneration };
-    projectRef.current = tagged;
-    setProject(tagged);
+    projectRef.current = initialProject;
+    setProject(initialProject);
   }, [initialProject, previousGenerationRef, previousRootRef, projectGeneration]);
 
   const { openDocument, reloadDocument } = useDocumentLoading({

@@ -78,17 +78,16 @@ export function useFractalSession() {
     const generation = newSession
       ? projectGenerationRef.current + 1
       : (project.sessionGeneration ?? projectGenerationRef.current) || 1;
-    const taggedProject = { ...project, sessionGeneration: generation };
     projectGenerationRef.current = generation;
-    activeProjectRef.current = taggedProject;
+    activeProjectRef.current = project;
     setProjectGeneration(generation);
-    setActiveProject(taggedProject);
+    setActiveProject(project);
     setCommandResult(null);
-    void fractalClient.inspectProject(taggedProject.rootPath).then(setInspection).catch(() => setInspection(null));
-    void listPageDrafts(taggedProject.rootPath).then((drafts) => setDraftCount(drafts.length)).catch(() => setDraftCount(0));
+    void fractalClient.inspectProject(project.rootPath).then(setInspection).catch(() => setInspection(null));
+    void listPageDrafts(project.rootPath).then((drafts) => setDraftCount(drafts.length)).catch(() => setDraftCount(0));
     try {
       localStorage.setItem("amanite.last-session.v1", JSON.stringify({
-        projectRoot: taggedProject.rootPath
+        projectRoot: project.rootPath
       }));
     } catch {
       // Session restore is optional.
@@ -105,9 +104,8 @@ export function useFractalSession() {
   }, [acceptProject, setCommandResult]);
 
   const adoptProjectSnapshot = useCallback((project: FractalProject) => {
-    const taggedProject = { ...project, sessionGeneration: projectGenerationRef.current || project.sessionGeneration || 1 };
-    activeProjectRef.current = taggedProject;
-    setActiveProject(taggedProject);
+    activeProjectRef.current = project;
+    setActiveProject(project);
   }, []);
 
   const { inspectProject, refreshProjectCatalog, revealPage, validateProject } = useFractalProjectQueries({

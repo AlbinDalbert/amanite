@@ -197,7 +197,7 @@ export class DocumentQueryIndex {
     const saved = await this.savedSearch(query, 20);
     if (version !== this._version) return this.search(query, prefix);
     const currentSaved = saved.filter((result) =>
-      (this.catalogVersion == null || result.catalogVersion == null || result.catalogVersion === this.catalogVersion)
+      (this.catalogVersion == null || result.catalogVersion == null || result.catalogVersion >= this.catalogVersion)
       && (this.sessionGeneration == null || result.sessionGeneration == null || result.sessionGeneration === this.sessionGeneration));
     const livePaths = new Set(local.filter((result) => result.freshness === "live").map((result) => result.path));
     const validPaths = new Set(this.catalogOrder);

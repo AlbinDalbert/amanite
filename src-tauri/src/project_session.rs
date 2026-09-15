@@ -39,7 +39,7 @@ struct ProjectSession {
 
 #[derive(Clone)]
 pub(crate) struct ProjectSessionStore {
-    sessions: Arc<Mutex<HashMap<PathBuf, ProjectSession>>>,
+    sessions: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<ProjectSession>>>>>,
     next_generation: Arc<AtomicU64>,
 }
 
@@ -53,30 +53,31 @@ impl Default for ProjectSessionStore {
 }
 
 impl ProjectSessionStore {
+    fn session<E>(&self, root: &Path) -> Result<(Arc<Mutex<ProjectSession>>, bool), E>
+    where
+        E: From<fractal::FractalError>,
+    {
+        let mut sessions = self.sessions.lock().map_err(|_| session_lock_error())?;
+        if let Some(session) = sessions.get(root) {
+            return Ok((Arc::clone(session), false));
+        }
+        let session = Arc::new(Mutex::new(ProjectSession {
+            project: fractal::Project::open(root).map_err(E::from)?,
+            generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
+            catalog_version: 1,
+        }));
+        sessions.insert(root.to_path_buf(), Arc::clone(&session));
+        Ok((session, true))
+    }
+
     pub(crate) fn with_cached<T, E, F>(&self, project_root: &str, operation: F) -> Result<T, E>
     where
         E: From<fractal::FractalError>,
         F: FnOnce(&fractal::Project, SessionMetadata) -> Result<T, E>,
     {
         let root = canonical_root::<E>(project_root)?;
-        let mut sessions = self.sessions.lock().map_err(|_| {
-            E::from(fractal::FractalError::new(
-                fractal::FractalErrorCode::Io,
-                "Project session store is unavailable.",
-            ))
-        })?;
-        if !sessions.contains_key(&root) {
-            let project = fractal::Project::open(&root).map_err(E::from)?;
-            sessions.insert(
-                root.clone(),
-                ProjectSession {
-                    project,
-                    generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
-                    catalog_version: 1,
-                },
-            );
-        }
-        let session = sessions.get(&root).expect("session inserted above");
+        let (session, _) = self.session::<E>(&root)?;
+        let session = session.lock().map_err(|_| session_lock_error())?;
         operation(
             &session.project,
             SessionMetadata {
@@ -92,32 +93,35 @@ impl ProjectSessionStore {
         E: From<fractal::FractalError>,
         F: FnOnce(&fractal::Project, SessionMetadata) -> Result<T, E>,
     {
+        self.with_refreshed_using(project_root, |root| fractal::Project::open(root), operation)
+    }
+
+    fn with_refreshed_using<T, E, L, F>(
+        &self,
+        project_root: &str,
+        loader: L,
+        operation: F,
+    ) -> Result<T, E>
+    where
+        E: From<fractal::FractalError>,
+        L: FnOnce(&Path) -> Result<fractal::Project, fractal::FractalError>,
+        F: FnOnce(&fractal::Project, SessionMetadata) -> Result<T, E>,
+    {
         let root = canonical_root::<E>(project_root)?;
-        let project = fractal::Project::open(&root).map_err(E::from)?;
-        let mut sessions = self.sessions.lock().map_err(|_| {
-            E::from(fractal::FractalError::new(
-                fractal::FractalErrorCode::Io,
-                "Project session store is unavailable.",
-            ))
-        })?;
-        let (generation, catalog_version) = if let Some(session) = sessions.get_mut(&root) {
-            session.project = project;
-            session.generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-            session.catalog_version += 1;
-            (session.generation, session.catalog_version)
-        } else {
-            let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-            sessions.insert(
-                root.clone(),
-                ProjectSession {
-                    project,
-                    generation,
-                    catalog_version: 1,
-                },
-            );
-            (generation, 1)
-        };
-        let session = sessions.get(&root).expect("session inserted above");
+        let (session, inserted) = self.session::<E>(&root)?;
+        let mut session = session.lock().map_err(|_| session_lock_error())?;
+        if !inserted {
+            let loaded = loader(&root).map_err(E::from)?;
+            let changed = session.project.manifest() != loaded.manifest()
+                || session.project.pages() != loaded.pages()
+                || session.project.folders() != loaded.folders();
+            session.project = loaded;
+            if changed {
+                session.catalog_version += 1;
+            }
+        }
+        let generation = session.generation;
+        let catalog_version = session.catalog_version;
         operation(
             &session.project,
             SessionMetadata {
@@ -134,29 +138,14 @@ impl ProjectSessionStore {
         F: FnOnce(&mut fractal::Project, SessionMetadata) -> Result<T, E>,
     {
         let root = canonical_root::<E>(project_root)?;
-        let mut sessions = self.sessions.lock().map_err(|_| {
-            E::from(fractal::FractalError::new(
-                fractal::FractalErrorCode::Io,
-                "Project session store is unavailable.",
-            ))
-        })?;
-        if !sessions.contains_key(&root) {
-            let project = fractal::Project::open(&root).map_err(E::from)?;
-            sessions.insert(
-                root.clone(),
-                ProjectSession {
-                    project,
-                    generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
-                    catalog_version: 1,
-                },
-            );
-        }
-        let session = sessions.get_mut(&root).expect("session inserted above");
+        let (session, _) = self.session::<E>(&root)?;
+        let mut session = session.lock().map_err(|_| session_lock_error())?;
         let next_version = session.catalog_version + 1;
+        let generation = session.generation;
         let result = operation(
             &mut session.project,
             SessionMetadata {
-                generation: session.generation,
+                generation,
                 catalog_version: next_version,
                 freshness: SessionFreshness::Mutated,
             },
@@ -171,13 +160,22 @@ impl ProjectSessionStore {
     pub(crate) fn metadata(&self, project_root: &str) -> Option<SessionMetadata> {
         let root = PathBuf::from(project_root).canonicalize().ok()?;
         let sessions = self.sessions.lock().ok()?;
-        let session = sessions.get(&root)?;
+        let session = Arc::clone(sessions.get(&root)?);
+        drop(sessions);
+        let session = session.lock().ok()?;
         Some(SessionMetadata {
             generation: session.generation,
             catalog_version: session.catalog_version,
             freshness: SessionFreshness::Cached,
         })
     }
+}
+
+fn session_lock_error<E: From<fractal::FractalError>>() -> E {
+    E::from(fractal::FractalError::new(
+        fractal::FractalErrorCode::Io,
+        "Project session store is unavailable.",
+    ))
 }
 
 fn canonical_root<E: From<fractal::FractalError>>(project_root: &str) -> Result<PathBuf, E> {
@@ -189,7 +187,7 @@ fn canonical_root<E: From<fractal::FractalError>>(project_root: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::{ProjectSessionStore, SessionFreshness};
-    use std::fs;
+    use std::{fs, sync::mpsc, thread, time::Duration};
     use tempfile::tempdir;
 
     #[test]
@@ -245,8 +243,8 @@ mod tests {
                 Ok::<_, fractal::FractalError>(metadata)
             })
             .unwrap();
-        assert!(refreshed.generation > first.generation);
-        assert_eq!(refreshed.catalog_version, 3);
+        assert_eq!(refreshed.generation, first.generation);
+        assert_eq!(refreshed.catalog_version, 2);
         assert_eq!(refreshed.freshness, SessionFreshness::Refreshed);
     }
 
@@ -284,5 +282,115 @@ mod tests {
 
         assert_eq!(cached_title.as_deref(), Some("First"));
         assert_eq!(refreshed_title.as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn refresh_cannot_replace_a_mutation_that_started_while_loading() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("project");
+        fractal::Project::init(&root, "Test").unwrap();
+        let root = root.to_string_lossy().into_owned();
+        let store = ProjectSessionStore::default();
+        store
+            .with_cached(&root, |_project, _| Ok::<_, fractal::FractalError>(()))
+            .unwrap();
+
+        let (loading_tx, loading_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let refresh_store = store.clone();
+        let refresh_root = root.clone();
+        let refresh = thread::spawn(move || {
+            refresh_store
+                .with_refreshed_using(
+                    &refresh_root,
+                    |path| {
+                        loading_tx.send(()).unwrap();
+                        continue_rx.recv().unwrap();
+                        fractal::Project::open(path)
+                    },
+                    |_project, _| Ok::<_, fractal::FractalError>(()),
+                )
+                .unwrap();
+        });
+        loading_rx.recv().unwrap();
+
+        let (mutated_tx, mutated_rx) = mpsc::channel();
+        let (mutation_started_tx, mutation_started_rx) = mpsc::channel();
+        let mutation_store = store.clone();
+        let mutation_root = root.clone();
+        let mutation = thread::spawn(move || {
+            mutation_started_tx.send(()).unwrap();
+            mutation_store
+                .with_mutation(&mutation_root, |project, _| {
+                    project.create_page("After refresh")?;
+                    Ok::<_, fractal::FractalError>(())
+                })
+                .unwrap();
+            mutated_tx.send(()).unwrap();
+        });
+        mutation_started_rx.recv().unwrap();
+        assert!(mutated_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        continue_tx.send(()).unwrap();
+        refresh.join().unwrap();
+        mutation.join().unwrap();
+        let paths = store
+            .with_cached(&root, |project, _| {
+                Ok::<_, fractal::FractalError>(
+                    project
+                        .pages()
+                        .into_iter()
+                        .map(|page| page.path)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap();
+        assert_eq!(paths, vec!["after-refresh.fractal.html"]);
+    }
+
+    #[test]
+    fn a_slow_refresh_does_not_block_another_project() {
+        let temporary = tempdir().unwrap();
+        let first_root = temporary.path().join("first");
+        let second_root = temporary.path().join("second");
+        fractal::Project::init(&first_root, "First").unwrap();
+        fractal::Project::init(&second_root, "Second").unwrap();
+        let first_root = first_root.to_string_lossy().into_owned();
+        let second_root = second_root.to_string_lossy().into_owned();
+        let store = ProjectSessionStore::default();
+        store
+            .with_cached(&first_root, |_, _| Ok::<_, fractal::FractalError>(()))
+            .unwrap();
+        store
+            .with_cached(&second_root, |_, _| Ok::<_, fractal::FractalError>(()))
+            .unwrap();
+
+        let (loading_tx, loading_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let refresh_store = store.clone();
+        let refresh = thread::spawn(move || {
+            refresh_store
+                .with_refreshed_using(
+                    &first_root,
+                    |path| {
+                        loading_tx.send(()).unwrap();
+                        continue_rx.recv().unwrap();
+                        fractal::Project::open(path)
+                    },
+                    |_, _| Ok::<_, fractal::FractalError>(()),
+                )
+                .unwrap();
+        });
+        loading_rx.recv().unwrap();
+
+        let second_title = store
+            .with_cached(&second_root, |project, _| {
+                Ok::<_, fractal::FractalError>(project.manifest().name.clone())
+            })
+            .unwrap();
+        assert_eq!(second_title, "Second");
+
+        continue_tx.send(()).unwrap();
+        refresh.join().unwrap();
     }
 }

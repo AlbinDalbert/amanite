@@ -1,7 +1,7 @@
 # Document data-flow revisit plan
 
-Status: in progress. R0 through R5 implementation is complete. R4 platform
-termination evidence and R6 through R7 remain open.
+Status: in progress. R0 through R6 implementation is complete. R4 platform
+termination evidence and R7 acceptance remain open.
 
 This plan follows the review of D0 through D8, commits `8fd3318` through
 `8c31cd1`. It closes gaps in the [original plan](document-dataflow-plan.md)
@@ -48,7 +48,7 @@ Historical D0–D8 reports remain records of what was tested at the time.
 | R3 | Bound live queries and remove duplicate scans | R1, R2 | Complete |
 | R4 | Verify recovery completion and durability | R2 | Implementation complete; platform evidence open |
 | R5 | Publish compact catalog and document updates | R0 | Complete |
-| R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Not started |
+| R6 | Verify backend ordering and mutation reconciliation | R2, R5 | Complete |
 | R7 | Close desktop parity, performance, and documentation gates | R0–R6 | Not started |
 
 R0 captures the unchanged baseline before optimizations. R1 is a gate for
@@ -282,6 +282,14 @@ success, uncertain outcomes, external deletion, and link rewrites. Warm cached
 reads do not reopen Fractal without a freshness reason. Report Amanite savings
 separately from reloads still required inside Fractal; no direct-write shortcut.
 
+Implementation status: complete. Project operations use per-project locks;
+refresh loads occur after taking that lock, unchanged refreshes retain their
+catalog version, and unrelated cached projects proceed independently. Backend
+session generation remains stable across refreshes and is separate from the
+frontend editor generation. Compact publications validate their base version
+and use a full catalog refresh on a gap. See
+[R6 verification](measurements/document-dataflow-r6.md).
+
 ## R7. Acceptance and documentation
 
 Run frontend tests, type checking, frontend build, Rust tests, and the real
@@ -311,7 +319,7 @@ rather than rewriting their results. Remove obsolete adapters and claims.
 - [ ] Derived work is bounded and query semantics pass R3.
 - [ ] Confirmed recovery and termination behavior pass R4.
 - [x] Compact catalog/content contracts and IPC measurements pass R5.
-- [ ] Backend ordering and receipt reconciliation pass R6.
+- [x] Backend ordering and receipt reconciliation pass R6.
 - [ ] Required platform parity checks have recorded evidence.
 - [ ] Performance and recovery targets pass, or specific measured exceptions
       have explicit user acceptance and remain visible in the report.

@@ -29,7 +29,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
 
   const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.activePagePath;
-    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === projectGeneration;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot
+      && (loaded.sessionGeneration == null || projectRef.current.sessionGeneration === loaded.sessionGeneration);
     if (!path || loaded.activePageSource == null || loaded.rootPath !== projectRoot || !isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
       checkDraft,
@@ -58,7 +59,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
 
   const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.path;
-    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === projectGeneration;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot
+      && (loaded.sessionGeneration == null || projectRef.current.sessionGeneration === loaded.sessionGeneration);
     if (!isCurrent()) return false;
     const resolved = await resolveDocumentDraft({
       checkDraft,
@@ -112,7 +114,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const key = loadingKey(projectRoot, path);
     const inFlight = loadingPromisesRef.current.get(key);
     if (inFlight) return inFlight;
-    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === projectGeneration;
+    const backendGeneration = projectAtStart.sessionGeneration;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === backendGeneration;
     const operation = { promise: null as Promise<boolean> | null };
     const loadPromise = (async () => {
       setLoadingPaths((current) => new Set(current).add(path));
@@ -150,7 +153,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
   const reloadDocument = useCallback(async (path: string) => {
     const projectAtStart = projectRef.current;
     const projectRoot = projectAtStart.rootPath;
-    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === projectGeneration;
+    const backendGeneration = projectAtStart.sessionGeneration;
+    const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === backendGeneration;
     setLoadingPaths((current) => new Set(current).add(path));
     try {
       const loaded = await fractalClient.readPage(projectAtStart, path);

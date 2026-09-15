@@ -253,7 +253,6 @@ export type FractalClient = {
   recoverProject: (projectRoot: string) => Promise<FractalRecoveryResult>;
   repairProject: (projectRoot: string) => Promise<FractalRepairResult>;
   recreatePage: (project: FractalProject, pagePath: string, source: string) => Promise<FractalMutationResult>;
-  openPage: (project: FractalProject, pagePath: string) => Promise<FractalProject>;
   readPage: (project: FractalProject, pagePath: string) => Promise<FractalLoadedPage>;
   setPageTitle: (project: FractalProject, title: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;
   setPageContent: (project: FractalProject, contentHtml: string, expectedHash: string) => Promise<FractalConditionalWriteResult>;

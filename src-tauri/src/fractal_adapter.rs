@@ -666,23 +666,6 @@ pub(crate) async fn fractal_open_project_path(
 }
 
 #[tauri::command]
-pub(crate) async fn fractal_open_page(
-    project_root: String,
-    page_path: String,
-) -> FractalResult<FractalProject> {
-    tauri::async_runtime::spawn_blocking(move || {
-        project_sessions().with_cached(&project_root, |project, metadata| {
-            project_snapshot_with_metadata(project, Some(&page_path), metadata)
-        })
-    })
-    .await
-    .map_err(|error| FractalCommandError {
-        code: fractal::FractalErrorCode::Io,
-        message: format!("Could not complete page open: {error}"),
-    })?
-}
-
-#[tauri::command]
 pub(crate) async fn fractal_read_page(
     project_root: String,
     page_path: String,
