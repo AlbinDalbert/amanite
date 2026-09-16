@@ -1,4 +1,3 @@
-import { registerHistory } from "@lexical/history";
 import { $createParagraphNode, $createTextNode, $getRoot, UNDO_COMMAND } from "lexical";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentRegistry, type DocumentId } from "./documentRuntime";
@@ -66,7 +65,6 @@ describe("document runtime", () => {
   it("keeps Lexical history with the session and clears it only for explicit replacement", async () => {
     const registry = new DocumentRegistry({ projectGeneration: 9 });
     const { session } = await registry.open("notes.fractal.html", async () => ({ title: "Notes", bodyHtml: "<p>Initial</p>" }));
-    const unregisterHistory = registerHistory(session.editor, session.historyState, 0);
 
     session.update(() => {
       const paragraph = $createParagraphNode();
@@ -88,7 +86,6 @@ describe("document runtime", () => {
     expect(session.historyState.redoStack).toEqual([]);
     expect(session.getSnapshot().replacementGeneration).toBe(2);
 
-    unregisterHistory();
     registry.dispose();
   });
 

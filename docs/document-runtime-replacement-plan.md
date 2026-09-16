@@ -385,7 +385,8 @@ Temporary adapters: none created yet.
 
 Latest handoff: P0 is verified and the first P1 session/registry slice is in
 place. `DocumentSession` owns one Lexical editor, title, revision, replacement
-generation, history state, and read-only captures. `DocumentRegistry` owns
+generation, history state, its Lexical history registration, and read-only captures.
+The session unregisters history when it is disposed. `DocumentRegistry` owns
 opaque IDs, path lookup, concurrent-open deduplication, in-place renames, and
 explicit disposal. It is not wired into the workspace yet. The current
 view-owned runtime remains active until a later cutover removes it.

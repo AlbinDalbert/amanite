@@ -1,5 +1,5 @@
 import { createLexicalComposerContext, type LexicalComposerContextType } from "@lexical/react/LexicalComposerContext";
-import { createEmptyHistoryState, type HistoryState } from "@lexical/history";
+import { createEmptyHistoryState, registerHistory, type HistoryState } from "@lexical/history";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { $createParagraphNode, $getRoot, type EditorState, type EditorUpdateOptions, type LexicalEditor } from "lexical";
 import { createAmaniteEditor } from "@/features/editor/components/editorConfig";
@@ -96,6 +96,7 @@ export class DocumentSession {
   private disposed = false;
   private listeners = new Set<DocumentListener>();
   private unregisterUpdate: () => void;
+  private unregisterHistory: () => void;
 
   constructor(options: DocumentSessionOptions) {
     this.documentId = options.documentId;
@@ -121,6 +122,7 @@ export class DocumentSession {
       discrete: true,
       tag: AMANITE_HTML_LOAD_TAG
     });
+    this.unregisterHistory = registerHistory(this.editor, this.historyState, 1000);
     this.initialized = true;
   }
 
@@ -203,6 +205,7 @@ export class DocumentSession {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.unregisterHistory();
     this.unregisterUpdate();
     this.editor.setRootElement(null);
     this.resetHistory();
