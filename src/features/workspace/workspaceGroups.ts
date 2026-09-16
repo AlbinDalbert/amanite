@@ -48,6 +48,12 @@ export function activateGroup(state: WorkspaceGroups, id: EditorGroupId): Worksp
 }
 
 export function openGroupTab(state: WorkspaceGroups, id: EditorGroupId, path: string): WorkspaceGroups {
+  const existingGroup = groupForPath(state, path);
+  if (existingGroup && existingGroup !== id) {
+    const owner = existingGroup === "left" ? state.left : state.right;
+    if (!owner) return state;
+    return { ...updateGroup(state, existingGroup, withHistory(owner, path)), activeGroupId: existingGroup };
+  }
   const current = id === "left" ? state.left : state.right ?? createGroup("right");
   const tabs = current.tabs.includes(path) ? current.tabs : [...current.tabs, path];
   const next = withHistory({ ...current, tabs }, path);

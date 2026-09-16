@@ -588,8 +588,20 @@ async function runFolderSmoke(driver, screenshotsDir, projectName) {
   await driver.setValue('.create-page-dialog input', "Folder View Page");
   await driver.click('.create-page-dialog .primary-action');
   await driver.find('[aria-label="Body for field-notes/folder-view-page.fractal.html"]', 30_000);
+  // The page-create command opens the new page in a tab. Close that owner so
+  // the next part exercises folder-inline attachment for an otherwise closed
+  // document. Opening it while the tab is present should focus that tab.
+  const closedFolderPageTab = await driver.executeScript(`
+    const tab = [...document.querySelectorAll('.workspace-tab-strip[data-group-id="left"] .editor-group-tab')]
+      .find((candidate) => candidate.querySelector('button[title="field-notes/folder-view-page.fractal.html"]'));
+    tab?.querySelector('.editor-group-tab-close')?.click();
+    return Boolean(tab);
+  `);
+  assertSmoke(closedFolderPageTab, "Could not find the created page tab to close before inline editing.");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const folderPageTabStillOpen = await driver.executeScript(`return Boolean([...document.querySelectorAll('.workspace-tab-strip[data-group-id="left"] .editor-group-tab')].find((candidate) => candidate.querySelector('button[title="field-notes/folder-view-page.fractal.html"]')));`);
+  assertSmoke(!folderPageTabStillOpen, "The created page tab remained open before inline editing.");
 
-  await driver.click('.workspace-nav-controls button[title="Back in left"]');
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
   await driver.click('.editor-tab-panel.active .folder-add-row.bottom .folder-add-ghost');
   await driver.click('.editor-tab-panel.active .folder-add-row.bottom .folder-add-menu button:nth-child(2)');
@@ -641,13 +653,32 @@ async function runFolderSmoke(driver, screenshotsDir, projectName) {
   await driver.click('.folder-export-validity label:nth-of-type(2) input');
   await takeScreenshot(driver, screenshotsDir, "03b-folder-export");
   await driver.click('.folder-export-dialog .export-dialog-header > button');
-  await driver.click('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-actions button:nth-of-type(1)');
+  const closedInlineTargetTab = await driver.executeScript(`
+    const tab = [...document.querySelectorAll('.editor-group-tab')]
+      .find((candidate) => candidate.querySelector('button[title="field-notes/folder-view-page.fractal.html"]'));
+    tab?.querySelector('.editor-group-tab-close')?.click();
+    return Boolean(tab);
+  `);
+  assertSmoke(closedInlineTargetTab, "Could not find the opened page tab to close before inline editing.");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
+  const inlineTarget = await driver.executeScript(`
+    const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-card')]
+      .find((candidate) => candidate.querySelector('h2')?.textContent?.trim() === 'Folder View Page');
+    card?.querySelector('.folder-sequence-actions button:first-of-type')?.click();
+    return Boolean(card);
+  `);
+  assertSmoke(inlineTarget, "Could not find the closed page card for folder-inline editing.");
   await driver.find('.editor-tab-panel.active .folder-document-editor .rich-content-editable', 30_000);
   await driver.sendKeys('.editor-tab-panel.active .folder-document-editor .rich-content-editable', " Edited from the folder view.");
   await driver.ctrlS();
   await driver.find(".save-state.saved");
   await takeScreenshot(driver, screenshotsDir, "03c-folder-inline-editor");
-  await driver.click('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-actions button:nth-of-type(2)');
+  await driver.executeScript(`
+    const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-card')]
+      .find((candidate) => candidate.querySelector('h2')?.textContent?.trim() === 'Folder View Page');
+    card?.querySelector('.folder-sequence-actions button:nth-of-type(2)')?.click();
+  `);
   await driver.find('.editor-tab-panel.active .rich-content-editable', 30_000);
   const folderEdit = await driver.text('.editor-tab-panel.active .rich-content-editable');
   assertSmoke(folderEdit.includes("Edited from the folder view."), `Folder edit did not reach the child page: ${folderEdit}`);
@@ -870,6 +901,7 @@ async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   await driver.ctrlShiftT();
   await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
   await driver.click('.workspace-tab-strip[data-group-id="right"] .editor-group-close');
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
   await driver.find(".editor-groups:not(.split)", 30_000);
   await takeScreenshot(driver, screenshotsDir, "04c-split-pane-closed");
 

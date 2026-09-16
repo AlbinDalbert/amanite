@@ -19,6 +19,7 @@ type Props = {
   draggedTab: DraggedWorkspaceTab | null;
   documentQueries: DocumentQueryIndex;
   documentRegistry: DocumentRegistry;
+  isPageOpen: (path: string) => boolean;
   focused: boolean;
   focusMode: boolean;
   group: EditorGroup;
@@ -93,6 +94,7 @@ function EditorGroupPane(props: Props) {
     buffers: props.buffers,
     documentQueries: props.documentQueries,
     documentRegistry: props.documentRegistry,
+    isPageOpen: props.isPageOpen,
     focusMode: props.focusMode,
     focused: props.focused,
     isLoading: props.isLoading,

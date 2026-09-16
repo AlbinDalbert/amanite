@@ -19,6 +19,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   buffers: Record<string, DocumentBuffer>;
   documentQueries: DocumentQueryIndex;
   documentRegistry: DocumentRegistry;
+  isPageOpen: (path: string) => boolean;
   focusMode: boolean;
   focused: boolean;
   isLoading: boolean;
@@ -71,6 +72,7 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         borealisOpen={context.borealisOpen}
         borealisWorkspace={context.borealisWorkspace}
         buffers={context.buffers}
+        documentRegistry={context.documentRegistry}
         documentQueries={context.documentQueries}
         folder={folder}
         editorOwner={active && context.focused}
@@ -81,6 +83,7 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         loadErrors={context.loadErrors}
         pages={context.pages}
         pageTitleIndex={context.pageTitleIndex}
+        isPageOpen={context.isPageOpen}
         projectName={context.project.name}
         spellCheck={context.settings.spellCheck}
         onChangeSource={context.onChangeSource}

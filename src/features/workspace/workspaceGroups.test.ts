@@ -36,6 +36,17 @@ describe("workspace groups", () => {
     expect(state.activeGroupId).toBe("right");
   });
 
+  it("focuses the existing group when a page is opened again", () => {
+    let state = createWorkspaceGroups("one.fractal.html");
+    state = openGroupTab(state, "right", "two.fractal.html");
+    state = openGroupTab(state, "left", "two.fractal.html");
+
+    expect(state.left.tabs).toEqual(["one.fractal.html"]);
+    expect(state.right?.tabs).toEqual(["two.fractal.html"]);
+    expect(state.right?.activePath).toBe("two.fractal.html");
+    expect(state.activeGroupId).toBe("right");
+  });
+
   it("moves the Borealis tab between editor groups without creating a project page", () => {
     let state = createWorkspaceGroups("one.fractal.html");
     state = openGroupTab(state, "left", BOREALIS_TAB_ID);

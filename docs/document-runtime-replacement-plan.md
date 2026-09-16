@@ -356,7 +356,7 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 | ID | Work and exit criteria | Status | Evidence/commit |
 | --- | --- | --- | --- |
 | P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
-| P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs now attach to registry sessions and the real desktop warm-switch check passes; workspace persistence bridge and folder-inline cutover remain |
+| P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs and folder-inline editors now attach to registry sessions; duplicate page opens focus the existing group; the real desktop smoke covers warm switching, closed-page inline editing, page handoff, split-group close, restart recovery, and reopen; the workspace persistence bridge remains |
 | P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | not started | — |
 | P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | not started | — |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
@@ -381,13 +381,14 @@ Every implementation session updates this document with:
 Keep detailed measurements in `docs/measurements/document-runtime-*.md` and
 link them here. Avoid another series of plans that leaves this ledger stale.
 
-Temporary adapter: the normal document-tab path still exposes the new
-`DocumentSession` through the existing `registerEditorFlush`/`EditorSnapshot`
-contract. `useWorkspaceDocuments` and `documentPersistence` consume that
-snapshot, and draft scheduling continues to use the current buffer state. The
-runtime session remains the live editor authority, but workspace source/body
-state is still a persistence bridge. P2 removes this bridge when the
-coordinator captures sessions directly. It is not a second durable format.
+Temporary adapter: normal document tabs and folder-inline editing expose the
+new `DocumentSession` through the existing
+`registerEditorFlush`/`EditorSnapshot` contract. `useWorkspaceDocuments` and
+`documentPersistence` consume that snapshot, and draft scheduling continues to
+use the current buffer state. The runtime session remains the live editor
+authority, but workspace source/body state is still a persistence bridge. P2
+removes this bridge when the coordinator captures sessions directly. It is not
+a second durable format.
 
 Latest handoff: P0 is verified and the current P1 slice attaches normal
 document tabs to a workspace-owned `DocumentRegistry`. `DocumentSession` owns
@@ -402,31 +403,34 @@ reattaches the same editor/history session on return. A focused real-Tauri
 smoke asserts one active editor, stable session identity, and dirty text
 survival across that warm switch.
 
-The old `sharedDocumentEditor.tsx` mechanism remains a production consumer of
-folder-inline editing, plus legacy fallback/test paths. No old runtime was
-deleted in this session. The normal tab path is therefore not yet the complete
-one-editor policy for folder editing or duplicate locations, and the workspace
-still retains source/body fields for current persistence and recovery.
+The `FolderView` production path no longer imports or calls
+`sharedDocumentEditor`; its inline editor attaches through `useDocumentSession`
+and the workspace registry. The shared module remains for the legacy fallback
+and focused compatibility tests. Folder navigation clears inline editing
+before opening a page, and opening a page already present in another group
+focuses that existing owner. No old runtime was deleted in this session, and
+the workspace still retains source/body fields for current persistence and
+recovery. Cross-group simultaneous folder-inline ownership remains outside
+this bounded slice.
+
+Implementation discovery: disposing a registry session synchronously while its
+Lexical root was still mounted could blank the Tauri view during a group close.
+`forgetDocument` now removes the workspace buffer immediately and defers
+session disposal by one event-loop turn, skipping disposal if the buffer was
+reopened in the meantime.
 
 Commands run this session: `pnpm exec tsc -b --pretty false` passed;
-`pnpm test` passed with 42 files and 143 tests; `pnpm run build` passed;
-`pnpm run dataflow:benchmark` passed on Linux x64 with Node `v26.8.2`;
-`pnpm run tauri:webdriver:doctor` passed; and
-`pnpm run tauri:webdriver:smoke -- --skip-build --document-runtime-smoke`
-passed against the debug WebDriver Tauri build. Its latest artifacts are under
-[`artifacts/tauri-webdriver/2026-09-16T18-45-10-091Z`](../artifacts/tauri-webdriver/2026-09-16T18-45-10-091Z/),
-including `07-buffer-after-switch.png` and
-`dataflow-events-document-runtime.json`. The full desktop smoke was also
-attempted. Its legacy folder-inline portion currently fails after editing a
-child and opening it, before the later full-suite checks; the focused runtime
-mode is green. The stale folder-card path selectors encountered on the first
-attempt were corrected to use the visible card headings.
+focused workspace tests passed with 4 files and 22 tests; `pnpm test` passed
+with 42 files and 144 tests; `pnpm run build` passed;
+`pnpm run tauri:webdriver:doctor` passed; and the rebuilt real-Tauri desktop
+smoke (`pnpm run tauri:webdriver:smoke`) passed end to end. Its artifacts are under
+[`artifacts/tauri-webdriver/2026-09-16T19-32-03-134Z`](../artifacts/tauri-webdriver/2026-09-16T19-32-03-134Z/).
 
-Remaining bounded task: move folder-inline editing onto the registry-backed
-session attachment, including an explicit duplicate-open/focus policy, then
-remove the remaining production `sharedDocumentEditor` consumer. Keep the
-current snapshot bridge and persistence coordinator unchanged in that slice;
-P2 should replace them separately.
+Remaining bounded task: begin P2 by replacing the snapshot/buffer persistence
+bridge with coordinator-owned session capture and native acknowledgement for
+one document. Keep the tab, folder, and disposal behavior from this slice
+unchanged while verifying that capture remains read-only and save results never
+reinstall editor content.
 
 ## Acceptance: correctness and architecture
 

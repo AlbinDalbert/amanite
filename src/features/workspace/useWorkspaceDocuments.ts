@@ -262,13 +262,19 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     for (const [alias, target] of pathAliasesRef.current) {
       if (alias === path || target === path) pathAliasesRef.current.delete(alias);
     }
+    const session = documentRegistry.getByPath(path);
     commitBuffers((current) => {
       const next = { ...current };
       delete next[path];
       return next;
     });
-    documentRegistry.closeByPath(path);
-  }, [commitBuffers, documentRegistry]);
+    if (session) {
+      // Let React detach the Lexical root before disposing its session.
+      window.setTimeout(() => {
+        if (!buffersRef.current[path] && documentRegistry.getByPath(path) === session) documentRegistry.close(session.documentId);
+      }, 0);
+    }
+  }, [buffersRef, commitBuffers, documentRegistry]);
 
   const renameDocument = useCallback((from: string, to: string) => {
     rememberPathChange(from, to);

@@ -5,10 +5,11 @@ import { BorealisTrigger } from "@/features/ai-chat/components/AiChat";
 import RichDocumentEditor from "@/features/editor/components/RichDocumentEditor";
 import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import { analyzeEditablePage } from "@/features/editor/components/pageSource";
-import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { FractalFolder, FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalNativeSection, FractalPage } from "@/lib/fractal/types";
 import type { DocumentQueryIndex } from "../documentQueryIndex";
+import type { DocumentRegistry } from "../documents/documentRuntime";
+import { useDocumentSession } from "../documents/useDocumentSession";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
 import type { WorkspaceDocumentCallbacks } from "../workspaceCallbacks";
 import FolderExportDialog from "./FolderExportDialog";
@@ -20,6 +21,7 @@ type Props = WorkspaceDocumentCallbacks & {
   buffers: Record<string, DocumentBuffer>;
   borealisOpen: boolean;
   borealisWorkspace: boolean;
+  documentRegistry: DocumentRegistry;
   folder: FractalFolder;
   editorOwner: boolean;
   folders: FractalFolder[];
@@ -28,6 +30,7 @@ type Props = WorkspaceDocumentCallbacks & {
   loadErrors: Record<string, string>;
   pages: FractalPage[];
   documentQueries: DocumentQueryIndex;
+  isPageOpen: (path: string) => boolean;
   pageTitleIndex?: PageTitleIndex;
   projectName: string;
   spellCheck: boolean;
@@ -144,8 +147,9 @@ function EmptyFolderControl({ isBusy, open, onOpen, onCreate }: {
   );
 }
 
-function InlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
+function InlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
   buffer: DocumentBuffer;
+  documentRegistry: DocumentRegistry;
   editorOwner: boolean;
   isBusy: boolean;
   pageTitleIndex?: PageTitleIndex;
@@ -164,11 +168,12 @@ function InlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages
     return <p className="folder-inline-protected">This page contains HTML the rich editor cannot preserve. Open it in its own tab to inspect it.</p>;
   }
 
-  return <LoadedInlineFolderEditor buffer={buffer} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onChangeSource={onChangeSource} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />;
+  return <LoadedInlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onChangeSource={onChangeSource} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />;
 }
 
-function LoadedInlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
+function LoadedInlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onChangeSource, onModelChange, onRevision, onSnapshot }: {
   buffer: DocumentBuffer;
+  documentRegistry: DocumentRegistry;
   editorOwner: boolean;
   isBusy: boolean;
   pageTitleIndex?: PageTitleIndex;
@@ -180,10 +185,15 @@ function LoadedInlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex,
   onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
 }) {
-  const session = useSharedDocumentEditor(buffer.documentId, buffer.projectGeneration, buffer.bodyHtml, viewId, buffer.revision, buffer.incarnation);
+  const session = useDocumentSession(documentRegistry, buffer.path, {
+    bodyHtml: buffer.bodyHtml,
+    initialReplacementGeneration: buffer.incarnation,
+    initialRevision: buffer.revision,
+    title: buffer.title
+  });
 
   function changeTitle(title: string) {
-    const revision = session.nextRevision();
+    const revision = session.setTitle(title);
     onRevision?.(buffer.path, revision);
     onChangeSource(buffer.source, { section: "title", value: title });
   }
@@ -194,14 +204,13 @@ function LoadedInlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex,
       embedded
       documentId={buffer.documentId}
       sourceIncarnation={buffer.incarnation}
-      historyOwner={editorOwner}
       isBusy={isBusy || !editorOwner}
       pagePath={buffer.path}
       pageTitleIndex={pageTitleIndex}
       pages={pages}
       spellCheck={spellCheck}
       title={buffer.title}
-      sharedSession={session}
+      documentSession={session}
       viewId={viewId}
       onChangeBody={() => undefined}
       onChangeTitle={changeTitle}
@@ -214,6 +223,7 @@ function LoadedInlineFolderEditor({ buffer, editorOwner, isBusy, pageTitleIndex,
 
 type FolderSequenceInteractions = {
   editorOwner: boolean;
+  documentRegistry: DocumentRegistry;
   folders: FractalFolder[];
   isBusy: boolean;
   loadErrors: Record<string, string>;
@@ -293,7 +303,7 @@ function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBe
   );
 }
 
-function FolderSequenceBody({ buffer, child, documentQueries, editorOwner, isBusy, isEditing, loadErrors, loadingPaths, onChangeSource, onModelChange, onRevision, onSnapshot, page, pageTitleIndex, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "editorOwner" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onChangeSource" | "onModelChange" | "onRevision" | "onSnapshot" | "page" | "pageTitleIndex" | "pages" | "path" | "spellCheck">) {
+function FolderSequenceBody({ buffer, child, documentQueries, documentRegistry, editorOwner, isBusy, isEditing, loadErrors, loadingPaths, onChangeSource, onModelChange, onRevision, onSnapshot, page, pageTitleIndex, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "documentRegistry" | "editorOwner" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onChangeSource" | "onModelChange" | "onRevision" | "onSnapshot" | "page" | "pageTitleIndex" | "pages" | "path" | "spellCheck">) {
   const document = documentQueries.getDocument(path);
   return (
     <>
@@ -303,7 +313,7 @@ function FolderSequenceBody({ buffer, child, documentQueries, editorOwner, isBus
       {isEditing && loadErrors[path] ? <p className="folder-inline-state error">{loadErrors[path]}</p> : null}
       {isEditing && buffer ? (
         <div className="folder-document-editor">
-          <InlineFolderEditor buffer={buffer} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={`folder:${path}`} onChangeSource={(source, nativeSection) => onChangeSource(path, source, nativeSection)} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />
+          <InlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={`folder:${path}`} onChangeSource={(source, nativeSection) => onChangeSource(path, source, nativeSection)} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />
           {buffer.error ? <p className="folder-inline-state error">{buffer.error}</p> : null}
         </div>
       ) : null}
@@ -315,13 +325,13 @@ function FolderSequenceCard(props: FolderSequenceCardProps) {
   return (
     <article className="folder-sequence-card" onDoubleClick={(event) => props.onOpenChild(event, props.child.kind, props.path, props.child.status === "missing", props.isEditing)} title={props.child.status !== "missing" && !props.isEditing ? "Double-click to open" : undefined}>
       <FolderSequenceHeader buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} folders={props.folders} isEditing={props.isEditing} onBeginEditing={props.onBeginEditing} onOpenFolder={props.onOpenFolder} onOpenPage={props.onOpenPage} onRemoveMissing={props.onRemoveMissing} onSavePage={props.onSavePage} page={props.page} path={props.path} />
-      <FolderSequenceBody buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} editorOwner={props.editorOwner} isBusy={props.isBusy} isEditing={props.isEditing} loadErrors={props.loadErrors} loadingPaths={props.loadingPaths} onChangeSource={props.onChangeSource} onModelChange={props.onModelChange} onRevision={props.onRevision} onSnapshot={props.onSnapshot} page={props.page} pageTitleIndex={props.pageTitleIndex} pages={props.pages} path={props.path} spellCheck={props.spellCheck} />
+      <FolderSequenceBody buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} documentRegistry={props.documentRegistry} editorOwner={props.editorOwner} isBusy={props.isBusy} isEditing={props.isEditing} loadErrors={props.loadErrors} loadingPaths={props.loadingPaths} onChangeSource={props.onChangeSource} onModelChange={props.onModelChange} onRevision={props.onRevision} onSnapshot={props.onSnapshot} page={props.page} pageTitleIndex={props.pageTitleIndex} pages={props.pages} path={props.path} spellCheck={props.spellCheck} />
     </article>
   );
 }
 
 function FolderSequenceItem(props: FolderSequenceItemProps) {
-  const { buffer, child, documentQueries, dropIndex, editingPath, editorOwner, folderPath, folders, index, isBusy, loadErrors, loadingPaths, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onModelChange, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onRevision, onSavePage, onSnapshot, onTrackDrop, pageTitleIndex, pages, spellCheck } = props;
+  const { buffer, child, documentQueries, documentRegistry, dropIndex, editingPath, editorOwner, folderPath, folders, index, isBusy, loadErrors, loadingPaths, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onModelChange, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onRevision, onSavePage, onSnapshot, onTrackDrop, pageTitleIndex, pages, spellCheck } = props;
   const path = folderChildPath(folderPath, child.name);
   const page = child.kind === "native" ? pages.find((candidate) => candidate.path === path) : undefined;
   const isEditing = path === editingPath;
@@ -345,6 +355,7 @@ function FolderSequenceItem(props: FolderSequenceItemProps) {
         buffer={buffer}
         child={child}
         documentQueries={documentQueries}
+        documentRegistry={documentRegistry}
         editorOwner={editorOwner}
         folders={folders}
         isBusy={isBusy}
@@ -418,7 +429,7 @@ type FolderSequenceProps = FolderSequenceInteractions & {
 };
 
 function FolderSequence(props: FolderSequenceProps) {
-  const { addMenu, buffers, dropIndex, editingPath, editorOwner, folder, folders, isBusy, loadErrors, loadingPaths, onBeginCreating, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onModelChange, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onRevision, onSavePage, onSetAddMenu, onSnapshot, onTrackDrop, documentQueries, pageTitleIndex, pages, spellCheck } = props;
+  const { addMenu, buffers, dropIndex, editingPath, editorOwner, folder, folders, isBusy, loadErrors, loadingPaths, onBeginCreating, onBeginEditing, onChangeSource, onDragEnd, onDragStartName, onModelChange, onOpenChild, onOpenFolder, onOpenPage, onRemoveMissing, onReorderAt, onRevision, onSavePage, onSetAddMenu, onSnapshot, onTrackDrop, documentQueries, documentRegistry, pageTitleIndex, pages, spellCheck } = props;
   const toggleAddMenu = (menu: "top" | "bottom" | "empty") => onSetAddMenu(addMenu === menu ? null : menu);
   return (
     <ol className="folder-sequence">
@@ -428,6 +439,7 @@ function FolderSequence(props: FolderSequenceProps) {
         buffer={buffers[folderChildPath(folder.path, child.name)]}
         child={child}
         documentQueries={documentQueries}
+        documentRegistry={documentRegistry}
         editorOwner={editorOwner}
         dropIndex={dropIndex}
         editingPath={editingPath}
@@ -664,6 +676,10 @@ function useFolderViewActions(props: Props, state: ReturnType<typeof useFolderVi
       setEditingPath(null);
       return;
     }
+    if (props.isPageOpen(path)) {
+      props.onOpenPage(path);
+      return;
+    }
     if (await props.onEnsurePage(path)) setEditingPath(path);
   }
 
@@ -685,10 +701,15 @@ function useFolderViewActions(props: Props, state: ReturnType<typeof useFolderVi
   function openChild(event: MouseEvent, kind: "folder" | "native", path: string, missing: boolean, editing: boolean) {
     if (missing || editing || !shouldOpenFolderChild(event.target)) return;
     if (kind === "folder") props.onOpenFolder(path);
-    else props.onOpenPage(path);
+    else openPage(path);
   }
 
-  return { beginCreating, beginEditing, commitTitle, openChild, reorderAt, submitCreate, trackDrop };
+  function openPage(path: string) {
+    setEditingPath(null);
+    props.onOpenPage(path);
+  }
+
+  return { beginCreating, beginEditing, commitTitle, openChild, openPage, reorderAt, submitCreate, trackDrop };
 }
 
 function FolderView(props: Props) {
@@ -698,7 +719,7 @@ function FolderView(props: Props) {
   const actions = useFolderViewActions(props, state, data);
   const { addMenu, createInputRef, createKind, createName, dropIndex, editingPath, findQuery, isExportOpen, isFindOpen, setAddMenu, setCreateKind, setCreateName, setDraggedName, setDropIndex, setFindQuery, setIsExportOpen, setIsFindOpen, setTitle, title, viewRef } = state;
   const { findCount, findGroups, folderCharacters, folderWords, scopedPages } = data;
-  const { beginCreating, beginEditing, commitTitle, openChild, reorderAt, submitCreate, trackDrop } = actions;
+  const { beginCreating, beginEditing, commitTitle, openChild, openPage, reorderAt, submitCreate, trackDrop } = actions;
 
   return (
     <section className="folder-view-shell" aria-label={`Folder ${props.folder.title}`} ref={viewRef}>
@@ -708,6 +729,7 @@ function FolderView(props: Props) {
           <FolderSequence
             addMenu={addMenu}
             buffers={props.buffers}
+            documentRegistry={props.documentRegistry}
             documentQueries={props.documentQueries}
             dropIndex={dropIndex}
             editorOwner={props.editorOwner}
@@ -725,7 +747,7 @@ function FolderView(props: Props) {
             onDragStartName={setDraggedName}
             onOpenChild={openChild}
             onOpenFolder={props.onOpenFolder}
-            onOpenPage={props.onOpenPage}
+            onOpenPage={openPage}
             onRemoveMissing={props.onRemoveMissing}
             onReorderAt={reorderAt}
             onSavePage={props.onSavePage}
@@ -740,7 +762,7 @@ function FolderView(props: Props) {
           <FolderIssues issues={props.folder.issues} />
         </div>
       </div>
-      {isFindOpen ? <FolderFindDrawer folderTitle={props.folder.title} findCount={findCount} findGroups={findGroups} findQuery={findQuery} onChangeQuery={setFindQuery} onClose={() => setIsFindOpen(false)} onOpenPage={props.onOpenPage} /> : null}
+      {isFindOpen ? <FolderFindDrawer folderTitle={props.folder.title} findCount={findCount} findGroups={findGroups} findQuery={findQuery} onChangeQuery={setFindQuery} onClose={() => setIsFindOpen(false)} onOpenPage={openPage} /> : null}
       <FolderStatusBar borealisOpen={props.borealisOpen} borealisWorkspace={props.borealisWorkspace} folderCharacters={folderCharacters} folderWords={folderWords} focusMode={props.focusMode} isBusy={props.isBusy} isFindOpen={isFindOpen} onExport={() => setIsExportOpen(true)} onFind={() => setIsFindOpen((open) => !open)} onToggleBorealis={props.onToggleBorealis} onToggleFocus={props.onToggleFocus} pageCount={scopedPages.length} />
       {isExportOpen ? <FolderExportDialog folder={props.folder} folders={props.folders} pages={props.pages} onClose={() => setIsExportOpen(false)} onExport={props.onExport} /> : null}
       {createKind ? <FolderCreateDialog createInputRef={createInputRef} createKind={createKind} createName={createName} folderTitle={props.folder.title} onChangeName={setCreateName} onClose={() => setCreateKind(null)} onSubmit={submitCreate} /> : null}
