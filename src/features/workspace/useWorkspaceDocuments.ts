@@ -13,6 +13,7 @@ import {
   type DocumentBuffers
 } from "./documents/documentBuffers";
 import { createDocumentPersistence } from "./documents/documentPersistence";
+import { DocumentRegistry } from "./documents/documentRuntime";
 import { createProjectGeneration } from "./documents/documentSessions";
 import { useDocumentDrafts } from "./documents/useDocumentDrafts";
 import { useDocumentLoading } from "./documents/useDocumentLoading";
@@ -33,6 +34,7 @@ type Options = {
 
 function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
   const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
+  const [documentRegistry] = useState(() => new DocumentRegistry({ projectGeneration }));
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => {
     const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
@@ -48,9 +50,12 @@ function useWorkspaceDocumentState(initialProject: FractalProject, requestedGene
   const previousGenerationRef = useRef(projectGeneration);
   const lastPollingNoticeRef = useRef(0);
 
+  useEffect(() => () => documentRegistry.dispose(), [documentRegistry]);
+
   return {
     buffers,
     buffersRef,
+    documentRegistry,
     draftStorageError,
     lastPollingNoticeRef,
     loadErrors,
@@ -74,6 +79,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const {
     buffers,
     buffersRef,
+    documentRegistry,
     draftStorageError,
     lastPollingNoticeRef,
     loadErrors,
@@ -261,10 +267,12 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       delete next[path];
       return next;
     });
-  }, [commitBuffers]);
+    documentRegistry.closeByPath(path);
+  }, [commitBuffers, documentRegistry]);
 
   const renameDocument = useCallback((from: string, to: string) => {
     rememberPathChange(from, to);
+    documentRegistry.renameByPath(from, to);
     commitBuffers((current) => {
       const buffer = current[from];
       if (!buffer) return current;
@@ -272,7 +280,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       delete next[from];
       return next;
     });
-  }, [commitBuffers, rememberPathChange]);
+  }, [commitBuffers, documentRegistry, rememberPathChange]);
 
   const resolveDocumentPath = useCallback((path: string) => {
     let current = path;
@@ -410,6 +418,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   return {
     buffers,
     dirtyCount,
+    documentRegistry,
     documentQueries,
     draftStorageError,
     forgetDocument,

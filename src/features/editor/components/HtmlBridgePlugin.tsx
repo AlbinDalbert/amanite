@@ -9,9 +9,11 @@ import { cleanEditorHtml } from "./editorHtml";
 import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
 import { AMANITE_VIEW_SYNC_TAG, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 import { measureDataflow, nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
+import type { DocumentSession } from "@/features/workspace/documents/documentRuntime";
 
 type Props = {
   bodyHtml: string;
+  documentSession?: DocumentSession;
   documentId?: string;
   sourceIncarnation?: number;
   pagePath: string;
@@ -24,7 +26,89 @@ type Props = {
   onLoading?: () => void;
 };
 
-function HtmlBridgePlugin({ bodyHtml, sourceIncarnation, documentId, pagePath, sharedSession, onChange, onModelChange, onRevision, onSnapshot, onLoaded, onLoading }: Props) {
+function RuntimeHtmlBridgePlugin({ documentId, documentSession, onModelChange, onRevision, onSnapshot, onLoaded }: {
+  documentId?: string;
+  documentSession: DocumentSession;
+  onLoaded?: () => void;
+  onModelChange?: (snapshot: EditorModelSnapshot) => void;
+  onRevision?: (revision: number) => void;
+  onSnapshot?: (snapshot: EditorSnapshot) => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const runtimeDocumentId = documentId ?? documentSession.documentId;
+  const loaded = useRef(false);
+  const lastSnapshot = useRef<EditorSnapshot | null>(null);
+  const onModelChangeRef = useRef(onModelChange);
+  const onRevisionRef = useRef(onRevision);
+  const onSnapshotRef = useRef(onSnapshot);
+  const onLoadedRef = useRef(onLoaded);
+  onModelChangeRef.current = onModelChange;
+  onRevisionRef.current = onRevision;
+  onSnapshotRef.current = onSnapshot;
+  onLoadedRef.current = onLoaded;
+
+  const reportModel = useCallback((state: EditorState, revision: number) => {
+    const model = measureDataflow("editor.full-model-scan", { documentId: runtimeDocumentId, revision }, () => readEditorModel(state, revision));
+    onModelChangeRef.current?.(model);
+  }, [runtimeDocumentId]);
+
+  const captureSnapshot = useCallback((minimumRevision = 0, requestedId?: string): EditorSnapshot | void => {
+    const requestId = requestedId ?? nextDataflowRequestId("snapshot");
+    const capture = documentSession.capture();
+    const previous = lastSnapshot.current;
+    if (previous && previous.revision >= minimumRevision && previous.revision >= capture.revision) return { ...previous, requestId };
+    if (capture.revision < minimumRevision) return previous?.revision === capture.revision ? { ...previous, requestId } : undefined;
+
+    recordDataflowEvent({ documentId: runtimeDocumentId, name: "snapshot.request", requestId, revision: capture.revision, status: "start" });
+    const html = measureDataflow("editor.full-export", { documentId: runtimeDocumentId, requestId, revision: capture.revision }, () => capture.editorState.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor }));
+    const snapshot = {
+      bodyHtml: html,
+      documentId: runtimeDocumentId,
+      incarnation: capture.replacementGeneration,
+      projectGeneration: capture.projectGeneration,
+      requestId,
+      revision: capture.revision
+    } satisfies EditorSnapshot;
+    lastSnapshot.current = snapshot;
+    onSnapshotRef.current?.(snapshot);
+    recordDataflowEvent({ bytes: new TextEncoder().encode(html).byteLength, documentId: runtimeDocumentId, name: "snapshot.request", requestId, revision: capture.revision, status: "success" });
+    return snapshot;
+  }, [documentSession, editor, runtimeDocumentId]);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    const revision = documentSession.getSnapshot().revision;
+    reportModel(editor.getEditorState(), revision);
+    onLoadedRef.current?.();
+  }, [documentSession, editor, reportModel]);
+
+  useEffect(() => registerEditorFlush(runtimeDocumentId, {
+    documentId: runtimeDocumentId,
+    incarnation: documentSession.getSnapshot().replacementGeneration,
+    projectGeneration: documentSession.projectGeneration,
+    flush: async (minimumRevision, requestId) => {
+      if (editor.isComposing()) await settleEditorComposition(editor.getRootElement());
+      return captureSnapshot(minimumRevision, requestId);
+    },
+    getRevision: () => documentSession.getSnapshot().revision
+  }), [captureSnapshot, documentSession, editor, runtimeDocumentId]);
+
+  function handleChange(state: EditorState, _editor: unknown, tags: Set<string>) {
+    if (tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG) || tags.has(AMANITE_VIEW_SYNC_TAG)) return;
+    const revision = documentSession.getSnapshot().revision;
+    lastSnapshot.current = null;
+    onRevisionRef.current?.(revision);
+    reportModel(state, revision);
+  }
+
+  return <OnChangePlugin ignoreHistoryMergeTagChange ignoreSelectionChange onChange={handleChange} />;
+}
+
+function HtmlBridgePlugin({ bodyHtml, documentSession, sourceIncarnation, documentId, pagePath, sharedSession, onChange, onModelChange, onRevision, onSnapshot, onLoaded, onLoading }: Props) {
+  if (documentSession) {
+    return <RuntimeHtmlBridgePlugin documentId={documentId} documentSession={documentSession} onLoaded={onLoaded} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} />;
+  }
   const [editor] = useLexicalComposerContext();
   const editorDocumentId = documentId ?? pagePath;
   const loadedPage = useRef<string | null>(null);

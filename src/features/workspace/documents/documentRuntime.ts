@@ -280,6 +280,23 @@ export class DocumentRegistry {
     return [...this.sessionsById.values()];
   }
 
+  openLoaded(path: string, seed: DocumentSeed): OpenDocumentResult {
+    this.assertOpen();
+    const requestedPath = requirePath(path);
+    const existing = this.getByPath(requestedPath);
+    if (existing) return { session: existing, reused: true };
+
+    const session = new DocumentSession({
+      ...seed,
+      documentId: this.documentIdFactory(),
+      projectGeneration: this.projectGeneration,
+      path: requestedPath
+    });
+    this.sessionsById.set(session.documentId, session);
+    this.paths.set(requestedPath, session.documentId);
+    return { session, reused: false };
+  }
+
   open(path: string, load: DocumentLoader): Promise<OpenDocumentResult> {
     this.assertOpen();
     const requestedPath = requirePath(path);
@@ -294,15 +311,7 @@ export class DocumentRegistry {
       this.assertOpen();
       const concurrent = this.getByPath(requestedPath);
       if (concurrent) return concurrent;
-      const session = new DocumentSession({
-        ...seed,
-        documentId: this.documentIdFactory(),
-        projectGeneration: this.projectGeneration,
-        path: requestedPath
-      });
-      this.sessionsById.set(session.documentId, session);
-      this.paths.set(requestedPath, session.documentId);
-      return session;
+      return this.openLoaded(requestedPath, seed).session;
     })();
     this.opening.set(requestedPath, pendingSession);
 
@@ -327,6 +336,11 @@ export class DocumentRegistry {
     return session;
   }
 
+  renameByPath(from: string, to: string) {
+    const session = this.getByPath(from);
+    return session ? this.rename(session.documentId, to) : undefined;
+  }
+
   close(documentId: DocumentId) {
     const session = this.sessionsById.get(documentId);
     if (!session) return false;
@@ -335,6 +349,11 @@ export class DocumentRegistry {
     if (this.paths.get(path) === documentId) this.paths.delete(path);
     session.dispose();
     return true;
+  }
+
+  closeByPath(path: string) {
+    const session = this.getByPath(path);
+    return session ? this.close(session.documentId) : false;
   }
 
   dispose() {

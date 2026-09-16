@@ -17,6 +17,7 @@ import type { FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { EditorSnapshot } from "./editorFlush";
 import { countTextMatchesInText, type EditorModelSnapshot } from "./editorModel";
 import type { SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import type { DocumentSession } from "@/features/workspace/documents/documentRuntime";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 
 type FractalEditorProps = {
@@ -37,6 +38,7 @@ type FractalEditorProps = {
   documentId?: string;
   sourceIncarnation?: number;
   editable?: boolean;
+  documentSession?: DocumentSession;
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
   spellCheck: boolean;
@@ -82,7 +84,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, documentSession, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -123,8 +125,9 @@ function FractalEditor(props: FractalEditorProps) {
 
   function replaceAll() {
     if (!findQuery || !editable) return;
-    if (sharedSession) {
-      replaceEditorText(sharedSession.editor, findQuery, replacement);
+    const editor = documentSession?.editor ?? sharedSession?.editor;
+    if (editor) {
+      replaceEditorText(editor, findQuery, replacement);
     } else {
       onChangeSource(replaceDocumentText(source, findQuery, replacement, true));
     }
@@ -132,7 +135,7 @@ function FractalEditor(props: FractalEditorProps) {
   }
 
   function changeTitle(title: string) {
-    const revision = sharedSession?.nextRevision();
+    const revision = documentSession?.setTitle(title) ?? sharedSession?.nextRevision();
     onRevision(revision);
     onChangeSource(source, { section: "title", value: title });
   }
@@ -216,6 +219,7 @@ function FractalEditor(props: FractalEditorProps) {
               bodyHtml={displayedBodyHtml}
               documentId={documentId}
               sourceIncarnation={sourceIncarnation}
+              documentSession={documentSession}
               historyOwner={editable}
               isBusy={isBusy || !editable}
               pagePath={pagePath}

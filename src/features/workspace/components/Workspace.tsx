@@ -719,6 +719,7 @@ function Workspace(props: WorkspaceProps) {
     borealisOpen: borealisVisible,
     borealisWorkspace: borealisTabGroup !== null,
     buffers: documents.buffers,
+    documentRegistry: documents.documentRegistry,
     documentQueries: documents.documentQueries,
     draggedTab,
     focusMode,
@@ -755,7 +756,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateModel, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.documentRegistry, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateModel, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   const view: WorkspaceViewProps = {
     activeFolderPath,

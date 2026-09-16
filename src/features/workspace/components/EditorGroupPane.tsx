@@ -4,6 +4,7 @@ import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
+import type { DocumentRegistry } from "../documents/documentRuntime";
 import type { DocumentQueryIndex } from "../documentQueryIndex";
 import { isFolderTab } from "../folderTabs";
 import { BOREALIS_TAB_ID, type EditorGroup, type EditorGroupId } from "../workspaceGroups";
@@ -17,6 +18,7 @@ type Props = {
   buffers: Record<string, DocumentBuffer>;
   draggedTab: DraggedWorkspaceTab | null;
   documentQueries: DocumentQueryIndex;
+  documentRegistry: DocumentRegistry;
   focused: boolean;
   focusMode: boolean;
   group: EditorGroup;
@@ -90,6 +92,7 @@ function EditorGroupPane(props: Props) {
     borealisWorkspace: props.borealisWorkspace,
     buffers: props.buffers,
     documentQueries: props.documentQueries,
+    documentRegistry: props.documentRegistry,
     focusMode: props.focusMode,
     focused: props.focused,
     isLoading: props.isLoading,
@@ -133,7 +136,7 @@ function EditorGroupPane(props: Props) {
       onPointerDownCapture={props.onActivate}
     >
       <div className="editor-group-body">
-        {group.tabs.map((path) => <EditorGroupTabPanel active={path === group.activePath} context={tabPanelContext} groupId={group.id} key={path} path={path} />)}
+        {group.tabs.map((path) => path === group.activePath ? <EditorGroupTabPanel active context={tabPanelContext} groupId={group.id} key={path} path={path} /> : null)}
         {group.activePath && isWaitingForBuffer ? <DocumentLoadingPreview title={props.project.pages.find((page) => page.path === group.activePath)?.title?.trim() || group.activePath} /> : null}
         <EditorGroupEmptyState buffer={buffer} draggedTab={props.draggedTab} group={group} isWaiting={isWaitingForBuffer} loadError={props.loadError} onCreateFirstPage={props.onCreateFirstPage} project={props.project} />
         <DocumentBufferAlert buffer={buffer} onRecreate={props.onRecreate} onReload={props.onReload} onReplace={props.onReplace} />

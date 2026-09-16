@@ -13,6 +13,7 @@ const ctrlKey = "\uE009";
 
 function createDefaultOptions() {
   return {
+    documentRuntimeSmoke: false,
     doctor: false,
     typingRegression: false,
     keepOpen: false,
@@ -31,6 +32,7 @@ function splitOption(arg) {
 }
 
 const booleanOptionHandlers = new Map([
+  ["--document-runtime-smoke", (options) => { options.documentRuntimeSmoke = true; }],
   ["--typing-regression", (options) => { options.typingRegression = true; }],
   ["--doctor", (options) => { options.doctor = true; }],
   ["--keep-open", (options) => { options.keepOpen = true; }],
@@ -101,6 +103,7 @@ Options:
   --doctor                    Check the local setup and exit.
   --keep-open                 Leave the Tauri app open until Enter is pressed.
   --skip-build                Reuse src-tauri/target/debug/amanite.
+  --document-runtime-smoke    Exercise one-editor and warm-switch session lifetime.
   --typing-regression         Exercise sustained typing with autosave on small and large files.
   --port <port>               Embedded WebDriver port. Default: 4445.
   --project-root <path>       Fractal project library for the run.
@@ -597,7 +600,7 @@ async function runFolderSmoke(driver, screenshotsDir, projectName) {
 
   const openedNestedFolder = await driver.executeScript(`
     const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.folder .folder-sequence-card')]
-      .find((candidate) => candidate.querySelector('code')?.textContent === 'field-notes/nested-view');
+      .find((candidate) => candidate.querySelector('h2')?.textContent?.trim() === 'Nested View');
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
@@ -612,7 +615,7 @@ async function runFolderSmoke(driver, screenshotsDir, projectName) {
   await driver.find('.folder-view[aria-label="Folder Field Notes"]', 30_000);
   const openedFolderPage = await driver.executeScript(`
     const card = [...document.querySelectorAll('.editor-tab-panel.active .folder-sequence-item.native .folder-sequence-card')]
-      .find((candidate) => candidate.querySelector('code')?.textContent === 'field-notes/folder-view-page.fractal.html');
+      .find((candidate) => candidate.querySelector('h2')?.textContent?.trim() === 'Folder View Page');
     card?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     return Boolean(card);
   `);
@@ -914,11 +917,35 @@ async function runSettingsSmoke(driver, screenshotsDir) {
 async function runBufferSwitchSmoke(driver, screenshotsDir) {
   const editedPath = await driver.executeScript(`return document.querySelector('.workspace-tab-strip.focused .editor-group-tab.active button[title]')?.getAttribute('title');`);
   if (!editedPath) throw new Error("Focused editor group did not expose an active tab.");
+  const beforeSwitch = await driver.executeScript(`
+    const editors = [...document.querySelectorAll('.editor-tab-panel.active .rich-content-editable')];
+    const imports = window.__AMANITE_DATAFLOW__?.read?.().filter((event) => event.name === 'editor.import' && event.status === 'start').length ?? 0;
+    return {
+      count: editors.length,
+      documentId: editors[0]?.getAttribute('data-amanite-document-id') ?? null,
+      imports
+    };
+  `);
+  if (beforeSwitch.count !== 1 || !beforeSwitch.documentId) {
+    throw new Error(`Expected one identified active document editor before switching: ${JSON.stringify(beforeSwitch)}`);
+  }
   await driver.setValue(".editor-tab-panel.active .rich-content-editable", "Saved during a page switch.");
   await driver.find(".save-state.unsaved");
   await driver.click('[title="index.fractal.html"]');
   await driver.find('.editor-group-tab.active [title="index.fractal.html"]');
   await driver.click(`[title="${editedPath}"]`);
+  const afterSwitch = await driver.executeScript(`
+    const editors = [...document.querySelectorAll('.editor-tab-panel.active .rich-content-editable')];
+    const imports = window.__AMANITE_DATAFLOW__?.read?.().filter((event) => event.name === 'editor.import' && event.status === 'start').length ?? 0;
+    return {
+      count: editors.length,
+      documentId: editors[0]?.getAttribute('data-amanite-document-id') ?? null,
+      imports
+    };
+  `);
+  if (afterSwitch.count !== 1 || afterSwitch.documentId !== beforeSwitch.documentId || afterSwitch.imports !== beforeSwitch.imports) {
+    throw new Error(`Warm switch did not reattach the same document session: ${JSON.stringify({ beforeSwitch, afterSwitch })}`);
+  }
   const switchedText = await driver.text(".editor-tab-panel.active .rich-content-editable");
   if (!switchedText.includes("Saved during a page switch.")) {
     throw new Error(`Page switch did not preserve the dirty buffer: ${switchedText}`);
@@ -927,6 +954,12 @@ async function runBufferSwitchSmoke(driver, screenshotsDir) {
   await driver.find(".save-state.saved");
   await driver.click('[title="my-file.fractal.html"]');
   await takeScreenshot(driver, screenshotsDir, "07-buffer-after-switch");
+}
+
+async function runDocumentRuntimeSmoke(driver, screenshotsDir, projectName) {
+  await runWorkspaceSmoke(driver, screenshotsDir, projectName);
+  await createSmokePage(driver, screenshotsDir);
+  await runBufferSwitchSmoke(driver, screenshotsDir);
 }
 
 async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) {
@@ -1343,6 +1376,13 @@ async function runDesktopSession(options, artifactsDir, projectRoot) {
     if (options.typingRegression) {
       await runTypingRegression(driver, artifactsDir, projectRoot);
       return;
+    }
+    if (options.documentRuntimeSmoke) {
+      const { activeProjectRoot, projectName } = await prepareSmokeProject(driver, artifactsDir, projectRoot);
+      await runDocumentRuntimeSmoke(driver, artifactsDir, projectName);
+      await writeDataflowEvidence(driver, artifactsDir, "document-runtime");
+      await closeSmokeSession(driver, appProcess, getNativeOutput);
+      return { activeProjectRoot, projectName };
     }
     const smoke = await runSmoke(driver, artifactsDir, projectRoot);
     await writeDataflowEvidence(driver, artifactsDir, "before-termination");

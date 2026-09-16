@@ -22,6 +22,8 @@ import { editorConfig } from "./editorConfig";
 import type { EditorSnapshot } from "./editorFlush";
 import type { EditorModelSnapshot } from "./editorModel";
 import { SharedLexicalComposer, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
+import DocumentSessionComposer from "@/features/workspace/documents/DocumentSessionComposer";
+import type { DocumentSession } from "@/features/workspace/documents/documentRuntime";
 
 type Props = {
   bodyHtml: string;
@@ -36,6 +38,7 @@ type Props = {
   title: string;
   documentId?: string;
   sourceIncarnation?: number;
+  documentSession?: DocumentSession;
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
   onChangeBody: (html: string) => void;
@@ -47,7 +50,7 @@ type Props = {
   onToggleInspector?: () => void;
 };
 
-type WritingAreaProps = Pick<Props, "bodyHtml" | "sourceIncarnation" | "documentId" | "historyOwner" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
+type WritingAreaProps = Pick<Props, "bodyHtml" | "sourceIncarnation" | "documentId" | "documentSession" | "historyOwner" | "isBusy" | "pagePath" | "pageTitleIndex" | "pages" | "projectName" | "sharedSession" | "spellCheck" | "title" | "viewId" | "onChangeBody" | "onChangeTitle" | "onModelChange" | "onOpenFolder" | "onSnapshot"> & {
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
@@ -56,9 +59,12 @@ type WritingAreaProps = Pick<Props, "bodyHtml" | "sourceIncarnation" | "document
   viewId?: string;
 };
 
-function EditableStatePlugin({ isBusy }: { isBusy: boolean }) {
+function EditableStatePlugin({ documentSession, isBusy }: { documentSession?: DocumentSession; isBusy: boolean }) {
   const [editor] = useLexicalComposerContext();
-  useEffect(() => editor.setEditable(!isBusy), [editor, isBusy]);
+  useEffect(() => {
+    if (documentSession) documentSession.setEditable(!isBusy);
+    else editor.setEditable(!isBusy);
+  }, [documentSession, editor, isBusy]);
   return null;
 }
 
@@ -102,7 +108,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, sourceIncarnation, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentSession, sourceIncarnation, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -140,18 +146,18 @@ function WritingArea({ bodyHtml, sourceIncarnation, documentId, historyOwner = t
         </div>
         <div className="rich-body-frame">
           <RichTextPlugin
-            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" spellCheck={spellCheck} />}
+            contentEditable={<ContentEditable aria-label={`Body for ${pagePath}`} className="rich-content-editable" data-amanite-document-id={documentSession?.documentId ?? documentId ?? pagePath} spellCheck={spellCheck} />}
             placeholder={<div className="rich-placeholder">Start writing…</div>}
             ErrorBoundary={LexicalErrorBoundary}
           />
-          {historyOwner ? <HistoryPlugin externalHistoryState={sharedSession?.historyState} /> : null}
-          <EditableStatePlugin isBusy={isBusy} />
+          {historyOwner && !documentSession ? <HistoryPlugin externalHistoryState={sharedSession?.historyState} /> : null}
+          <EditableStatePlugin documentSession={documentSession} isBusy={isBusy} />
           <ListPlugin />
           <TabIndentationPlugin />
           <LinkPlugin />
           <HorizontalRulePlugin />
           <TablePlugin />
-          <HtmlBridgePlugin bodyHtml={bodyHtml} sourceIncarnation={sourceIncarnation} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
+          <HtmlBridgePlugin bodyHtml={bodyHtml} documentSession={documentSession} sourceIncarnation={sourceIncarnation} documentId={documentId ?? pagePath} pagePath={pagePath} sharedSession={sharedSession} onChange={onChangeBody} onModelChange={onModelChange} onRevision={onRevision} onSnapshot={onSnapshot} onLoaded={onContentLoaded} onLoading={onContentLoading} />
           <InlinePageLinksPlugin pagePath={pagePath} pageTitleIndex={pageTitleIndex} pages={pages} />
           <ViewAttachmentPlugin session={sharedSession} viewId={viewId} />
         </div>
@@ -160,7 +166,7 @@ function WritingArea({ bodyHtml, sourceIncarnation, documentId, historyOwner = t
   );
 }
 
-function RichDocumentEditor({ bodyHtml, sourceIncarnation, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentSession, sourceIncarnation, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -172,6 +178,7 @@ function RichDocumentEditor({ bodyHtml, sourceIncarnation, documentId, embedded 
       </header>
       <WritingArea
         bodyHtml={bodyHtml}
+        documentSession={documentSession}
         sourceIncarnation={sourceIncarnation}
         documentId={documentId}
         historyOwner={historyOwner}
@@ -199,7 +206,9 @@ function RichDocumentEditor({ bodyHtml, sourceIncarnation, documentId, embedded 
   return (
     <section className={embedded ? "rich-document-shell embedded" : "rich-document-shell"} aria-label="Rich text editor">
       {!isContentReady ? <DocumentLoadingPreview title={title || "Untitled"} /> : null}
-      {sharedSession ? (
+      {documentSession ? (
+        <DocumentSessionComposer session={documentSession}>{writingArea}</DocumentSessionComposer>
+      ) : sharedSession ? (
         <SharedLexicalComposer session={sharedSession}>{writingArea}</SharedLexicalComposer>
       ) : (
         <LexicalComposer initialConfig={config} key={documentId ?? pagePath}>{writingArea}</LexicalComposer>

@@ -1,6 +1,5 @@
 import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
-import { useSharedDocumentEditor } from "@/features/editor/components/sharedDocumentEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
 import type { FractalFolder, FractalProject } from "@/lib/fractal/types";
@@ -10,6 +9,8 @@ import type { DocumentQueryIndex } from "../documentQueryIndex";
 import { folderPathFromTabId } from "../folderTabs";
 import { BOREALIS_TAB_ID, type EditorGroupId } from "../workspaceGroups";
 import type { WorkspaceDocumentCallbacks } from "../workspaceCallbacks";
+import type { DocumentRegistry } from "../documents/documentRuntime";
+import { useDocumentSession } from "../documents/useDocumentSession";
 import FolderView from "./FolderView";
 
 export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
@@ -17,6 +18,7 @@ export type EditorGroupTabPanelContext = WorkspaceDocumentCallbacks & {
   borealisWorkspace: boolean;
   buffers: Record<string, DocumentBuffer>;
   documentQueries: DocumentQueryIndex;
+  documentRegistry: DocumentRegistry;
   focusMode: boolean;
   focused: boolean;
   isLoading: boolean;
@@ -113,8 +115,12 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
 }
 
 function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
-  const viewId = `${groupId}:${tabBuffer.documentId}`;
-  const session = useSharedDocumentEditor(tabBuffer.documentId, tabBuffer.projectGeneration, tabBuffer.bodyHtml, viewId, tabBuffer.revision, tabBuffer.incarnation);
+  const session = useDocumentSession(context.documentRegistry, tabBuffer.path, {
+    bodyHtml: tabBuffer.bodyHtml,
+    initialReplacementGeneration: tabBuffer.incarnation,
+    initialRevision: tabBuffer.revision,
+    title: tabBuffer.title
+  });
   const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">
@@ -134,11 +140,11 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         pages={context.pages}
         pagePath={path}
         projectName={context.project.name}
-        sharedSession={session}
+        documentSession={session}
         source={tabBuffer.source}
         spellCheck={context.settings.spellCheck}
         title={tabBuffer.title}
-        viewId={viewId}
+        viewId={`${groupId}:${tabBuffer.documentId}`}
         wordGoal={context.settings.wordGoal}
         onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
         onModelChange={(snapshot) => context.onModelChange?.(path, snapshot)}
