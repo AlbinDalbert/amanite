@@ -284,9 +284,9 @@ function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBe
   return (
     <header>
       <div>
-        <small>{child.kind === "folder" ? "Folder" : child.status === "missing" ? "Missing page" : wordLabel(text)}</small>
+        {<small>{child.kind === "folder" ? "Folder" : child.status === "missing" ? "Missing page" : wordLabel(text)}</small>}
         <h2>{child.kind === "folder" ? folders.find((candidate) => candidate.path === path)?.title || child.name : title}</h2>
-        <code>{path}</code>
+        {/*<code>{path}</code>*/}
       </div>
       <FolderSequenceActions buffer={buffer} child={child} isEditing={isEditing} missing={child.status === "missing"} onBeginEditing={onBeginEditing} onOpenFolder={onOpenFolder} onOpenPage={onOpenPage} onRemoveMissing={onRemoveMissing} onSavePage={onSavePage} page={page} path={path} />
     </header>

@@ -1,5 +1,10 @@
 # Architecture
 
+This document describes the pre-replacement implementation. The target design,
+implementation ledger, and acceptance gates are in the
+[document runtime replacement plan](document-runtime-replacement-plan.md).
+Rewrite this description when the replacement's final gate is complete.
+
 Fractal owns durable project state, native document semantics, paths, links,
 transactions, and exports. Amanite is the Tauri desktop client: React owns
 workspace presentation and TypeScript owns live Lexical document sessions.

@@ -1,5 +1,10 @@
 # Document data-flow revisit plan
 
+Historical plan. New implementation work follows the
+[document runtime replacement plan](document-runtime-replacement-plan.md).
+Do not continue this plan as another incremental data-flow repair. Its reports
+remain useful evidence; its architecture is being replaced.
+
 Status: in progress. R0 through R6 implementation and the R7 local Linux pass
 are complete. Cross-platform, latency-distribution, and recovery fault-matrix
 acceptance remain open.

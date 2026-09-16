@@ -1,5 +1,10 @@
 # Amanite document data-flow plan
 
+Historical plan. New implementation work follows the
+[document runtime replacement plan](document-runtime-replacement-plan.md).
+Its ownership rules and approved single-editor scope supersede conflicting
+requirements here. Retain this document as historical evidence.
+
 Status: D0 through D8 implementation complete. Its acceptance claim is
 historical and is superseded by the
 [document data-flow revisit](document-dataflow-revisit-plan.md), whose remaining
