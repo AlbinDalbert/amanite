@@ -1,8 +1,8 @@
 # Document runtime replacement plan
 
 Created: 2026-09-16.
-Status: design accepted in direction; implementation not started.
-Baseline reviewed: `4dc2ba2`. No implementation or performance acceptance is claimed by this document.
+Status: P0 verified; P1 in progress.
+Baseline reviewed: `4dc2ba2`. No final implementation or performance acceptance is claimed by this document.
 
 ## Read this first
 
@@ -355,8 +355,8 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 
 | ID | Work and exit criteria | Status | Evidence/commit |
 | --- | --- | --- | --- |
-| P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | not started | — |
-| P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | not started | — |
+| P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
+| P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts` and `documentRuntime.test.ts`; isolated registry/session tests green; UI cutover remains |
 | P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | not started | — |
 | P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | not started | — |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
@@ -383,11 +383,25 @@ link them here. Avoid another series of plans that leaves this ledger stale.
 
 Temporary adapters: none created yet.
 
-Latest handoff: planning only. Next task is P0, then build the new session
-runtime. The working tree at planning time contained an unrelated local edit
-to `src/features/workspace/components/FolderView.tsx`; preserve user changes
-when replacing surrounding code. Git history being available is not permission
-to discard unrelated uncommitted work.
+Latest handoff: P0 is verified and the first P1 session/registry slice is in
+place. `DocumentSession` owns one Lexical editor, title, revision, replacement
+generation, history state, and read-only captures. `DocumentRegistry` owns
+opaque IDs, path lookup, concurrent-open deduplication, in-place renames, and
+explicit disposal. It is not wired into the workspace yet. The current
+view-owned runtime remains active until a later cutover removes it.
+
+Commands run: post-change `pnpm test` passed with 41 files and 142 tests
+(pre-change baseline: 40 files and 138 tests); `pnpm run build` passed; `cargo
+test --manifest-path src-tauri/Cargo.toml` passed with 25 tests;
+`pnpm run dataflow:benchmark` passed on Linux x64 with Node `v26.8.2`; and
+TypeScript type-checking passed. The focused runtime test is included in the
+full frontend run.
+
+Remaining bounded task: replace the view-owned editor entry point with a
+registry-backed session attachment that does not dispose sessions on view
+unmount, then add the desktop one-editor and warm-switch scenarios. No
+temporary adapter has been created. No old mechanism was deleted in this
+session.
 
 ## Acceptance: correctness and architecture
 
