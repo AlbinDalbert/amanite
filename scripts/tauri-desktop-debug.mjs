@@ -442,6 +442,35 @@ async function waitForScript(driver, script, args = [], timeout = 10_000) {
   throw new Error(`Timed out waiting for desktop script condition: ${script}`);
 }
 
+async function readNativeDraft(driver, projectRoot, pagePath) {
+  return driver.executeAsyncScript(`
+    const [root, path] = arguments;
+    const done = arguments[arguments.length - 1];
+    window.__TAURI_INTERNALS__.invoke("fractal_read_draft", { projectRoot: root, pagePath: path })
+      .then((draft) => done(draft), (error) => done({ error }));
+  `, [projectRoot, pagePath]);
+}
+
+async function waitForNativeDraft(driver, projectRoot, pagePath, timeout = 10_000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const draft = await readNativeDraft(driver, projectRoot, pagePath);
+    if (draft && !draft.error) return draft;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error(`Timed out waiting for a recovery draft for ${pagePath}.`);
+}
+
+async function deleteNativeDraft(driver, projectRoot, pagePath) {
+  const result = await driver.executeAsyncScript(`
+    const [root, path] = arguments;
+    const done = arguments[arguments.length - 1];
+    window.__TAURI_INTERNALS__.invoke("fractal_delete_draft", { projectRoot: root, pagePath: path })
+      .then(() => done({ ok: true }), (error) => done({ ok: false, error }));
+  `, [projectRoot, pagePath]);
+  assertSmoke(result?.ok === true, `Native draft cleanup failed: ${JSON.stringify(result?.error)}`);
+}
+
 async function openRootExplorerMenu(driver) {
   await driver.executeScript(`
     const explorer = document.querySelector('.file-explorer-surface');
@@ -1013,6 +1042,27 @@ async function runDocumentRuntimeSmoke(driver, screenshotsDir, projectName) {
 }
 
 async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) {
+  const liveDraftMarker = "Coordinator capture survives a detached editor.";
+  await driver.click('[title="index.fractal.html"]');
+  await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  await driver.executeScript("window.__AMANITE_DATAFLOW__.clear();");
+  await driver.setValue('.editor-tab-panel.active .rich-content-editable', liveDraftMarker);
+  await driver.find(".save-state.unsaved");
+  await driver.click('[title="my-file.fractal.html"]');
+  await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  const liveDraft = await waitForNativeDraft(driver, activeProjectRoot, "index.fractal.html");
+  const liveDraftEvents = await driver.executeScript(`return window.__AMANITE_DATAFLOW__.read();`);
+  assertSmoke(liveDraft.source.includes(liveDraftMarker), "The coordinator recovery draft did not contain the detached document edit.");
+  assertSmoke(liveDraft.source.includes("data-fractal-style"), "The coordinator recovery draft discarded native sections.");
+  assertSmoke(liveDraftEvents.some((event) => event.name === "document.capture") && liveDraftEvents.some((event) => event.name === "document.encode"), `The recovery draft did not use the session capture path: ${JSON.stringify(liveDraftEvents)}`);
+  assertSmoke(!liveDraftEvents.some((event) => event.name === "snapshot.request" && event.status === "start"), "The recovery draft asked a mounted snapshot controller to export the document.");
+
+  await driver.click('[title="index.fractal.html"]');
+  await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  await driver.ctrlS();
+  await driver.find(".save-state.saved", 30_000);
+  await deleteNativeDraft(driver, activeProjectRoot, "index.fractal.html");
+
   const recoverySource = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>Recovered page</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>Recovered page</h1><p>Recovered from Amanite local storage.</p></main></body></html>';
   await driver.executeScript(`
     const tab = document.querySelector('.editor-group-tab [title="index.fractal.html"]')?.closest('.editor-group-tab');

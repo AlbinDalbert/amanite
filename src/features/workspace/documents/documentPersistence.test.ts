@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalConditionalWriteResult, FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
 import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
+import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { captureAndEncodeDocument } from "./documentEncoding";
 import { DocumentRegistry } from "./documentRuntime";
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+const mockedInvoke = vi.mocked(invoke);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,7 +63,89 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
 }
 
 describe("document persistence", () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+  });
+
+  it("writes an open recovery draft from the registry session without a mounted snapshot", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "test.fractal.html";
+    const projectGeneration = 45;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode("Recovery edit"));
+      $getRoot().clear().append(paragraph);
+    });
+    session.setTitle("Recovery title");
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(2));
+    buffersRef.current[path] = { ...buffer, revision: 2 };
+    const editorStateBefore = session.editor.getEditorState();
+    clearDataflowEvents();
+    const flushDocument = vi.fn(async () => { throw new Error("the mounted snapshot bridge should not run"); });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      flushDocument,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    await expect(persistence.writeRecoveryDraft(buffer.documentId, 2)).resolves.toEqual({ revision: 2, status: "written" });
+
+    expect(flushDocument).not.toHaveBeenCalled();
+    expect(session.editor.getEditorState()).toBe(editorStateBefore);
+    expect(mockedInvoke).toHaveBeenCalledWith("fractal_write_draft", {
+      draft: expect.objectContaining({
+        baseSourceHash: "source-hash",
+        pagePath: path,
+        revision: 2,
+        source: expect.stringContaining("Recovery edit")
+      })
+    });
+    const draft = mockedInvoke.mock.calls.find(([command]) => command === "fractal_write_draft")?.[1] as { draft: { source: string } } | undefined;
+    expect(draft?.draft.source).toContain("data-fractal-style");
+    expect(draft?.draft.source).toContain("<title>Recovery title</title>");
+    expect(draft?.draft.source).toContain('data-fractal-title=""');
+    expect(draft?.draft.source).toContain(">Recovery title</h1>");
+    expect(readDataflowEvents().some((event) => event.name === "snapshot.request")).toBe(false);
+
+    registry.dispose();
+  });
+
+  it("rejects a recovery capture from an obsolete session incarnation and leaves local state intact", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const path = "test.fractal.html";
+    const projectGeneration = 46;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration, incarnation: 2 })!, dirty: true, revision: 3 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    await expect(persistence.writeRecoveryDraft(buffer.documentId, 3)).rejects.toThrow("obsolete document incarnation");
+    expect(buffersRef.current[path]).toBe(buffer);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+
+    registry.dispose();
+  });
 
   it("clears sent edits after a fully saved buffer", () => {
     const path = "index.fractal.html";

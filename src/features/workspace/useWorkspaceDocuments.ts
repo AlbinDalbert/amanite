@@ -422,6 +422,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     buffers,
     projectRoot: project.rootPath,
     saveDocument: persistence.autosaveDocument,
+    writeRecoveryDraft: persistence.writeRecoveryDraft,
     onDraftConfirmed: confirmDraft,
     onDraftError: reportDraftError,
     onStorageError: setDraftStorageError

@@ -3,6 +3,7 @@ import { writePageDraftSource } from "@/app/pageDrafts";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { errorMessage, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
+import type { RecoveryDraftWriter } from "./documentPersistence";
 import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
 // Normal typing often leaves 200–300 ms between characters. Keep full-document
@@ -33,6 +34,7 @@ type Options = {
   autoSave: boolean;
   buffers: DocumentBuffers;
   projectRoot: string;
+  writeRecoveryDraft?: RecoveryDraftWriter;
   saveDocument: (path: string) => Promise<boolean>;
   onDraftConfirmed?: (documentId: string, revision: number) => void;
   onDraftError?: (documentId: string, message: string) => void;
@@ -50,7 +52,7 @@ function newSchedule(): RevisionSchedule {
   return { requestedRevision: 0, capturedRevision: 0, queuedRevision: 0, confirmedRevision: 0, failedRevision: null, firstRequestedAt: null, requestId: null, retryCount: 0, idleTimer: null, maxTimer: null, running: null };
 }
 
-export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument, onDraftConfirmed, onDraftError, onStorageError }: Options) {
+export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument, writeRecoveryDraft, onDraftConfirmed, onDraftError, onStorageError }: Options) {
   const latestBuffersRef = useRef(buffers);
   const latestProjectRootRef = useRef(projectRoot);
   const draftSchedulesRef = useRef(new Map<string, RevisionSchedule>());
@@ -82,35 +84,42 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     schedule.capturedRevision = targetRevision;
     const task = (async () => {
       try {
-        const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
-        const latest = findBuffer(documentId);
+        let result = await writeRecoveryDraft?.(buffer.documentId, targetRevision);
+        let latest = findBuffer(documentId);
+        if (!result) {
+          const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
+          latest = findBuffer(documentId);
+          if (!latest) return;
+          if (snapshot && (snapshot.documentId !== latest.documentId
+            || snapshot.projectGeneration !== latest.projectGeneration
+            || snapshot.incarnation < latest.incarnation)) {
+            reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
+            schedule.failedRevision = targetRevision;
+            schedule.retryCount += 1;
+            return;
+          }
+          if (snapshot && snapshot.revision < targetRevision) {
+            reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
+            schedule.failedRevision = targetRevision;
+            schedule.retryCount += 1;
+            return;
+          }
+          const revision = snapshot?.revision ?? (latest.snapshotRevision >= targetRevision ? latest.snapshotRevision : 0);
+          if (!revision) {
+            reportDraftError(documentId, `The recovery snapshot for ${latest.path} is not available yet.`);
+            schedule.failedRevision = targetRevision;
+            schedule.retryCount += 1;
+            return;
+          }
+          const source = snapshot
+            ? writeEditablePage(latest.source, latest.title, snapshot.bodyHtml, latest.hasTitleHeading)
+            : latest.source;
+          schedule.queuedRevision = revision;
+          result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
+        }
+        if (!latest) latest = findBuffer(documentId);
         if (!latest) return;
-        if (snapshot && (snapshot.documentId !== latest.documentId
-          || snapshot.projectGeneration !== latest.projectGeneration
-          || snapshot.incarnation < latest.incarnation)) {
-          reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
-          schedule.failedRevision = targetRevision;
-          schedule.retryCount += 1;
-          return;
-        }
-        if (snapshot && snapshot.revision < targetRevision) {
-          reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
-          schedule.failedRevision = targetRevision;
-          schedule.retryCount += 1;
-          return;
-        }
-        const revision = snapshot?.revision ?? (latest.snapshotRevision >= targetRevision ? latest.snapshotRevision : 0);
-        if (!revision) {
-          reportDraftError(documentId, `The recovery snapshot for ${latest.path} is not available yet.`);
-          schedule.failedRevision = targetRevision;
-          schedule.retryCount += 1;
-          return;
-        }
-        const source = snapshot
-          ? writeEditablePage(latest.source, latest.title, snapshot.bodyHtml, latest.hasTitleHeading)
-          : latest.source;
-        schedule.queuedRevision = revision;
-        const result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
+        schedule.queuedRevision = result.revision;
         if (result.status === "written") {
           const confirmedLag = performance.now() - started;
           schedule.confirmedRevision = result.revision;
@@ -154,7 +163,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     });
     schedule.running = settled;
     return settled;
-  }, [findBuffer, onDraftConfirmed, onStorageError, reportDraftError]);
+  }, [findBuffer, onDraftConfirmed, onStorageError, reportDraftError, writeRecoveryDraft]);
 
   const flushSave = useCallback((documentId: string) => {
     const schedule = saveSchedulesRef.current.get(documentId) ?? newSchedule();

@@ -1,9 +1,10 @@
-import { clearPageDraft, reconcilePageDrafts } from "@/app/pageDrafts";
+import { clearPageDraft, reconcilePageDrafts, writePageDraftSource, type PageDraftWriteResult } from "@/app/pageDrafts";
 import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
 import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 import { mapPagePath, mutationScope, reconcileMutationResult, reconcileProjectSnapshot } from "@/lib/fractal/reconcile";
 import type { FractalMutationReceipt } from "@/lib/fractal/types";
 import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
+import { writeEditablePage } from "@/features/editor/components/pageSource";
 import {
   errorMessage,
   type BufferUpdater,
@@ -25,6 +26,8 @@ type PersistenceOptions = {
   projectRef: MutableValue<FractalProject>;
   publishProject: (project: FractalProject) => void;
 };
+
+export type RecoveryDraftWriter = (documentId: string, targetRevision: number) => Promise<PageDraftWriteResult | null>;
 
 const nativeSectionOrder: FractalNativeSection[] = ["title", "content", "style", "metadata"];
 
@@ -296,6 +299,49 @@ function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, forc
   };
 }
 
+function bufferForDocument(buffers: DocumentBuffers, documentId: string) {
+  return Object.values(buffers).find((buffer) => buffer.documentId === documentId);
+}
+
+async function writeRecoveryDraftFromSession(
+  buffersRef: MutableValue<DocumentBuffers>,
+  documentRegistry: DocumentRegistry | undefined,
+  projectRef: MutableValue<FractalProject>,
+  documentId: string,
+  targetRevision: number
+): Promise<PageDraftWriteResult | null> {
+  const buffer = bufferForDocument(buffersRef.current, documentId);
+  if (!buffer || !documentRegistry) return null;
+  const session = documentRegistry.getByPath(buffer.path);
+  if (!session || !buffer.nativeDocumentParts) return null;
+
+  const encoded = captureAndEncodeDocument(session);
+  const capture = encoded.capture;
+  if (capture.documentId !== session.documentId) {
+    throw new Error(`The recovery capture for ${buffer.path} belongs to another session.`);
+  }
+  if (capture.projectGeneration !== buffer.projectGeneration || capture.projectGeneration !== documentRegistry.projectGeneration) {
+    throw new Error(`The recovery capture for ${buffer.path} belongs to another project session.`);
+  }
+  if (capture.path !== buffer.path) {
+    throw new Error(`The recovery capture path changed while saving ${buffer.path}.`);
+  }
+  if (capture.replacementGeneration < buffer.incarnation) {
+    throw new Error(`The recovery capture for ${buffer.path} belongs to an obsolete document incarnation.`);
+  }
+  if (capture.revision < targetRevision) {
+    throw new Error(`The recovery capture for ${buffer.path} is behind revision ${targetRevision}.`);
+  }
+
+  const latest = bufferForDocument(buffersRef.current, documentId);
+  if (!latest || latest.path !== capture.path || latest.projectGeneration !== capture.projectGeneration) {
+    throw new Error(`The recovery capture for ${buffer.path} became obsolete before it was written.`);
+  }
+  const source = writeEditablePage(latest.source, capture.title, encoded.bodyHtml, latest.hasTitleHeading);
+  const baseSourceHash = latest.contentHash ?? latest.nativeDocumentParts?.sourceHash ?? "";
+  return writePageDraftSource(projectRef.current.rootPath, capture.path, source, baseSourceHash, capture.revision);
+}
+
 type SavePassResult = {
   kind: "finished" | "retry";
   path: string;
@@ -515,5 +561,12 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
   // Autosave commits one captured revision. Newer typing is scheduled by the
   // idle/max-lag timers, while explicit saves and close barriers drain the queue.
   const autosaveDocument = (path: string) => saveDocument(path, false, false);
-  return { autosaveDocument, saveAll, saveDocument, savePaths };
+  const writeRecoveryDraft: RecoveryDraftWriter = (documentId, targetRevision) => writeRecoveryDraftFromSession(
+    buffersRef,
+    documentRegistry,
+    projectRef,
+    documentId,
+    targetRevision
+  );
+  return { autosaveDocument, saveAll, saveDocument, savePaths, writeRecoveryDraft };
 }

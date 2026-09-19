@@ -357,7 +357,7 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 | --- | --- | --- | --- |
 | P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
 | P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs and folder-inline editors now attach to registry sessions; duplicate page opens focus the existing group; the real desktop smoke covers warm switching, closed-page inline editing, page handoff, split-group close, restart recovery, and reopen. External reload now hands the newer buffer incarnation to the existing session without changing its opaque identity. The workspace persistence bridge remains |
-| P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves; unchanged revisions reuse encoded HTML; direct saves acknowledge only the committed body revision, retain newer edits, and update the registry on title-driven path moves. Title-only saves no longer turn normalized Lexical HTML into a false content edit. Focused acknowledgement, newer-revision, cache, incarnation, and path-rename tests, the full frontend suite, Rust tests, and the real WebDriver smoke pass. Recovery scheduling still uses the temporary snapshot bridge |
+| P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves and recovery drafts; unchanged revisions reuse encoded HTML; direct saves acknowledge only the committed body revision, retain newer edits, and update the registry on title-driven path moves. Title-only saves no longer turn normalized Lexical HTML into a false content edit. Focused acknowledgement, newer-revision, cache, incarnation, path-rename, direct-recovery, native-integrity, and transient-failure tests, the full frontend suite, Rust tests, and the real WebDriver smoke pass. Recovery timer and retry ownership still uses `useDocumentDrafts`; the mounted snapshot bridge remains only for buffers without an open native registry session. |
 | P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | not started | — |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
 | P5 | Complete correctness/performance/fault evidence, audit deletion and dependencies, rewrite architecture docs, and record remaining platform limits honestly. | not started | — |
@@ -381,14 +381,15 @@ Every implementation session updates this document with:
 Keep detailed measurements in `docs/measurements/document-runtime-*.md` and
 link them here. Avoid another series of plans that leaves this ledger stale.
 
-Temporary adapter: recovery drafts and legacy compatibility paths still expose
-the new `DocumentSession` through the existing
-`registerEditorFlush`/`EditorSnapshot` contract. `useDocumentDrafts` still uses
-that route, while normal workspace saves now pass the `DocumentRegistry` to
-`documentPersistence`. An open native session is captured and encoded directly
-for the save, and Fractal section acknowledgements update persistence metadata
-without importing content into the session. Workspace source/body fields remain
-the temporary UI and recovery bridge. This is not a second durable format.
+Temporary adapter: the workspace source/body projection remains a UI and
+recovery compatibility bridge. Normal saves and recovery drafts for open native
+sessions now pass through `documentPersistence`, which captures the registry
+session, encodes its current Lexical state, reconstructs the native draft
+source, and writes it through the existing Fractal draft queue. The mounted
+`registerEditorFlush`/`EditorSnapshot` contract remains for legacy paths,
+unsupported or not-yet-open buffers. `useDocumentDrafts` still owns recovery
+deadlines and retries, so the coordinator owns the capture/write operation but
+not yet the complete recovery schedule. This is not a second durable format.
 
 Latest handoff: P0 is verified and the current P1 slice attaches normal
 document tabs to a workspace-owned `DocumentRegistry`. `DocumentSession` owns
@@ -442,35 +443,54 @@ save updates the temporary buffer projection for the acknowledged revision. It
 never calls `replaceBodyHtml` or reinstalls the editor state. Title-only saves
 compare the captured title against the native parts before deciding whether to
 encode body content. A title save that moves a page also renames the open
-registry session. The mounted snapshot controller remains the temporary
-scheduling bridge for recovery.
+registry session. The mounted snapshot controller remains a temporary fallback
+for recovery compatibility cases.
+
+Recovery draft slice: `documentPersistence.writeRecoveryDraft` now captures an
+open native registry session directly, checks project, path, revision, and
+replacement-generation identity, rebuilds the draft from the accepted native
+source, and queues the result through `writePageDraftSource`. A detached editor
+therefore remains recoverable. The existing timer and retry policy is unchanged.
+The writer returns `null` only when the coordinator has no usable native
+session, which preserves the old snapshot route for the remaining compatibility
+cases. The workspace buffer document ID and the session's opaque ID are
+different identities, so the coordinator resolves the buffer by its stable
+workspace ID and validates the resolved session separately.
 
 Latest verification on the Linux desktop: `pnpm run tauri:webdriver:doctor`
-passed; `pnpm test` passed with 42 files and 151 tests; `pnpm run build`
+passed; `pnpm test` passed with 42 files and 154 tests; `pnpm run build`
 passed (`tsc -b` and Vite); `cargo test --manifest-path
 src-tauri/Cargo.toml` passed with 25 tests; and
 `pnpm exec tauri build --debug --no-bundle --features webdriver` passed. The
-fresh real-Tauri smoke also passed, including editing, ordinary save, the
-save-N/newer-edit persistence case through deterministic tests, external
-reload, tab switching, split-pane close/reopen, normal draft recovery,
-forced-termination recovery, move/recreate, and workspace reopen. Artifacts:
-[`artifacts/tauri-webdriver/2026-09-19T08-24-21-116Z`](../artifacts/tauri-webdriver/2026-09-19T08-24-21-116Z/).
-The recorded dataflow evidence contains zero `editor.full-export` and zero
-`editor.import` events in both captured phases; before termination it records
-8 captures and 7 encodes, and after restart it records 1 capture and 1 encode.
+focused persistence and recovery tests passed with 27 tests, and
+`pnpm run tauri:webdriver:smoke -- --skip-build` passed against that build.
+The fresh real-Tauri smoke also passed, including the new detached-editor recovery
+draft check, editing, ordinary save, the save-N/newer-edit persistence case
+through deterministic tests, external reload, tab switching, split-pane
+close/reopen, normal draft recovery, forced-termination recovery,
+move/recreate, and workspace reopen. Artifacts:
+[`artifacts/tauri-webdriver/2026-09-19T09-34-56-817Z`](../artifacts/tauri-webdriver/2026-09-19T09-34-56-817Z/).
+The smoke's recovery assertion observed native `document.capture` and
+`document.encode` events, preserved the native style section, and observed zero
+`snapshot.request` starts for the detached recovery. The aggregate dataflow
+evidence contains zero `editor.full-export` and zero `editor.import` events in
+both captured phases; before termination it records 3 captures and 2 encodes,
+and after restart it records 1 capture and 1 encode.
 
 This remains a bounded P1/P2 slice, not completion of the replacement. The
 remaining temporary bridges are the workspace source/body projection, the
-mounted `registerEditorFlush`/`EditorSnapshot` contract used by recovery
-drafts and legacy compatibility paths, and the legacy `sharedDocumentEditor`
-fallback. The next bounded task is still to move recovery draft scheduling for
-one registry session onto the coordinator-owned capture path while keeping its
-deadlines and retry policy unchanged. It is intentionally not started here.
+mounted `registerEditorFlush`/`EditorSnapshot` contract for legacy,
+unsupported, and not-yet-open buffers, the recovery timer/retry state in
+`useDocumentDrafts`, and the legacy `sharedDocumentEditor` fallback. The next
+bounded task is to move the recovery timer and retry state for registry-backed
+documents into the coordinator, then remove the open-session fallback branch
+from `useDocumentDrafts`. It is not started here.
 
 Verification gaps for this slice: recovery still uses the temporary snapshot
-bridge, so slow and failing draft writes were not reverified through the new
-coordinator capture path; the required 60-second performance matrix and
-slow/failing storage fault injection remain open; only this Linux desktop
+bridge for compatibility cases, while the focused transient-failure test
+exercises retries through the coordinator writer. The desktop smoke does not
+inject a real draft-storage failure. The required 60-second performance matrix
+and slow/failing storage fault injection remain open. Only this Linux desktop
 environment was exercised, with Windows, macOS, Wayland, and real IME coverage
 unverified. The broader P1-P5 acceptance checklist therefore remains open.
 
