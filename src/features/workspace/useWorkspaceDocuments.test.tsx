@@ -1,10 +1,30 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { FractalProject } from "@/lib/fractal/types";
 import { useWorkspaceDocuments } from "./useWorkspaceDocuments";
 
 vi.mock("./documents/documentDraftRecovery", () => ({ resolveDocumentDraft: vi.fn(async ({ source }: { source: string }) => ({ source, dirty: false, revision: 0, draftedRevision: 0 })) }));
+
+it("keeps the document registry alive through Strict Mode effect replay", async () => {
+  const project: FractalProject = { name: "Test", version: 2, rootPath: "/tmp/strict-mode-registry", pages: [], folders: [], activePagePath: "notes.fractal.html", activePageSource: '<main data-fractal-document><p>Notes</p></main>', activePageContentHash: "base", activePageLinks: [], activePageBacklinks: [] };
+  let documents!: ReturnType<typeof useWorkspaceDocuments>;
+  function Harness() {
+    documents = useWorkspaceDocuments({ autoSave: false, initialProject: project, onProjectSnapshot: vi.fn(), onDocumentPathChange: vi.fn(), onRequestConfirmation: vi.fn(async () => false) });
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+
+  try {
+    await act(async () => root.render(<StrictMode><Harness /></StrictMode>));
+    expect(() => documents.documentRegistry.openLoaded("later.fractal.html", { bodyHtml: "<p>Later</p>", title: "Later" })).not.toThrow();
+  } finally {
+    await act(async () => root.unmount());
+  }
+
+  await Promise.resolve();
+  expect(() => documents.documentRegistry.openLoaded("after-unmount.fractal.html", { bodyHtml: "<p>After unmount</p>", title: "After unmount" })).toThrow("Document registry has been disposed.");
+});
 
 it("does not parse the opening document again when typing publishes a revision", async () => {
   const project: FractalProject = { name: "Test", version: 2, rootPath: "/tmp/typing-parse", pages: [], folders: [], activePagePath: "notes.fractal.html", activePageSource: '<main data-fractal-document><p>Notes</p></main>', activePageContentHash: "base", activePageLinks: [], activePageBacklinks: [] };

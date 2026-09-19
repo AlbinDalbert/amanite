@@ -1,3 +1,4 @@
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import BorealisChat from "@/features/ai-chat/components/AiChat";
 import FractalEditor from "@/features/editor/components/FractalEditor";
 import type { PageTitleIndex } from "@/lib/fractal/pageTitleIndex";
@@ -50,6 +51,42 @@ type Props = {
   groupId: EditorGroupId;
   path: string;
 };
+
+type DocumentOpenErrorBoundaryProps = {
+  children: ReactNode;
+  path: string;
+};
+
+type DocumentOpenErrorBoundaryState = {
+  error: Error | null;
+};
+
+class DocumentOpenErrorBoundary extends Component<DocumentOpenErrorBoundaryProps, DocumentOpenErrorBoundaryState> {
+  state: DocumentOpenErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): DocumentOpenErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`Amanite could not render document ${this.props.path}.`, error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <section className="document-open-error" role="alert">
+          <span>Document failed to open</span>
+          <h2>{this.props.path}</h2>
+          <p>{this.state.error.message || "Amanite encountered an unexpected editor error."}</p>
+          <small>The rest of the workspace is still available. Close and reopen this document after addressing the error.</small>
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function BorealisTabPanel({ active, onOpenSettings }: Pick<EditorGroupTabPanelContext, "onOpenSettings"> & Pick<Props, "active">) {
   return (
@@ -114,7 +151,11 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
   const tabBuffer = context.buffers[path];
   const tabPage = context.pages.find((candidate) => candidate.path === path);
   if (!tabBuffer || !tabPage) return null;
-  return <LoadedDocumentTabPanel active={active} context={context} groupId={groupId} path={path} tabBuffer={tabBuffer} tabPage={tabPage} />;
+  return (
+    <DocumentOpenErrorBoundary key={path} path={path}>
+      <LoadedDocumentTabPanel active={active} context={context} groupId={groupId} path={path} tabBuffer={tabBuffer} tabPage={tabPage} />
+    </DocumentOpenErrorBoundary>
+  );
 }
 
 function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {

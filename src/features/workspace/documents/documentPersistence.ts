@@ -10,12 +10,15 @@ import {
   type DocumentBuffer,
   type DocumentBuffers
 } from "./documentBuffers";
+import { captureAndEncodeDocument, captureDocument } from "./documentEncoding";
+import type { DocumentRegistry } from "./documentRuntime";
 
 type MutableValue<T> = { current: T };
 
 type PersistenceOptions = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
+  documentRegistry?: DocumentRegistry;
   flushDocument?: (buffer: DocumentBuffer) => EditorSnapshot | null | void | Promise<EditorSnapshot | null | void>;
   onDocumentPathChange: (from: string, to: string) => void;
   onDraftStorageError?: (message: string) => void;
@@ -147,10 +150,10 @@ function mergeSavedProject(
   };
 }
 
-function pendingNativeEdits(currentEdits: FractalNativeSectionEdits, sent: FractalNativeSectionEdits) {
+function pendingNativeEdits(currentEdits: FractalNativeSectionEdits, sent: FractalNativeSectionEdits, removeSentSections = false) {
   const remaining = { ...currentEdits };
   for (const section of Object.keys(sent) as FractalNativeSection[]) {
-    if (remaining[section] === sent[section]) delete remaining[section];
+    if (removeSentSections || remaining[section] === sent[section]) delete remaining[section];
   }
   return remaining;
 }
@@ -183,10 +186,10 @@ function mergeAcknowledgedNativeParts(
   return next;
 }
 
-export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: DocumentBuffer, result: NativeSaveResult, savedProject: FractalProject, resultingPath: string, sent: FractalNativeSectionEdits) {
-  const remainingEdits = pendingNativeEdits(currentBuffer.nativeEdits, sent);
+export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: DocumentBuffer, result: NativeSaveResult, savedProject: FractalProject, resultingPath: string, sent: FractalNativeSectionEdits, directCapture = false) {
+  const hasNewerEdits = directCapture ? currentBuffer.revision > start.revision : currentBuffer.revision !== start.revision;
+  const remainingEdits = pendingNativeEdits(currentBuffer.nativeEdits, sent, directCapture && !hasNewerEdits);
   const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
-  const hasNewerEdits = currentBuffer.revision !== start.revision;
   const failed = result.kind !== "saved";
   const savedPage = pageForProject(savedProject, resultingPath);
   const fullyAcknowledged = result.kind === "saved" && !hasPendingNativeEdits && !hasNewerEdits;
@@ -196,7 +199,9 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
     : mergeAcknowledgedNativeParts(currentBuffer.nativeDocumentParts, savedParts, sent);
   return {
     ...currentBuffer,
+    ...(directCapture && fullyAcknowledged ? { bodyHtml: start.bodyHtml, title: start.title } : {}),
     path: resultingPath,
+    revision: directCapture ? Math.max(currentBuffer.revision, start.revision) : currentBuffer.revision,
     source: failed || hasPendingNativeEdits || hasNewerEdits
       ? currentBuffer.source
       : savedProject.activePageSource ?? currentBuffer.source,
@@ -225,7 +230,7 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
   } satisfies DocumentBuffer;
 }
 
-function updateBufferAfterSave({ clearDraft, current, currentPath, projectRoot, result, resultingPath, savedProject, sent, start }: {
+function updateBufferAfterSave({ clearDraft, current, currentPath, directCapture, projectRoot, result, resultingPath, savedProject, sent, start }: {
   clearDraft: (projectRoot: string, pagePath: string) => void;
   current: DocumentBuffers;
   currentPath: string;
@@ -235,10 +240,11 @@ function updateBufferAfterSave({ clearDraft, current, currentPath, projectRoot, 
   savedProject: FractalProject;
   sent: FractalNativeSectionEdits;
   start: DocumentBuffer;
+  directCapture: boolean;
 }) {
   const currentBuffer = current[currentPath] ?? current[resultingPath];
   if (!currentBuffer) return { buffers: current, dirty: false };
-  const nextBuffer = nextDocumentBuffer(currentBuffer, start, result, savedProject, resultingPath, sent);
+  const nextBuffer = nextDocumentBuffer(currentBuffer, start, result, savedProject, resultingPath, sent, directCapture);
   const next = { ...current };
   delete next[currentPath];
   next[resultingPath] = nextBuffer;
@@ -256,13 +262,47 @@ type SaveContext = PersistenceOptions & {
   registerSavePath: (path: string) => void;
 };
 
+function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, force: boolean) {
+  const session = context.documentRegistry?.getByPath(buffer.path);
+  if (!session || !buffer.nativeDocumentParts) return null;
+
+  const sessionSnapshot = session.getSnapshot();
+  if (!force && !buffer.dirty && sessionSnapshot.revision <= buffer.savedRevision) return null;
+
+  const shouldEncodeBody = force || sessionSnapshot.bodyDirty || buffer.nativeEdits.content != null;
+  const encoded = shouldEncodeBody ? captureAndEncodeDocument(session) : { bodyHtml: buffer.bodyHtml, capture: captureDocument(session) };
+  const { capture } = encoded;
+  if (capture.path !== buffer.path) throw new Error(`The captured document path changed while saving ${buffer.path}.`);
+  if (capture.projectGeneration !== buffer.projectGeneration) throw new Error(`The captured document for ${buffer.path} belongs to another project session.`);
+  if (capture.replacementGeneration < buffer.incarnation) throw new Error(`The captured document for ${buffer.path} belongs to an obsolete document incarnation.`);
+  if (capture.revision < buffer.revision) throw new Error(`The captured document for ${buffer.path} is behind revision ${buffer.revision}.`);
+
+  const nativeEdits = { ...buffer.nativeEdits };
+  if (capture.title === buffer.nativeDocumentParts.title) delete nativeEdits.title;
+  else nativeEdits.title = capture.title;
+  if (encoded.bodyHtml === buffer.nativeDocumentParts.contentHtml) delete nativeEdits.content;
+  else if (sessionSnapshot.bodyDirty) nativeEdits.content = encoded.bodyHtml;
+
+  return {
+    buffer: {
+      ...buffer,
+      bodyHtml: encoded.bodyHtml,
+      dirty: true,
+      nativeEdits,
+      revision: capture.revision,
+      title: capture.title
+    } satisfies DocumentBuffer,
+    directCapture: true
+  };
+}
+
 type SavePassResult = {
   kind: "finished" | "retry";
   path: string;
   success: boolean;
 };
 
-async function publishSaveResult(context: SaveContext, currentPath: string, start: DocumentBuffer, result: NativeSaveResult) {
+async function publishSaveResult(context: SaveContext, currentPath: string, start: DocumentBuffer, result: NativeSaveResult, directCapture: boolean) {
   const savedProject = result.project;
   const sent = result.sent;
   const resultingPath = result.resultingPath;
@@ -282,6 +322,7 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
       clearDraft: context.clearDraft,
       current,
       currentPath,
+      directCapture,
       projectRoot: context.projectRef.current.rootPath,
       result,
       resultingPath,
@@ -292,6 +333,9 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
     nextBufferDirty = update.dirty;
     return update.buffers;
   });
+  if (directCapture && result.kind === "saved" && sent.content != null) {
+    context.documentRegistry?.getByPath(currentPath)?.acknowledgeBody(start.revision, start.incarnation);
+  }
 
   const currentBuffer = context.buffersRef.current[currentPath] ?? context.buffersRef.current[resultingPath];
   const nextProject = mergeSavedProject(
@@ -304,17 +348,29 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
   );
   context.projectRef.current = nextProject;
   context.publishProject(nextProject);
-  if (resultingPath !== currentPath) context.onDocumentPathChange(currentPath, resultingPath);
+  if (resultingPath !== currentPath) {
+    context.documentRegistry?.renameByPath(currentPath, resultingPath);
+    context.onDocumentPathChange(currentPath, resultingPath);
+  }
   return { nextBufferDirty, resultingPath };
 }
 
 async function savePass(context: SaveContext, path: string, force: boolean): Promise<SavePassResult> {
   const beforeFlush = context.buffersRef.current[path];
   if (!beforeFlush) return { kind: "finished", path, success: true };
+  let start = beforeFlush;
+  let directCapture = false;
   try {
-    const snapshot = await context.flushDocument?.(beforeFlush);
-    if (context.flushDocument && beforeFlush.revision > beforeFlush.snapshotRevision && !snapshot) {
-      throw new Error(`The editor for ${beforeFlush.path} is unavailable, so Amanite kept the document open.`);
+    const captured = captureSessionBuffer(context, beforeFlush, force);
+    if (captured) {
+      start = captured.buffer;
+      directCapture = captured.directCapture;
+    } else {
+      const snapshot = await context.flushDocument?.(beforeFlush);
+      if (context.flushDocument && beforeFlush.revision > beforeFlush.snapshotRevision && !snapshot) {
+        throw new Error(`The editor for ${beforeFlush.path} is unavailable, so Amanite kept the document open.`);
+      }
+      start = context.buffersRef.current[path] ?? beforeFlush;
     }
   } catch (error) {
     context.commitBuffers((current) => {
@@ -325,7 +381,6 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
     });
     return { kind: "finished", path, success: false };
   }
-  const start = context.buffersRef.current[path] ?? beforeFlush;
   if (!start.dirty && !force) return { kind: "finished", path, success: true };
   context.commitBuffers((current) => {
     const buffer = current[path];
@@ -336,7 +391,7 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
 
   try {
     const result = await saveNativeDocument(context.projectRef.current, start, force);
-    const update = await publishSaveResult(context, path, start, result);
+    const update = await publishSaveResult(context, path, start, result, directCapture);
     if (result.kind !== "saved") {
       return { kind: "finished", path: update.resultingPath, success: false };
     }
@@ -373,7 +428,7 @@ async function runSaveQueue(context: SaveContext, originalPath: string) {
   }
 }
 
-export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
+export function createDocumentPersistence({ buffersRef, commitBuffers, documentRegistry, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
   const drainRequests = new Set<string>();
@@ -411,6 +466,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, flushDocu
       buffersRef,
       clearDraft,
       commitBuffers,
+      documentRegistry,
       flushDocument,
       forceRequests,
       drainRequests,

@@ -1,5 +1,7 @@
 import { $createParagraphNode, $createTextNode, $getRoot, UNDO_COMMAND } from "lexical";
+import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { describe, expect, it, vi } from "vitest";
+import { captureAndEncodeDocument } from "./documentEncoding";
 import { DocumentRegistry, type DocumentId } from "./documentRuntime";
 
 function textOf(documentId: DocumentId, registry: DocumentRegistry) {
@@ -62,6 +64,28 @@ describe("document runtime", () => {
     registry.dispose();
   });
 
+  it("reuses encoded HTML until the session revision changes", async () => {
+    const registry = new DocumentRegistry({ projectGeneration: 12 });
+    const { session } = await registry.open("notes.fractal.html", async () => ({ title: "Notes", bodyHtml: "<p>Initial</p>" }));
+    clearDataflowEvents();
+
+    const first = captureAndEncodeDocument(session);
+    const second = captureAndEncodeDocument(session);
+    expect(second.bodyHtml).toBe(first.bodyHtml);
+    expect(readDataflowEvents().filter((event) => event.name === "document.encode")).toHaveLength(1);
+
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode("Edited"));
+      $getRoot().clear().append(paragraph);
+    });
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+    captureAndEncodeDocument(session);
+    expect(readDataflowEvents().filter((event) => event.name === "document.encode")).toHaveLength(2);
+
+    registry.dispose();
+  });
+
   it("keeps Lexical history with the session and clears it only for explicit replacement", async () => {
     const registry = new DocumentRegistry({ projectGeneration: 9 });
     const { session } = await registry.open("notes.fractal.html", async () => ({ title: "Notes", bodyHtml: "<p>Initial</p>" }));
@@ -85,6 +109,21 @@ describe("document runtime", () => {
     expect(session.historyState.undoStack).toEqual([]);
     expect(session.historyState.redoStack).toEqual([]);
     expect(session.getSnapshot().replacementGeneration).toBe(2);
+
+    registry.dispose();
+  });
+
+  it("replaces the body and title for a newer document incarnation", async () => {
+    const registry = new DocumentRegistry({ projectGeneration: 13 });
+    const { session } = await registry.open("notes.fractal.html", async () => ({ title: "Notes", bodyHtml: "<p>Initial</p>" }));
+    const documentId = session.documentId;
+
+    session.replaceDocument("<p>Reloaded</p>", "Reloaded notes", 2, 4);
+
+    expect(session.documentId).toBe(documentId);
+    expect(session.getSnapshot()).toMatchObject({ path: "notes.fractal.html", title: "Reloaded notes", replacementGeneration: 2, revision: 4 });
+    expect(textOf(documentId, registry)).toBe("Reloaded");
+    expect(session.historyState.undoStack).toEqual([]);
 
     registry.dispose();
   });

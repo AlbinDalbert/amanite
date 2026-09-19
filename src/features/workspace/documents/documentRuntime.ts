@@ -24,6 +24,7 @@ export type DocumentSessionSnapshot = Readonly<{
   title: string;
   revision: number;
   replacementGeneration: number;
+  bodyDirty: boolean;
   initialized: boolean;
   editable: boolean;
   disposed: boolean;
@@ -37,6 +38,14 @@ export type DocumentCapture = Readonly<{
   revision: number;
   replacementGeneration: number;
   editorState: EditorState;
+}>;
+
+export type EncodedDocumentState = Readonly<{
+  bodyHtml: string;
+  path: string;
+  replacementGeneration: number;
+  revision: number;
+  title: string;
 }>;
 
 export type DocumentSessionEvent = Readonly<{
@@ -91,6 +100,8 @@ export class DocumentSession {
   private title: string;
   private revision: number;
   private replacementGeneration: number;
+  private bodyDirty = false;
+  private encodedState: EncodedDocumentState | null = null;
   private initialized = false;
   private editable = true;
   private disposed = false;
@@ -111,6 +122,8 @@ export class DocumentSession {
     this.unregisterUpdate = this.editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, tags }) => {
       if (this.disposed || tags.has(AMANITE_HTML_LOAD_TAG) || tags.has(AMANITE_DERIVED_LINK_TAG)
         || (!dirtyElements.size && !dirtyLeaves.size)) return;
+      this.encodedState = null;
+      this.bodyDirty = true;
       this.revision += 1;
       this.emit("body", [
         ...dirtyElements.keys(),
@@ -134,6 +147,7 @@ export class DocumentSession {
       title: this.title,
       revision: this.revision,
       replacementGeneration: this.replacementGeneration,
+      bodyDirty: this.bodyDirty,
       initialized: this.initialized,
       editable: this.editable,
       disposed: this.disposed
@@ -153,6 +167,30 @@ export class DocumentSession {
     };
   }
 
+  getEncodedState() {
+    const snapshot = this.getSnapshot();
+    const encoded = this.encodedState;
+    if (!encoded || encoded.path !== snapshot.path || encoded.title !== snapshot.title
+      || encoded.revision !== snapshot.revision || encoded.replacementGeneration !== snapshot.replacementGeneration) return null;
+    return encoded;
+  }
+
+  cacheEncodedState(capture: DocumentCapture, bodyHtml: string) {
+    this.assertOpen();
+    const snapshot = this.getSnapshot();
+    if (capture.documentId !== this.documentId || capture.projectGeneration !== this.projectGeneration
+      || capture.path !== snapshot.path || capture.title !== snapshot.title
+      || capture.revision !== snapshot.revision || capture.replacementGeneration !== snapshot.replacementGeneration) return false;
+    this.encodedState = {
+      bodyHtml,
+      path: capture.path,
+      replacementGeneration: capture.replacementGeneration,
+      revision: capture.revision,
+      title: capture.title
+    };
+    return true;
+  }
+
   subscribe(listener: DocumentListener) {
     this.assertOpen();
     this.listeners.add(listener);
@@ -167,6 +205,7 @@ export class DocumentSession {
   setTitle(title: string) {
     this.assertOpen();
     if (this.title === title) return this.revision;
+    this.encodedState = null;
     this.title = title;
     this.revision += 1;
     this.emit("title");
@@ -185,26 +224,43 @@ export class DocumentSession {
     this.assertOpen();
     const nextPath = requirePath(path);
     if (this.path === nextPath) return;
+    this.encodedState = null;
     this.path = nextPath;
     this.emit("path");
   }
 
-  replaceBodyHtml(bodyHtml: string, replacementGeneration?: number) {
+  replaceDocument(bodyHtml: string, title: string, replacementGeneration?: number, initialRevision?: number) {
     this.assertOpen();
+    this.encodedState = null;
     this.editor.update(() => importBodyHtml(this.editor, bodyHtml), {
       discrete: true,
       tag: AMANITE_HTML_LOAD_TAG
     });
+    this.title = title;
     this.replacementGeneration = Math.max(this.replacementGeneration + 1, replacementGeneration ?? 0);
-    this.revision += 1;
+    this.revision = Math.max(this.revision + 1, initialRevision ?? 0);
+    this.bodyDirty = false;
     this.resetHistory();
     this.emit("replacement");
     return this.replacementGeneration;
   }
 
+  replaceBodyHtml(bodyHtml: string, replacementGeneration?: number) {
+    return this.replaceDocument(bodyHtml, this.title, replacementGeneration);
+  }
+
+  acknowledgeBody(revision: number, replacementGeneration: number) {
+    this.assertOpen();
+    const snapshot = this.getSnapshot();
+    if (snapshot.revision !== revision || snapshot.replacementGeneration !== replacementGeneration) return false;
+    this.bodyDirty = false;
+    return true;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.encodedState = null;
     this.unregisterHistory();
     this.unregisterUpdate();
     this.editor.setRootElement(null);

@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft } from "@/app/pageDrafts";
-import { requestEditorSnapshot, type EditorSnapshot } from "@/features/editor/components/editorFlush";
+import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
 import { mapPagePath, reconcileMutationResult } from "@/lib/fractal/reconcile";
@@ -34,7 +34,11 @@ type Options = {
 
 function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
   const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
-  const [documentRegistry] = useState(() => new DocumentRegistry({ projectGeneration }));
+  const [registryLifetime] = useState(() => ({
+    cleanupRequested: false,
+    documentRegistry: new DocumentRegistry({ projectGeneration })
+  }));
+  const { documentRegistry } = registryLifetime;
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => {
     const initialBuffer = bufferFromProject(initialProject, initialProject.activePageSource ?? "", false, { projectGeneration });
@@ -50,7 +54,17 @@ function useWorkspaceDocumentState(initialProject: FractalProject, requestedGene
   const previousGenerationRef = useRef(projectGeneration);
   const lastPollingNoticeRef = useRef(0);
 
-  useEffect(() => () => documentRegistry.dispose(), [documentRegistry]);
+  useEffect(() => {
+    // React Strict Mode replays effects by running cleanup and setup without
+    // unmounting the component. Defer disposal so that replay can cancel it.
+    registryLifetime.cleanupRequested = false;
+    return () => {
+      registryLifetime.cleanupRequested = true;
+      queueMicrotask(() => {
+        if (registryLifetime.cleanupRequested) registryLifetime.documentRegistry.dispose();
+      });
+    };
+  }, [registryLifetime]);
 
   return {
     buffers,
@@ -126,18 +140,19 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
 
   const notifyDocumentPathChange = useCallback((from: string, to: string) => {
     rememberPathChange(from, to);
+    documentRegistry.renameByPath(from, to);
     onDocumentPathChange(from, to);
-  }, [onDocumentPathChange, rememberPathChange]);
+  }, [documentRegistry, onDocumentPathChange, rememberPathChange]);
 
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
-    flushDocument: (buffer) => requestEditorSnapshot(buffer.documentId, buffer.revision),
+    documentRegistry,
     onDocumentPathChange: notifyDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
     projectRef,
     publishProject
-  }), [commitBuffers, notifyDocumentPathChange, publishProject, setDraftStorageError]);
+  }), [commitBuffers, documentRegistry, notifyDocumentPathChange, publishProject, setDraftStorageError]);
 
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath || previousGenerationRef.current !== projectGeneration) {

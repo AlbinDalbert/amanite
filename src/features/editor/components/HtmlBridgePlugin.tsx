@@ -10,6 +10,7 @@ import { readEditorModel, type EditorModelSnapshot } from "./editorModel";
 import { AMANITE_VIEW_SYNC_TAG, type SharedDocumentEditorSession } from "./sharedDocumentEditor";
 import { measureDataflow, nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 import type { DocumentSession } from "@/features/workspace/documents/documentRuntime";
+import { captureAndEncodeDocument } from "@/features/workspace/documents/documentEncoding";
 
 type Props = {
   bodyHtml: string;
@@ -60,7 +61,8 @@ function RuntimeHtmlBridgePlugin({ documentId, documentSession, onModelChange, o
     if (capture.revision < minimumRevision) return previous?.revision === capture.revision ? { ...previous, requestId } : undefined;
 
     recordDataflowEvent({ documentId: runtimeDocumentId, name: "snapshot.request", requestId, revision: capture.revision, status: "start" });
-    const html = measureDataflow("editor.full-export", { documentId: runtimeDocumentId, requestId, revision: capture.revision }, () => capture.editorState.read(() => cleanEditorHtml($generateHtmlFromNodes(editor)), { editor }));
+    const encoded = captureAndEncodeDocument(documentSession, requestId);
+    const html = encoded.bodyHtml;
     const snapshot = {
       bodyHtml: html,
       documentId: runtimeDocumentId,

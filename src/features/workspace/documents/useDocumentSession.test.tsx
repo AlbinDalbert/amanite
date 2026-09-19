@@ -35,3 +35,31 @@ it("keeps a document session alive across view unmounts and reuses it on remount
     registry.dispose();
   }
 });
+
+it("installs a newer buffer incarnation into the existing session", async () => {
+  const registry = new DocumentRegistry({ projectGeneration: 13 });
+  const container = document.createElement("div");
+  let captured: DocumentSession | undefined;
+
+  function Harness({ generation, title, bodyHtml }: { generation: number; title: string; bodyHtml: string }) {
+    const session = useDocumentSession(registry, "notes.fractal.html", { bodyHtml, initialReplacementGeneration: generation, title });
+    useEffect(() => { captured = session; }, [session]);
+    return null;
+  }
+
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<Harness bodyHtml="<p>Initial</p>" generation={1} title="Notes" />));
+    const first = captured;
+    expect(first).toBeDefined();
+
+    await act(async () => root.render(<Harness bodyHtml="<p>Reloaded</p>" generation={2} title="Reloaded notes" />));
+
+    expect(captured).toBe(first);
+    expect(captured?.getSnapshot()).toMatchObject({ bodyDirty: false, replacementGeneration: 2, title: "Reloaded notes" });
+    expect(captured?.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("Reloaded");
+  } finally {
+    await act(async () => root.unmount());
+    registry.dispose();
+  }
+});

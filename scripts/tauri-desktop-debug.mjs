@@ -897,7 +897,25 @@ async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab-state.dirty');
   await takeScreenshot(driver, screenshotsDir, "04b-split-pane");
   await driver.ctrlW();
-  await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="index.fractal.html"]', 30_000);
+  try {
+    await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="index.fractal.html"]', 30_000);
+  } catch (error) {
+    const state = await driver.executeScript(`
+      return {
+        groups: [...document.querySelectorAll('.workspace-tab-strip')].map((strip) => ({
+          group: strip.getAttribute('data-group-id'),
+          tabs: [...strip.querySelectorAll('.editor-group-tab')].map((tab) => ({
+            active: tab.classList.contains('active'),
+            titles: [...tab.querySelectorAll('[title]')].map((node) => node.getAttribute('title'))
+          }))
+        })),
+        save: document.querySelector('.editor-group[data-group-id="right"] .save-state')?.textContent?.trim() ?? null,
+        errors: [...document.querySelectorAll('.editor-group[data-group-id="right"] [role="alert"], .editor-group[data-group-id="right"] .document-buffer-alert')].map((node) => node.textContent?.trim()),
+        command: document.querySelector('.command-status')?.textContent?.trim() ?? null
+      };
+    `);
+    throw new Error(`${error.message}; split state after closing right tab: ${JSON.stringify(state)}`);
+  }
   await driver.ctrlShiftT();
   await driver.find('.workspace-tab-strip[data-group-id="right"] .editor-group-tab.active [title="my-file.fractal.html"]', 30_000);
   await driver.click('.workspace-tab-strip[data-group-id="right"] .editor-group-close');

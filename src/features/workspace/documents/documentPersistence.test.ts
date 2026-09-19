@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalConditionalWriteResult, FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
+import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
+import { captureAndEncodeDocument } from "./documentEncoding";
+import { DocumentRegistry } from "./documentRuntime";
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
 
@@ -446,5 +449,149 @@ describe("document persistence", () => {
     expect(onDocumentPathChange).toHaveBeenCalledWith(path, nextPath);
     expect(buffersRef.current[path]).toBeUndefined();
     expect(buffersRef.current[nextPath]).toMatchObject({ path: nextPath, dirty: false });
+  });
+
+  it("captures an open session directly and acknowledges the native section without reloading it", async () => {
+    const path = "test.fractal.html";
+    const projectGeneration = 42;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode("After"));
+      $getRoot().clear().append(paragraph);
+    });
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+    const stateBeforeSave = session.editor.getEditorState();
+    const savedBody = "<p><span>After</span></p>";
+    const savedSource = NATIVE_SOURCE.replace("<p>Before</p>", savedBody);
+    const savedProject = nativeProject(path, savedSource, nativeParts({ contentHtml: savedBody, contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockResolvedValue(saved(savedProject));
+    const flushDocument = vi.fn(async () => { throw new Error("the mounted editor flush should not run"); });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      flushDocument,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(true);
+
+    expect(flushDocument).not.toHaveBeenCalled();
+    expect(setPageContent).toHaveBeenCalledWith(initialProject, savedBody, "content-hash");
+    expect(session.editor.getEditorState()).toBe(stateBeforeSave);
+    expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("After");
+    expect(session.getSnapshot()).toMatchObject({ bodyDirty: false, revision: 1, title: "Test" });
+    expect(buffersRef.current[path]).toMatchObject({ bodyHtml: savedBody, dirty: false, nativeEdits: {}, revision: 1, title: "Test" });
+
+    registry.dispose();
+  });
+
+  it("saves a newer session revision after the earlier direct write finishes", async () => {
+    const path = "test.fractal.html";
+    const projectGeneration = 43;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const firstWrite = deferred<FractalConditionalWriteResult>();
+
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode("One"));
+      $getRoot().clear().append(paragraph);
+    });
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+    const firstBody = captureAndEncodeDocument(session).bodyHtml;
+    const firstProject = nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", firstBody), nativeParts({ contentHtml: firstBody, contentHash: "content-hash-1", sourceHash: "source-hash-1" }));
+    const secondWrite = deferred<FractalConditionalWriteResult>();
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent")
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise);
+    const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+    const projectRef = { current: initialProject };
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers,
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef,
+      publishProject: (next) => { projectRef.current = next; }
+    });
+
+    const saving = persistence.saveDocument(path);
+    await vi.waitFor(() => expect(setPageContent).toHaveBeenCalledTimes(1));
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode("Two"));
+      $getRoot().clear().append(paragraph);
+    });
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(2));
+    const secondBody = captureAndEncodeDocument(session).bodyHtml;
+    commitBuffers((current) => ({
+      ...current,
+      [path]: { ...current[path], dirty: true, revision: 2, nativeEdits: { content: secondBody } }
+    }));
+    firstWrite.resolve(saved(firstProject));
+    await vi.waitFor(() => expect(setPageContent).toHaveBeenCalledTimes(2));
+    const secondProject = nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", secondBody), nativeParts({ contentHtml: secondBody, contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
+    secondWrite.resolve(saved(secondProject));
+
+    await expect(saving).resolves.toBe(true);
+    expect(setPageContent).toHaveBeenNthCalledWith(1, initialProject, firstBody, "content-hash");
+    expect(setPageContent.mock.calls[1]?.[0]).toMatchObject({
+      activePageNativeDocumentParts: { contentHash: "content-hash-1", contentHtml: firstBody },
+      activePagePath: path
+    });
+    expect(setPageContent).toHaveBeenNthCalledWith(2, expect.anything(), secondBody, "content-hash-1");
+    expect(buffersRef.current[path]).toMatchObject({ bodyHtml: secondBody, dirty: false, nativeEdits: {}, revision: 2, savedRevision: 2 });
+    expect(session.getSnapshot().revision).toBe(2);
+
+    registry.dispose();
+  });
+
+  it("renames the open session when a native title save moves its path", async () => {
+    const path = "test.fractal.html";
+    const nextPath = "renamed.fractal.html";
+    const projectGeneration = 44;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    session.setTitle("Renamed");
+    const savedProject = nativeProject(nextPath, NATIVE_SOURCE.replaceAll("Test", "Renamed"), nativeParts({ title: "Renamed", titleHash: "title-hash-2", sourceHash: "source-hash-2" }));
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent");
+    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue({
+      status: "saved",
+      result: { project: savedProject, receipt: { operation: "set_page_title", warnings: [], changes: [
+        { change: "moved", from: `pages/${path}`, to: `pages/${nextPath}`, entry: "file" }
+      ] } }
+    });
+    const projectRef = { current: initialProject };
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef,
+      publishProject: (next) => { projectRef.current = next; }
+    });
+
+    await expect(persistence.saveDocument(path)).resolves.toBe(true);
+    expect(setPageTitle).toHaveBeenCalledWith(initialProject, "Renamed", "title-hash");
+    expect(setPageContent).not.toHaveBeenCalled();
+    expect(registry.getByPath(path)).toBeUndefined();
+    expect(registry.getByPath(nextPath)).toBe(session);
+    expect(session.getSnapshot().path).toBe(nextPath);
+
+    registry.dispose();
   });
 });
