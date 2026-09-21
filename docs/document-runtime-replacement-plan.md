@@ -334,7 +334,7 @@ Re-audit references at implementation time; this map describes the baseline.
 | `sharedDocumentEditor.tsx` | Remove per-view editors, peer state copying, ownership transfer, mirror HTML and attachment synchronization |
 | `editorFlush.ts` | Replace mounted-view discovery/flush protocol with direct runtime capture; keep composition handling where necessary |
 | `documents/documentPersistence.ts` | Replace buffer/project merge saves with captured writes and acknowledgements |
-| `documents/useDocumentDrafts.ts` | Replace React-observed duplicate schedules with coordinator-owned scheduling |
+| `documents/useDocumentDrafts.ts` | Deleted after the coordinator cutover; no React scheduler remains |
 | `documents/useDocumentLoading.ts` | Explicit open/reload/recovery commands; remove project-publication-driven installation |
 | `documents/useProjectFilePolling.ts` | External observation service with ordered baselines; no buffer ownership |
 | Project/client types and reconciliation | Separate catalog, loaded source and receipts; remove generic active-page source propagation |
@@ -357,7 +357,7 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 | --- | --- | --- | --- |
 | P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
 | P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs and folder-inline editors now attach to registry sessions; duplicate page opens focus the existing group; the real desktop smoke covers warm switching, closed-page inline editing, page handoff, split-group close, restart recovery, and reopen. External reload now hands the newer buffer incarnation to the existing session without changing its opaque identity. The workspace persistence bridge remains |
-| P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves and recovery drafts; unchanged revisions reuse encoded HTML; direct saves acknowledge only the committed body revision, retain newer edits, and update the registry on title-driven path moves. Title-only saves no longer turn normalized Lexical HTML into a false content edit. `DocumentRecoveryCoordinator` now owns idle/max-wait/retry/close state for registry-backed recovery and autosave; `useDocumentDrafts` only schedules compatibility recovery and autosave. Focused capture/retry/close/bridge/autosave tests, the full frontend suite, Rust tests, and real WebDriver smoke evidence pass. The broad serialization and performance gate remains open. Detailed evidence: [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md) and [`document-runtime-p2-autosave.md`](measurements/document-runtime-p2-autosave.md). |
+| P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves and recovery drafts; unchanged revisions reuse encoded HTML; direct saves acknowledge only the committed body revision, retain newer edits, and update the registry on title-driven path moves. Title-only saves no longer turn normalized Lexical HTML into a false content edit. `DocumentRecoveryCoordinator` now owns recovery and autosave scheduling for every live registry session. Protected sessions write exact-source recovery drafts and remain excluded from native autosave. The old `useDocumentDrafts` scheduler is deleted. Focused coordinator/protected-source tests, the full frontend suite, Rust tests, and rebuilt real WebDriver smoke evidence pass. The broad serialization and performance gate remains open. Detailed evidence: [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md) and [`document-runtime-p2-autosave.md`](measurements/document-runtime-p2-autosave.md). |
 | P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | not started | — |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
 | P5 | Complete correctness/performance/fault evidence, audit deletion and dependencies, rewrite architecture docs, and record remaining platform limits honestly. | not started | — |
@@ -383,14 +383,14 @@ link them here. Avoid another series of plans that leaves this ledger stale.
 
 Temporary adapter: the workspace source/body projection remains a UI and
 recovery compatibility bridge. Normal saves and recovery drafts for open native
-sessions now pass through `documentPersistence`, which captures the registry
+sessions pass through `documentPersistence`, which captures the registry
 session, encodes its current Lexical state, reconstructs the native draft
-source, and writes it through the existing Fractal draft queue. The mounted
-`registerEditorFlush`/`EditorSnapshot` contract remains for legacy paths,
-unsupported or not-yet-open buffers. `useDocumentDrafts` still owns recovery
-deadlines, retries, and autosave scheduling only for compatibility buffers,
-while `DocumentRecoveryCoordinator` owns the complete recovery and autosave
-schedule for registry-backed native sessions.
+source, and writes it through the existing Fractal draft queue. Protected
+sessions use their exact source projection for recovery because Lexical is not
+allowed to rewrite their markup. The mounted
+`registerEditorFlush`/`EditorSnapshot` contract remains for legacy fallback and
+composition handling, but production registry recovery no longer depends on
+it. `useDocumentDrafts` has been deleted.
 This is not a second durable format.
 
 Latest handoff: P0 is verified and the current P1 slice attaches normal
@@ -411,10 +411,9 @@ The `FolderView` production path no longer imports or calls
 and the workspace registry. The shared module remains for the legacy fallback
 and focused compatibility tests. Folder navigation clears inline editing
 before opening a page, and opening a page already present in another group
-focuses that existing owner. No old runtime was deleted in this session, and
-the workspace still retains source/body fields for current persistence and
-recovery. Cross-group simultaneous folder-inline ownership remains outside
-this bounded slice.
+focuses that existing owner. The workspace still retains source/body fields
+for current persistence and recovery. Cross-group simultaneous folder-inline
+ownership remains outside this bounded slice.
 
 Implementation discovery: disposing a registry session synchronously while its
 Lexical root was still mounted could blank the Tauri view during a group close.
@@ -445,22 +444,22 @@ save updates the temporary buffer projection for the acknowledged revision. It
 never calls `replaceBodyHtml` or reinstalls the editor state. Title-only saves
 compare the captured title against the native parts before deciding whether to
 encode body content. A title save that moves a page also renames the open
-registry session. The mounted snapshot controller remains a temporary fallback
-for recovery compatibility cases.
+registry session. The mounted snapshot controller remains for legacy fallback
+and composition handling; coordinator recovery does not call it.
 
-Recovery scheduling slice: `DocumentRecoveryCoordinator` now subscribes to
-registry session lifecycle and revision events, owns idle/max-wait/retry state,
-and stops work on close or dispose. `documentPersistence` captures an open
-native registry session directly, checks project, path, revision, and
+Recovery scheduling slice: `DocumentRecoveryCoordinator` subscribes to registry
+session lifecycle and revision events, owns idle/max-wait/retry state, and stops
+work on close or dispose. `documentPersistence` captures an open native
+registry session directly, checks project, path, revision, and
 replacement-generation identity, rebuilds the draft from the accepted native
 source, and queues the result through `writePageDraftSource`. A detached editor
-therefore remains recoverable without a mounted snapshot. The workspace passes
-only compatibility buffers to the hook, so the old open-session writer/fallback
-branch is gone. The direct `writeRecoveryDraft` helper remains for deterministic
-persistence tests and compatibility callers; production registry scheduling
-uses the coordinator. The workspace buffer document ID and the session's opaque
-ID remain different identities, so the coordinator resolves the buffer by its
-stable workspace path and validates the session separately.
+therefore remains recoverable without a mounted snapshot. Protected sessions
+take the same coordinator path but write their exact workspace source, so
+unsupported markup is not normalized during recovery. The direct
+`writeRecoveryDraft` helper remains for deterministic persistence tests. The
+workspace buffer document ID and the session's opaque ID remain different
+identities, so the coordinator resolves the buffer by its stable workspace path
+and validates the session separately.
 
 Autosave scheduling slice: `DocumentRecoveryCoordinator` now owns autosave for
 registry-backed native sessions, including the auto-save setting, idle and
@@ -470,39 +469,39 @@ explicit save can still upgrade the work. After a write that finishes behind
 newer typing, the coordinator starts a new deadline for the pending revision
 instead of immediately looping on an expired deadline. A failed autosave keeps
 the captured local source/body in the buffer, preserves the live session, and
-does not retry the same conflict-free revision forever. `useDocumentDrafts`
-filters registry-backed native buffers out of its compatibility autosave and
-recovery schedules.
+does not retry the same conflict-free revision forever. Protected sessions do
+not enter native autosave because they have no writable Fractal section set.
+The coordinator still owns their recovery deadline and retry behavior.
 
-Latest autosave verification is recorded in
-[`document-runtime-p2-autosave.md`](measurements/document-runtime-p2-autosave.md).
-The focused suite passed with 37 tests, the full frontend suite passed with 42
-files and 161 tests, the production build and Rust suite passed, and the real
-Tauri typing run passed for small and 1,500-paragraph native fixtures. Each
-fixture completed with seven autosave requests, seven successes, zero snapshot
-requests, zero imports, and preserved live and disk text. The injected native
-conditional-write failure preserved live text and reported one autosave
-failure with zero snapshot requests. The rebuilt typing artifact is
-[`artifacts/tauri-webdriver/2026-09-21T08-02-27-250Z`](../artifacts/tauri-webdriver/2026-09-21T08-02-27-250Z/).
-The document-runtime artifact is
-[`artifacts/tauri-webdriver/2026-09-21T08-04-05-582Z`](../artifacts/tauri-webdriver/2026-09-21T08-04-05-582Z/),
-and the full restart/reopen artifact is
-[`artifacts/tauri-webdriver/2026-09-21T08-04-36-551Z`](../artifacts/tauri-webdriver/2026-09-21T08-04-36-551Z/).
+The latest recovery/coordinator verification is recorded in
+[`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md).
+The focused coordinator/persistence/workspace suite passed with 32 tests. The
+full frontend suite passed with 42 files and 156 tests, the production build
+and Rust suite passed, and the rebuilt full real-Tauri smoke passed through
+recovery failure/retry, forced termination, and reopen. The artifact is
+[`artifacts/tauri-webdriver/2026-09-21T16-11-08-816Z`](../artifacts/tauri-webdriver/2026-09-21T16-11-08-816Z/).
+A current typing/autosave run also passed for five-paragraph and
+1,500-paragraph native fixtures. Each produced seven autosave requests and
+successes, zero imports and snapshot requests, and preserved live and disk
+text. Its artifact is
+[`artifacts/tauri-webdriver/2026-09-21T16-15-48-888Z`](../artifacts/tauri-webdriver/2026-09-21T16-15-48-888Z/). The injected external edit
+produced one autosave failure while preserving the live text.
 
 This remains a bounded P1/P2 slice, not completion of the replacement. The
 remaining temporary bridges are the workspace source/body projection, the
-mounted `registerEditorFlush`/`EditorSnapshot` contract for legacy,
-unsupported, and not-yet-open buffers, the compatibility schedules in
-`useDocumentDrafts`, and the legacy `sharedDocumentEditor` fallback. The next
-bounded task is to remove the compatibility scheduler as the remaining
-documents become registry-backed, then cut the workspace source/body bridge.
+mounted `registerEditorFlush`/`EditorSnapshot` contract for the legacy fallback
+and composition handling, and the legacy `sharedDocumentEditor` fallback. The
+next bounded task is to cut the workspace source/body projection for
+registry-backed native documents.
 
 Verification gaps for this slice: the autosave conditional-write failure uses
 an external file edit through the real Fractal path, but the recovery retry
 fault is injected at the debug-only Amanite page-draft adapter. Permissions,
 disk-full, indeterminate Fractal outcomes, and power loss remain untested. The
-large desktop fixture measured p95 35 ms but a 641 ms maximum frame, so the
-declared 100 ms maximum-stall target remains open. The required 60-second
+real desktop run exercised native sessions, not a malformed/protected fixture;
+protected exact-source behavior is covered by focused JSDOM persistence tests.
+The latest large desktop fixture measured p95 28 ms but a 450 ms maximum frame,
+so the declared 100 ms maximum-stall target remains open. The required 60-second
 performance matrix, deliberately slow storage, and capture/encoding cost
 breakdown remain open. The latest app logs contain only the known GTK theme
 warnings, but launcher stderr is not persisted, so allocator cleanup warnings

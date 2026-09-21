@@ -123,6 +123,53 @@ describe("document persistence", () => {
     registry.dispose();
   });
 
+  it("keeps a protected document's exact source in a registry recovery draft", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "protected.fractal.html";
+    const projectGeneration = 45;
+    const protectedSource = "<!doctype html><html><head><title>Protected</title></head><body><main data-fractal-document><h1 data-fractal-title>Protected</h1><p class=\"keep-me\">Before</p></main></body></html>";
+    const initialProject: FractalProject = {
+      ...nativeProject(path),
+      activePageSource: protectedSource,
+      activePageContentHash: "protected-source",
+      activePageNativeDocumentParts: null,
+      pages: [{ path, contentHash: "protected-source", title: "Protected" }]
+    };
+    const buffer = { ...bufferFromProject(initialProject, protectedSource, false, { projectGeneration })!, dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    registry.openLoaded(path, { bodyHtml: "<p class=\"keep-me\">Before</p>", initialRevision: 1, title: "Protected" });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      clearDataflowEvents();
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS);
+
+      expect(mockedInvoke).toHaveBeenCalledWith("fractal_write_draft", {
+        draft: expect.objectContaining({
+          baseSourceHash: "protected-source",
+          pagePath: path,
+          revision: 1,
+          source: protectedSource
+        })
+      });
+      expect(readDataflowEvents().some((event) => event.name === "document.encode")).toBe(false);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects a recovery capture from an obsolete session incarnation and leaves local state intact", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     const path = "test.fractal.html";

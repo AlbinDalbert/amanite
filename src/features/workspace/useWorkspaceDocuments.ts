@@ -15,7 +15,6 @@ import {
 import { createDocumentPersistence } from "./documents/documentPersistence";
 import { DocumentRegistry } from "./documents/documentRuntime";
 import { createProjectGeneration } from "./documents/documentSessions";
-import { useDocumentDrafts } from "./documents/useDocumentDrafts";
 import { useDocumentLoading } from "./documents/useDocumentLoading";
 import { useProjectFilePolling } from "./documents/useProjectFilePolling";
 import { DocumentQueryIndex, type LiveDocumentModel } from "./documentQueryIndex";
@@ -442,16 +441,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     persistence.syncRecovery();
   }, [buffers, persistence]);
 
-  useDocumentDrafts({
-    autoSave,
-    buffers,
-    documentRegistry,
-    projectRoot: project.rootPath,
-    saveDocument: persistence.autosaveDocument,
-    onDraftConfirmed: confirmDraft,
-    onDraftError: reportDraftError,
-    onStorageError: setDraftStorageError
-  });
   useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
 
   documentQueries.updateCatalog(project.pages, project.catalogVersion, project.sessionGeneration);

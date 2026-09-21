@@ -319,7 +319,24 @@ async function writeRecoveryDraftForSession(
   if (documentRegistry.getById(session.documentId) !== session) return null;
   const sessionSnapshot = session.getSnapshot();
   const buffer = buffersRef.current[sessionSnapshot.path];
-  if (!buffer || !buffer.nativeDocumentParts) return null;
+  if (!buffer) return null;
+
+  const latest = buffersRef.current[sessionSnapshot.path];
+  if (!latest || latest.path !== sessionSnapshot.path || latest.projectGeneration !== sessionSnapshot.projectGeneration) {
+    throw new Error(`The recovery capture for ${sessionSnapshot.path} became obsolete before it was written.`);
+  }
+
+  // Fractal-protected documents cannot be safely round-tripped through the
+  // rich editor. Their recovery record keeps the exact source projection.
+  // The session still supplies the identity and revision barrier, but it must
+  // not normalize markup that Amanite has promised to leave untouched.
+  if (!buffer.nativeDocumentParts) {
+    if (sessionSnapshot.revision < targetRevision) {
+      throw new Error(`The recovery capture for ${buffer.path} is behind revision ${targetRevision}.`);
+    }
+    const baseSourceHash = latest.contentHash ?? "";
+    return writePageDraftSource(projectRef.current.rootPath, latest.path, latest.source, baseSourceHash, sessionSnapshot.revision);
+  }
 
   const encoded = captureAndEncodeDocument(session);
   const capture = encoded.capture;
@@ -339,12 +356,12 @@ async function writeRecoveryDraftForSession(
     throw new Error(`The recovery capture for ${buffer.path} is behind revision ${targetRevision}.`);
   }
 
-  const latest = buffersRef.current[capture.path];
-  if (!latest || latest.path !== capture.path || latest.projectGeneration !== capture.projectGeneration) {
+  const current = buffersRef.current[capture.path];
+  if (!current || current.path !== capture.path || current.projectGeneration !== capture.projectGeneration) {
     throw new Error(`The recovery capture for ${buffer.path} became obsolete before it was written.`);
   }
-  const source = writeEditablePage(latest.source, capture.title, encoded.bodyHtml, latest.hasTitleHeading);
-  const baseSourceHash = latest.contentHash ?? latest.nativeDocumentParts?.sourceHash ?? "";
+  const source = writeEditablePage(current.source, capture.title, encoded.bodyHtml, current.hasTitleHeading);
+  const baseSourceHash = current.contentHash ?? current.nativeDocumentParts?.sourceHash ?? "";
   return writePageDraftSource(projectRef.current.rootPath, capture.path, source, baseSourceHash, capture.revision);
 }
 

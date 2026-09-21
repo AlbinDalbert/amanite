@@ -1,73 +1,73 @@
 # Document runtime P2 recovery scheduling
 
-Completed on 2026-09-21 for the bounded slice that moves recovery scheduling
-for registry-backed documents into the document runtime.
+Completed on 2026-09-21 for the bounded cutover that gives
+`DocumentRecoveryCoordinator` all recovery scheduling for live registry
+sessions.
 
 ## Shipped behavior
 
-- `DocumentRecoveryCoordinator` subscribes to `DocumentRegistry`, attaches to
-  session body/title revisions, and owns the idle, maximum-wait, retry, and
-  close/dispose state for open native sessions.
-- Native recovery captures and encodes the live `DocumentSession`, rebuilds a
-  draft from the accepted native source, and writes through the existing
-  ordered Fractal draft adapter. It does not request a mounted editor snapshot.
-- `useDocumentDrafts` no longer has an open-session writer/fallback branch. It
-  now schedules recovery and autosave only for compatibility buffers that have
-  no usable native registry session or native sections.
-- The registry emits open, close, rename, and dispose events so recovery jobs
-  cannot outlive their session.
+- The coordinator subscribes to `DocumentRegistry`, attaches to body and title
+  revisions, and owns idle, maximum-wait, retry, and close/dispose state.
+- Native sessions capture and encode their live `DocumentSession`, rebuild a
+  draft from the accepted native source, and write through the ordered Fractal
+  draft adapter. They do not ask a mounted editor for a snapshot.
+- Protected sessions use the same coordinator. Because Fractal does not expose
+  writable native sections for them, recovery writes the exact workspace source
+  projection. Lexical never serializes protected markup.
+- The old `useDocumentDrafts` React scheduler and its compatibility-only test
+  path are deleted. Native autosave remains limited to buffers with writable
+  native sections.
+- Registry close and dispose cancel pending timers and retries.
 
 ## Focused verification
 
 ```sh
-pnpm exec vitest run src/app/pageDrafts.test.ts \
-  src/features/workspace/documents/useDocumentDrafts.test.tsx \
+pnpm exec vitest run \
+  src/features/workspace/documents/documentRecovery.test.ts \
   src/features/workspace/documents/documentPersistence.test.ts \
-  src/features/workspace/documents/documentRuntime.test.ts \
   src/features/workspace/useWorkspaceDocuments.test.tsx
 ```
 
-Passed: 5 files and 41 tests. The focused cases cover native capture without a
-mounted snapshot, retry after a transient write failure, cancellation after
-session close, the compatibility snapshot retry path, and the split between
-native autosave and legacy recovery scheduling.
+Passed: 3 files and 32 tests. The cases cover registry recovery for a
+protected session, exact-source draft output, autosave exclusion, retry after a
+transient recovery failure, cancellation after session close, native capture
+without a mounted snapshot, and the existing workspace conflict behavior.
 
 ## Full verification
 
-- `pnpm test`: passed, 42 files and 157 tests.
-- `pnpm run build`: passed (`tsc -b` and Vite production build).
+- `pnpm test`: passed, 42 files and 156 tests.
+- `pnpm run build`: passed, including `tsc -b` and the Vite production build.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: passed, 25 tests.
 - `pnpm run tauri:webdriver:doctor`: passed.
-- `pnpm run tauri:webdriver:smoke`: passed through the real Tauri desktop. The
-  WebDriver build used the required
-  `pnpm exec tauri build --debug --no-bundle --features webdriver` path and is
-  recorded under
-  [`artifacts/tauri-webdriver/2026-09-21T06-43-17-295Z`](../../artifacts/tauri-webdriver/2026-09-21T06-43-17-295Z/).
+- `pnpm run tauri:webdriver:smoke`: passed through the rebuilt real Tauri
+  desktop. The build used
+  `pnpm exec tauri build --debug --no-bundle --features webdriver`.
+  Evidence is in
+  [`artifacts/tauri-webdriver/2026-09-21T16-11-08-816Z`](../../artifacts/tauri-webdriver/2026-09-21T16-11-08-816Z/).
 
-The desktop flow edits a native page, switches away from its editor, verifies
-the detached draft contains the edit and protected style section, and asserts
-`document.capture`/`document.encode` with no `snapshot.request` start. It then
-edits a clean second native page, injects one failure at the page-draft
-storage adapter, and verifies `draft.confirmed` failure followed by retry
-success, native draft contents, no snapshot fallback, save cleanup, ordinary
-draft recovery, forced termination recovery, and project reopen.
+The desktop run edited a detached native session, checked its recovery draft,
+injected a transient draft-write failure, observed failure followed by retry
+success, then exercised draft recovery after forced termination and project
+reopen. The event log contains `document.capture` and `document.encode` for
+the native path and no `snapshot.request` start for coordinator recovery.
 
-The transient desktop fault is deliberately injected at Amanite's debug-only
-page-draft adapter because Tauri freezes its IPC internals binding. It proves
-the coordinator's failure, retry, and UI-preservation behavior through the
-real app, but it is not a claim about a Rust command failure, permissions
-failure, disk-full condition, or power loss.
+The desktop fault is injected at Amanite's debug-only page-draft adapter because
+the Tauri WebView freezes its IPC internals binding. This checks coordinator
+failure, retry, and local-content retention through the real app. It does not
+claim coverage for Rust command failure, permissions, disk-full storage, or
+power loss.
 
 ## Remaining gaps
 
+- The real desktop run used valid native sessions. It did not open a malformed
+  or protected fixture. Protected exact-source recovery is covered by focused
+  JSDOM persistence tests.
 - The workspace source/body projection and mounted
-  `registerEditorFlush`/`EditorSnapshot` bridge remain for legacy,
-  unsupported, and not-yet-open buffers.
-- `DocumentRecoveryCoordinator` now owns autosave scheduling for
-  registry-backed native sessions. `useDocumentDrafts` still owns autosave and
-  recovery scheduling for compatibility buffers only. The next cut should
-  remove that remaining compatibility state as more documents become
-  registry-backed.
-- The required 60-second performance matrix, deliberately slow storage, real
-  filesystem/Fractal fault injection, Windows/macOS/Wayland runs, and real
-  IME coverage remain unverified.
+  `registerEditorFlush`/`EditorSnapshot` bridge remain. The bridge is still
+  needed by legacy fallback and composition handling, but coordinator recovery
+  no longer depends on it.
+- The required 60-second performance matrix, representative 100k, 1m, and 5m
+  fixtures, deliberately slow storage, and capture/encoding cost breakdown
+  remain open.
+- Permissions, disk-full, indeterminate Fractal outcomes, power loss, Windows,
+  macOS, Wayland/X11 separation, and real IME coverage remain unverified.

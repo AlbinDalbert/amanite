@@ -149,9 +149,7 @@ export class DocumentRecoveryCoordinator {
   private getBuffer(session: DocumentSession) {
     const snapshot = session.getSnapshot();
     const buffer = this.options.buffersRef.current[snapshot.path];
-    if (!buffer
-      || buffer.projectGeneration !== snapshot.projectGeneration
-      || !buffer.nativeDocumentParts) return undefined;
+    if (!buffer || buffer.projectGeneration !== snapshot.projectGeneration) return undefined;
     return buffer;
   }
 
@@ -166,7 +164,7 @@ export class DocumentRecoveryCoordinator {
   }
 
   private hasPendingAutosave(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
-    if (!this.autoSaveEnabled || buffer.conflict || buffer.operation) return false;
+    if (!this.autoSaveEnabled || !buffer.nativeDocumentParts || buffer.conflict || buffer.operation) return false;
     const revision = Math.max(buffer.revision, session.getSnapshot().revision);
     return (buffer.dirty || revision > buffer.savedRevision)
       && revision > Math.max(buffer.savedRevision, schedule.confirmedRevision);
