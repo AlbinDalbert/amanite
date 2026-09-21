@@ -9,6 +9,8 @@ export const RECOVERY_IDLE_DELAY_MS = 500;
 export const RECOVERY_MAX_LAG_MS = 2_000;
 export const RECOVERY_MAX_WAIT_MS = 1_500;
 export const RECOVERY_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+export const AUTOSAVE_IDLE_DELAY_MS = 900;
+export const AUTOSAVE_MAX_LAG_MS = 2_000;
 
 type MutableValue<T> = { current: T };
 
@@ -27,8 +29,11 @@ type RecoverySchedule = {
 };
 
 export type RecoveryDraftWriter = (session: DocumentSession, targetRevision: number) => Promise<PageDraftWriteResult | null>;
+export type AutosaveWriter = (session: DocumentSession, targetRevision: number) => Promise<boolean>;
 
 type RecoveryCoordinatorOptions = {
+  autoSave?: boolean;
+  autosave?: AutosaveWriter;
   buffersRef: MutableValue<DocumentBuffers>;
   documentRegistry: DocumentRegistry;
   onDraftConfirmed?: (documentId: string, revision: number) => void;
@@ -61,12 +66,15 @@ function clearTimers(schedule: RecoverySchedule) {
 }
 
 export class DocumentRecoveryCoordinator {
-  private readonly schedules = new Map<string, RecoverySchedule>();
+  private readonly recoverySchedules = new Map<string, RecoverySchedule>();
+  private readonly autosaveSchedules = new Map<string, RecoverySchedule>();
   private readonly sessionUnsubscribers = new Map<string, () => void>();
   private readonly registryUnsubscribe: () => void;
+  private autoSaveEnabled: boolean;
   private disposed = false;
 
   constructor(private readonly options: RecoveryCoordinatorOptions) {
+    this.autoSaveEnabled = options.autoSave ?? false;
     this.registryUnsubscribe = options.documentRegistry.subscribe((event) => {
       if (event.kind === "disposed") {
         this.dispose();
@@ -75,14 +83,33 @@ export class DocumentRecoveryCoordinator {
       if (!event.session) return;
       if (event.kind === "opened") this.attach(event.session);
       if (event.kind === "closed") this.detach(event.session);
-      if (event.kind === "renamed") this.syncSession(event.session);
+      if (event.kind === "renamed") {
+        this.syncRecovery(event.session);
+        this.syncAutosave(event.session);
+      }
     });
     for (const session of options.documentRegistry.sessions()) this.attach(session);
   }
 
   sync() {
     if (this.disposed) return;
-    for (const session of this.options.documentRegistry.sessions()) this.syncSession(session);
+    for (const session of this.options.documentRegistry.sessions()) {
+      this.syncRecovery(session);
+      this.syncAutosave(session);
+    }
+  }
+
+  setAutoSave(enabled: boolean) {
+    if (this.disposed || this.autoSaveEnabled === enabled) return;
+    this.autoSaveEnabled = enabled;
+    if (!enabled) {
+      for (const [documentId, schedule] of this.autosaveSchedules) {
+        clearTimers(schedule);
+        if (!schedule.running) this.autosaveSchedules.delete(documentId);
+      }
+      return;
+    }
+    for (const session of this.options.documentRegistry.sessions()) this.syncAutosave(session);
   }
 
   dispose() {
@@ -91,25 +118,32 @@ export class DocumentRecoveryCoordinator {
     this.registryUnsubscribe();
     for (const unsubscribe of this.sessionUnsubscribers.values()) unsubscribe();
     this.sessionUnsubscribers.clear();
-    for (const schedule of this.schedules.values()) clearTimers(schedule);
-    this.schedules.clear();
+    for (const schedule of [...this.recoverySchedules.values(), ...this.autosaveSchedules.values()]) clearTimers(schedule);
+    this.recoverySchedules.clear();
+    this.autosaveSchedules.clear();
   }
 
   private attach(session: DocumentSession) {
     if (this.disposed || this.sessionUnsubscribers.has(session.documentId)) return;
     const unsubscribe = session.subscribe((event) => {
-      if (event.kind === "body" || event.kind === "title") this.schedule(session, event.revision);
+      if (event.kind !== "body" && event.kind !== "title") return;
+      this.scheduleRecovery(session, event.revision);
+      this.scheduleAutosave(session, event.revision);
     });
     this.sessionUnsubscribers.set(session.documentId, unsubscribe);
-    this.syncSession(session);
+    this.syncRecovery(session);
+    this.syncAutosave(session);
   }
 
   private detach(session: DocumentSession) {
     this.sessionUnsubscribers.get(session.documentId)?.();
     this.sessionUnsubscribers.delete(session.documentId);
-    const schedule = this.schedules.get(session.documentId);
-    if (schedule) clearTimers(schedule);
-    this.schedules.delete(session.documentId);
+    const recoverySchedule = this.recoverySchedules.get(session.documentId);
+    if (recoverySchedule) clearTimers(recoverySchedule);
+    this.recoverySchedules.delete(session.documentId);
+    const autosaveSchedule = this.autosaveSchedules.get(session.documentId);
+    if (autosaveSchedule) clearTimers(autosaveSchedule);
+    this.autosaveSchedules.delete(session.documentId);
   }
 
   private getBuffer(session: DocumentSession) {
@@ -125,10 +159,17 @@ export class DocumentRecoveryCoordinator {
     return !this.disposed && this.options.documentRegistry.getById(session.documentId) === session;
   }
 
-  private hasPending(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
+  private hasPendingRecovery(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
     const revision = session.getSnapshot().revision;
     return (buffer.dirty || revision > buffer.savedRevision)
       && Math.max(buffer.revision, revision) > Math.max(buffer.draftedRevision, schedule.confirmedRevision);
+  }
+
+  private hasPendingAutosave(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
+    if (!this.autoSaveEnabled || buffer.conflict || buffer.operation) return false;
+    const revision = Math.max(buffer.revision, session.getSnapshot().revision);
+    return (buffer.dirty || revision > buffer.savedRevision)
+      && revision > Math.max(buffer.savedRevision, schedule.confirmedRevision);
   }
 
   private resetIfIdle(schedule: RecoverySchedule) {
@@ -140,21 +181,35 @@ export class DocumentRecoveryCoordinator {
     schedule.retryCount = 0;
   }
 
-  private syncSession(session: DocumentSession) {
+  private syncRecovery(session: DocumentSession) {
     if (!this.isLive(session)) return;
-    const schedule = this.schedules.get(session.documentId) ?? newSchedule();
-    this.schedules.set(session.documentId, schedule);
+    const schedule = this.recoverySchedules.get(session.documentId) ?? newSchedule();
+    this.recoverySchedules.set(session.documentId, schedule);
     const buffer = this.getBuffer(session);
-    if (!buffer || !this.hasPending(session, buffer, schedule)) this.resetIfIdle(schedule);
-    else this.schedule(session, Math.max(buffer.revision, session.getSnapshot().revision));
+    if (!buffer || !this.hasPendingRecovery(session, buffer, schedule)) this.resetIfIdle(schedule);
+    else this.scheduleRecovery(session, Math.max(buffer.revision, session.getSnapshot().revision));
   }
 
-  private schedule(session: DocumentSession, revision: number) {
+  private syncAutosave(session: DocumentSession) {
+    if (!this.isLive(session)) return;
+    if (!this.autoSaveEnabled || !this.options.autosave) {
+      const schedule = this.autosaveSchedules.get(session.documentId);
+      if (schedule) this.resetIfIdle(schedule);
+      return;
+    }
+    const schedule = this.autosaveSchedules.get(session.documentId) ?? newSchedule();
+    this.autosaveSchedules.set(session.documentId, schedule);
+    const buffer = this.getBuffer(session);
+    if (!buffer || !this.hasPendingAutosave(session, buffer, schedule)) this.resetIfIdle(schedule);
+    else this.scheduleAutosave(session, Math.max(buffer.revision, session.getSnapshot().revision));
+  }
+
+  private scheduleRecovery(session: DocumentSession, revision: number) {
     if (!this.isLive(session)) return;
     const buffer = this.getBuffer(session);
     if (!buffer) return;
-    const schedule = this.schedules.get(session.documentId) ?? newSchedule();
-    this.schedules.set(session.documentId, schedule);
+    const schedule = this.recoverySchedules.get(session.documentId) ?? newSchedule();
+    this.recoverySchedules.set(session.documentId, schedule);
     const pendingRevision = Math.max(revision, buffer.revision, session.getSnapshot().revision);
     if (pendingRevision <= Math.max(buffer.draftedRevision, schedule.confirmedRevision)) return;
 
@@ -196,6 +251,54 @@ export class DocumentRecoveryCoordinator {
     }, Math.max(0, RECOVERY_MAX_WAIT_MS - elapsed));
   }
 
+  private scheduleAutosave(session: DocumentSession, revision: number) {
+    if (!this.autoSaveEnabled || !this.isLive(session) || !this.options.autosave) return;
+    const buffer = this.getBuffer(session);
+    if (!buffer) return;
+    const schedule = this.autosaveSchedules.get(session.documentId) ?? newSchedule();
+    this.autosaveSchedules.set(session.documentId, schedule);
+    const pendingRevision = Math.max(revision, buffer.revision, session.getSnapshot().revision);
+    if (pendingRevision <= Math.max(buffer.savedRevision, schedule.confirmedRevision)) return;
+    if (buffer.conflict || buffer.operation) return;
+
+    if (pendingRevision > schedule.requestedRevision) {
+      if (schedule.firstRequestedAt == null) {
+        schedule.firstRequestedAt = performance.now();
+        schedule.requestId = nextDataflowRequestId("autosave");
+        recordDataflowEvent({
+          documentId: session.documentId,
+          name: "autosave.request",
+          requestId: schedule.requestId,
+          revision: pendingRevision,
+          status: "start"
+        });
+      }
+      schedule.requestedRevision = pendingRevision;
+      schedule.failedRevision = null;
+      schedule.retryCount = 0;
+      if (schedule.running) return;
+      if (schedule.idleTimer != null) window.clearTimeout(schedule.idleTimer);
+      schedule.idleTimer = window.setTimeout(() => {
+        schedule.idleTimer = null;
+        void this.flushAutosave(session);
+      }, AUTOSAVE_IDLE_DELAY_MS);
+    } else if (schedule.failedRevision === pendingRevision) {
+      return;
+    } else if (schedule.idleTimer == null && !schedule.running) {
+      schedule.idleTimer = window.setTimeout(() => {
+        schedule.idleTimer = null;
+        void this.flushAutosave(session);
+      }, AUTOSAVE_IDLE_DELAY_MS);
+    }
+
+    if (schedule.running || schedule.maxTimer != null) return;
+    const elapsed = schedule.firstRequestedAt == null ? 0 : performance.now() - schedule.firstRequestedAt;
+    schedule.maxTimer = window.setTimeout(() => {
+      schedule.maxTimer = null;
+      void this.flushAutosave(session);
+    }, Math.max(0, AUTOSAVE_MAX_LAG_MS - elapsed));
+  }
+
   private reportError(session: DocumentSession, message: string) {
     const buffer = this.getBuffer(session);
     if (buffer) this.options.onDraftError?.(buffer.documentId, message);
@@ -203,11 +306,11 @@ export class DocumentRecoveryCoordinator {
   }
 
   private flush(session: DocumentSession) {
-    const schedule = this.schedules.get(session.documentId);
+    const schedule = this.recoverySchedules.get(session.documentId);
     if (!schedule || schedule.running || !this.isLive(session)) return Promise.resolve();
     clearTimers(schedule);
     const buffer = this.getBuffer(session);
-    if (!buffer || !this.hasPending(session, buffer, schedule)) {
+    if (!buffer || !this.hasPendingRecovery(session, buffer, schedule)) {
       this.resetIfIdle(schedule);
       return Promise.resolve();
     }
@@ -266,7 +369,7 @@ export class DocumentRecoveryCoordinator {
       if (schedule.running === settled) schedule.running = null;
       if (!this.isLive(session)) return;
       const latest = this.getBuffer(session);
-      if (!latest || !this.hasPending(session, latest, schedule)) {
+      if (!latest || !this.hasPendingRecovery(session, latest, schedule)) {
         this.resetIfIdle(schedule);
         return;
       }
@@ -279,7 +382,90 @@ export class DocumentRecoveryCoordinator {
         }, delay);
         return;
       }
-      if (schedule.failedRevision !== latestRevision) this.schedule(session, latestRevision);
+      if (schedule.failedRevision !== latestRevision) this.scheduleRecovery(session, latestRevision);
+    });
+    schedule.running = settled;
+    return settled;
+  }
+
+  private flushAutosave(session: DocumentSession) {
+    const schedule = this.autosaveSchedules.get(session.documentId);
+    if (!schedule || schedule.running || !this.isLive(session) || !this.autoSaveEnabled || !this.options.autosave) return Promise.resolve();
+    clearTimers(schedule);
+    const buffer = this.getBuffer(session);
+    if (!buffer || !this.hasPendingAutosave(session, buffer, schedule)) {
+      this.resetIfIdle(schedule);
+      return Promise.resolve();
+    }
+
+    const targetRevision = Math.max(schedule.requestedRevision, buffer.revision, session.getSnapshot().revision);
+    const requestId = schedule.requestId ?? nextDataflowRequestId("autosave");
+    const started = schedule.firstRequestedAt ?? performance.now();
+    schedule.capturedRevision = targetRevision;
+    const task = (async () => {
+      try {
+        const succeeded = await this.options.autosave!(session, targetRevision);
+        if (!this.isLive(session)) return;
+        schedule.queuedRevision = targetRevision;
+        if (!succeeded) {
+          recordDataflowEvent({
+            documentId: session.documentId,
+            durationMs: performance.now() - started,
+            name: "autosave.confirmed",
+            requestId,
+            revision: targetRevision,
+            status: "failure"
+          });
+          schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
+          if (targetRevision < schedule.requestedRevision) schedule.requestedRevision = targetRevision;
+          schedule.firstRequestedAt = null;
+          schedule.requestId = null;
+          return;
+        }
+
+        schedule.confirmedRevision = Math.max(schedule.confirmedRevision, targetRevision);
+        schedule.failedRevision = null;
+        schedule.retryCount = 0;
+        if (targetRevision < schedule.requestedRevision) schedule.requestedRevision = targetRevision;
+        schedule.firstRequestedAt = null;
+        schedule.requestId = null;
+        recordDataflowEvent({
+          documentId: session.documentId,
+          durationMs: performance.now() - started,
+          name: "autosave.confirmed",
+          requestId,
+          revision: targetRevision,
+          status: "success"
+        });
+      } catch (error) {
+        recordDataflowEvent({
+          documentId: session.documentId,
+          durationMs: performance.now() - started,
+          name: "autosave.confirmed",
+          requestId,
+          revision: targetRevision,
+          status: "failure"
+        });
+        schedule.failedRevision = targetRevision;
+        schedule.retryCount += 1;
+        if (targetRevision < schedule.requestedRevision) schedule.requestedRevision = targetRevision;
+        schedule.firstRequestedAt = null;
+        schedule.requestId = null;
+      }
+    })();
+    let settled!: Promise<void>;
+    settled = task.finally(() => {
+      if (schedule.running === settled) schedule.running = null;
+      if (!this.isLive(session) || !this.autoSaveEnabled) return;
+      const latest = this.getBuffer(session);
+      if (!latest || !this.hasPendingAutosave(session, latest, schedule)) {
+        this.resetIfIdle(schedule);
+        return;
+      }
+      const latestRevision = Math.max(latest.revision, session.getSnapshot().revision);
+      if (schedule.failedRevision === latestRevision) return;
+      this.scheduleAutosave(session, latestRevision);
     });
     schedule.running = settled;
     return settled;

@@ -12,9 +12,8 @@ for registry-backed documents into the document runtime.
   draft from the accepted native source, and writes through the existing
   ordered Fractal draft adapter. It does not request a mounted editor snapshot.
 - `useDocumentDrafts` no longer has an open-session writer/fallback branch. It
-  now schedules recovery only for compatibility buffers that have no usable
-  native registry session, while it continues to schedule autosave for the
-  workspace buffer set.
+  now schedules recovery and autosave only for compatibility buffers that have
+  no usable native registry session or native sections.
 - The registry emits open, close, rename, and dispose events so recovery jobs
   cannot outlive their session.
 
@@ -64,10 +63,11 @@ failure, disk-full condition, or power loss.
 - The workspace source/body projection and mounted
   `registerEditorFlush`/`EditorSnapshot` bridge remain for legacy,
   unsupported, and not-yet-open buffers.
-- `useDocumentDrafts` still owns autosave scheduling and the compatibility
-  recovery scheduler. The next cut should remove that remaining compatibility
-  state as more documents become registry-backed, then consolidate autosave
-  scheduling under the runtime coordinator.
+- `DocumentRecoveryCoordinator` now owns autosave scheduling for
+  registry-backed native sessions. `useDocumentDrafts` still owns autosave and
+  recovery scheduling for compatibility buffers only. The next cut should
+  remove that remaining compatibility state as more documents become
+  registry-backed.
 - The required 60-second performance matrix, deliberately slow storage, real
   filesystem/Fractal fault injection, Windows/macOS/Wayland runs, and real
   IME coverage remain unverified.

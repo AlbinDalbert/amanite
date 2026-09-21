@@ -5,7 +5,7 @@ import type { FractalConditionalWriteResult, FractalNativeDocumentParts, Fractal
 import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
 import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { captureAndEncodeDocument } from "./documentEncoding";
-import { RECOVERY_IDLE_DELAY_MS, RECOVERY_RETRY_DELAYS_MS } from "./documentRecovery";
+import { AUTOSAVE_IDLE_DELAY_MS, AUTOSAVE_MAX_LAG_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_RETRY_DELAYS_MS } from "./documentRecovery";
 import { DocumentRegistry } from "./documentRuntime";
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
@@ -229,6 +229,166 @@ describe("document persistence", () => {
       registry.close(session.documentId);
       await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS + RECOVERY_RETRY_DELAYS_MS[0]);
       expect(mockedInvoke).toHaveBeenCalledTimes(3);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("moves native autosave scheduling into the document coordinator", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "autosave-scheduled.fractal.html";
+    const projectGeneration = 49;
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const flushDocument = vi.fn(async () => { throw new Error("the mounted snapshot bridge should not run"); });
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent");
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      flushDocument,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      persistence.setAutoSave(true);
+      clearDataflowEvents();
+      session.update(() => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode("Autosaved from the session"));
+        $getRoot().clear().append(paragraph);
+      });
+      await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+      const bodyHtml = captureAndEncodeDocument(session).bodyHtml;
+      setPageContent.mockResolvedValue(saved(nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", bodyHtml), nativeParts({ contentHtml: bodyHtml, contentHash: "autosave-content", sourceHash: "autosave-source" }))));
+
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS);
+
+      expect(flushDocument).not.toHaveBeenCalled();
+      expect(setPageContent).toHaveBeenCalledWith(initialProject, bodyHtml, "content-hash");
+      expect(buffersRef.current[path]).toMatchObject({ bodyHtml, dirty: false, nativeEdits: {}, savedRevision: 1 });
+      expect(session.getSnapshot()).toMatchObject({ bodyDirty: false, revision: 1 });
+      const events = readDataflowEvents();
+      expect(events.some((event) => event.name === "autosave.request" && event.status === "start")).toBe(true);
+      expect(events.some((event) => event.name === "autosave.confirmed" && event.status === "success")).toBe(true);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces edits that arrive while a native autosave is in flight", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "autosave-coalesced.fractal.html";
+    const projectGeneration = 51;
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const firstWrite = deferred<FractalConditionalWriteResult>();
+    const secondWrite = deferred<FractalConditionalWriteResult>();
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent")
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise);
+    const projectRef = { current: initialProject };
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef,
+      publishProject: (next) => { projectRef.current = next; }
+    });
+
+    try {
+      persistence.setAutoSave(true);
+      session.update(() => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode("First autosave revision"));
+        $getRoot().clear().append(paragraph);
+      });
+      await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+      const firstBody = captureAndEncodeDocument(session).bodyHtml;
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS);
+      expect(setPageContent).toHaveBeenCalledTimes(1);
+
+      session.update(() => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode("Second autosave revision"));
+        $getRoot().clear().append(paragraph);
+      });
+      await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(2));
+      const secondBody = captureAndEncodeDocument(session).bodyHtml;
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_LAG_MS);
+      firstWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", firstBody), nativeParts({ contentHtml: firstBody, contentHash: "coalesced-content-1", sourceHash: "coalesced-source-1" }))));
+      await vi.waitFor(() => expect(setPageContent).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS - 1);
+      expect(setPageContent).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(setPageContent).toHaveBeenCalledTimes(2);
+      secondWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", secondBody), nativeParts({ contentHtml: secondBody, contentHash: "coalesced-content-2", sourceHash: "coalesced-source-2" }))));
+      await vi.waitFor(() => expect(buffersRef.current[path].dirty).toBe(false));
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the captured local body after a native autosave failure and does not retry a conflict-free revision forever", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "autosave-failure.fractal.html";
+    const projectGeneration = 50;
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockRejectedValue(new Error("disk full"));
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      persistence.setAutoSave(true);
+      session.update(() => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode("Keep this after failure"));
+        $getRoot().clear().append(paragraph);
+      });
+      await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+      const bodyHtml = captureAndEncodeDocument(session).bodyHtml;
+      clearDataflowEvents();
+
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS);
+      const failedBuffer = buffersRef.current[path];
+      expect(setPageContent).toHaveBeenCalledTimes(1);
+      expect(failedBuffer).toMatchObject({ bodyHtml, dirty: true, error: "disk full", nativeEdits: { content: bodyHtml } });
+      expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("Keep this after failure");
+      expect(readDataflowEvents()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "autosave.confirmed", status: "failure", revision: 1 })]));
+
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS * 3);
+      expect(setPageContent).toHaveBeenCalledTimes(1);
     } finally {
       persistence.dispose();
       registry.dispose();

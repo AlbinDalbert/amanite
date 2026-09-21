@@ -3,15 +3,11 @@ import { writePageDraftSource } from "@/app/pageDrafts";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { errorMessage, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
-import { RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
+import { AUTOSAVE_IDLE_DELAY_MS, AUTOSAVE_MAX_LAG_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
+import type { DocumentRegistry } from "./documentRuntime";
 import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
 
-export { RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
-
-// Normal typing often leaves 200–300 ms between characters. Keep full-document
-// recovery exports out of those gaps; the maximum-lag timer still bounds recovery.
-export const AUTOSAVE_IDLE_DELAY_MS = 900;
-export const AUTOSAVE_MAX_LAG_MS = 2_000;
+export { AUTOSAVE_IDLE_DELAY_MS, AUTOSAVE_MAX_LAG_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
 
 type RevisionSchedule = {
   requestedRevision: number;
@@ -30,6 +26,7 @@ type RevisionSchedule = {
 type Options = {
   autoSave: boolean;
   buffers: DocumentBuffers;
+  documentRegistry?: DocumentRegistry;
   projectRoot: string;
   recoveryBuffers?: DocumentBuffers;
   saveDocument: (path: string) => Promise<boolean>;
@@ -49,7 +46,7 @@ function newSchedule(): RevisionSchedule {
   return { requestedRevision: 0, capturedRevision: 0, queuedRevision: 0, confirmedRevision: 0, failedRevision: null, firstRequestedAt: null, requestId: null, retryCount: 0, idleTimer: null, maxTimer: null, running: null };
 }
 
-export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuffers = buffers, saveDocument, onDraftConfirmed, onDraftError, onStorageError }: Options) {
+export function useDocumentDrafts({ autoSave, buffers, documentRegistry, projectRoot, recoveryBuffers = buffers, saveDocument, onDraftConfirmed, onDraftError, onStorageError }: Options) {
   const latestBuffersRef = useRef(buffers);
   const latestRecoveryBuffersRef = useRef(recoveryBuffers);
   const latestProjectRootRef = useRef(projectRoot);
@@ -62,8 +59,11 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuff
   latestRecoveryBuffersRef.current = recoveryBuffers;
   latestProjectRootRef.current = projectRoot;
 
-  const findBuffer = useCallback((documentId: string) => Object.values(latestBuffersRef.current).find((buffer) => buffer.documentId === documentId), []);
-  const findRecoveryBuffer = useCallback((documentId: string) => Object.values(latestRecoveryBuffersRef.current).find((buffer) => buffer.documentId === documentId), []);
+  const isCompatibilityBuffer = useCallback((buffer: DocumentBuffer) => {
+    return !documentRegistry?.getByPath(buffer.path) || !buffer.nativeDocumentParts;
+  }, [documentRegistry]);
+  const findBuffer = useCallback((documentId: string) => Object.values(latestBuffersRef.current).find((buffer) => buffer.documentId === documentId && isCompatibilityBuffer(buffer)), [isCompatibilityBuffer]);
+  const findRecoveryBuffer = useCallback((documentId: string) => Object.values(latestRecoveryBuffersRef.current).find((buffer) => buffer.documentId === documentId && isCompatibilityBuffer(buffer)), [isCompatibilityBuffer]);
 
   const reportDraftError = useCallback((documentId: string, message: string) => {
     onDraftError?.(documentId, message);
@@ -228,6 +228,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuff
   useEffect(() => {
     const activeDrafts = new Set<string>();
     for (const buffer of Object.values(recoveryBuffers)) {
+      if (!isCompatibilityBuffer(buffer)) continue;
       activeDrafts.add(buffer.documentId);
       const schedule = draftSchedulesRef.current.get(buffer.documentId);
       if (buffer.dirty && buffer.revision > Math.max(buffer.draftedRevision, schedule?.confirmedRevision ?? 0)) scheduleDraft(buffer);
@@ -236,6 +237,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuff
       }
     }
     for (const buffer of Object.values(buffers)) {
+      if (!isCompatibilityBuffer(buffer)) continue;
       if (autoSave && buffer.dirty && !buffer.conflict && !buffer.operation && buffer.revision > buffer.savedRevision) scheduleSave(buffer);
       else {
         const schedule = saveSchedulesRef.current.get(buffer.documentId);
@@ -249,7 +251,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuff
     for (const [documentId, schedule] of saveSchedulesRef.current) {
       if (!activeSaves.has(documentId) && !schedule.running) clearSchedule(schedule);
     }
-  }, [autoSave, buffers, projectRoot, recoveryBuffers, scheduleDraft, scheduleSave]);
+  }, [autoSave, buffers, isCompatibilityBuffer, projectRoot, recoveryBuffers, scheduleDraft, scheduleSave]);
 
   useEffect(() => () => {
     latestProjectRootRef.current = projectRoot;

@@ -290,6 +290,10 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     };
   }, [persistence, persistenceLifetime]);
 
+  useEffect(() => {
+    persistence.setAutoSave(autoSave);
+  }, [autoSave, persistence]);
+
   const forgetDocument = useCallback((path: string) => {
     for (const [alias, target] of pathAliasesRef.current) {
       if (alias === path || target === path) pathAliasesRef.current.delete(alias);
@@ -434,10 +438,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     return () => window.clearTimeout(timeout);
   }, [pollingNotice]);
 
-  const legacyDraftBuffers = useMemo(() => Object.fromEntries(
-    Object.entries(buffers).filter(([, buffer]) => !documentRegistry.getByPath(buffer.path) || !buffer.nativeDocumentParts)
-  ), [buffers, documentRegistry]);
-
   useEffect(() => {
     persistence.syncRecovery();
   }, [buffers, persistence]);
@@ -445,8 +445,8 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   useDocumentDrafts({
     autoSave,
     buffers,
+    documentRegistry,
     projectRoot: project.rootPath,
-    recoveryBuffers: legacyDraftBuffers,
     saveDocument: persistence.autosaveDocument,
     onDraftConfirmed: confirmDraft,
     onDraftError: reportDraftError,

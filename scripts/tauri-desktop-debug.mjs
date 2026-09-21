@@ -1452,7 +1452,7 @@ async function runTypingRegression(driver, artifactsDir, projectRoot) {
   const { activeProjectRoot } = await prepareSmokeProject(driver, artifactsDir, projectRoot);
   await driver.click('.brand > button[title="Close project"]');
   await driver.find('.start-screen');
-  for (const [name, blocks] of [["small", 5], ["large", 1500]]) {
+  for (const [name, blocks] of [["small", 5], ["large", 1500], ["autosave-failure", 5]]) {
     const body = Array.from({ length: blocks }, (_, i) => `<p>Paragraph ${i} has ordinary words for the typing regression check.</p>`).join("");
     await writeFile(join(activeProjectRoot, "pages", `${name}.fractal.html`), `<!doctype html><html><head><meta charset="utf-8"><meta name="fractal-format" content="1"><title>${name}</title><style data-fractal-style></style></head><body><main data-fractal-document><h1 data-fractal-title>${name}</h1>${body}</main></body></html>`);
   }
@@ -1493,6 +1493,10 @@ async function runTypingRegression(driver, artifactsDir, projectRoot) {
         longestFrameMs: Math.max(...window.__typingFrames),
         p95FrameMs: window.__typingFrames.slice().sort((a, b) => a - b)[Math.floor(window.__typingFrames.length * 0.95)],
         exports: events.filter(e => e.name === 'editor.full-export').length,
+        autosaveRequests: events.filter(e => e.name === 'autosave.request' && e.status === 'start').length,
+        autosaveSuccesses: events.filter(e => e.name === 'autosave.confirmed' && e.status === 'success').length,
+        autosaveFailures: events.filter(e => e.name === 'autosave.confirmed' && e.status === 'failure').length,
+        snapshotRequests: events.filter(e => e.name === 'snapshot.request' && e.status === 'start').length,
         saves: events.filter(e => e.name === 'ipc.fractal_set_page_content' && e.status === 'start').length,
         events };
     `, [selector, typed]);
@@ -1507,7 +1511,39 @@ async function runTypingRegression(driver, artifactsDir, projectRoot) {
     console.log(JSON.stringify({ ...report, events: undefined }));
     if (report.dialogs.length) break;
   }
-  assertSmoke(reports.length === 2 && reports.every(r => r.textPreserved && r.diskPreserved && !r.conflict && !r.dialogs.length && !r.imports), "Typing caused data loss, a reload, or a false conflict. See typing-regression.json.");
+  const failureName = "autosave-failure";
+  const failureSelector = `.editor-tab-panel.active .rich-content-editable[aria-label="Body for ${failureName}.fractal.html"]`;
+  await driver.click(`[title="${failureName}.fractal.html"]`);
+  await waitForScript(driver, `return document.querySelector(arguments[0])?.contentEditable === "true"`, [failureSelector]);
+  await driver.executeScript(`
+    window.__AMANITE_DATAFLOW__.clear();
+    const root = document.querySelector(arguments[0]);
+    root.focus();
+    const range = document.createRange(); range.selectNodeContents(root); range.collapse(false);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    window.__typingFailureBaseline = root.textContent;
+  `, [failureSelector]);
+  const failureTyped = " Testing a real autosave conflict.";
+  await driver.sendKeys(failureSelector, failureTyped);
+  const failurePath = join(activeProjectRoot, "pages", `${failureName}.fractal.html`);
+  const failureSource = await readFile(failurePath, "utf8");
+  await writeFile(failurePath, failureSource.replace("</main>", "<p>External edit wins this conditional write.</p></main>"));
+  await driver.find('.editor-group[data-group-id="left"] .document-buffer-alert.conflict', 15_000);
+  const failureReport = await driver.executeScript(`
+    const root = document.querySelector(arguments[0]);
+    const events = window.__AMANITE_DATAFLOW__.read();
+    return {
+      textPreserved: root?.textContent === window.__typingFailureBaseline + arguments[1],
+      conflict: Boolean(document.querySelector('.editor-group[data-group-id="left"] .document-buffer-alert.conflict')),
+      autosaveFailures: events.filter(e => e.name === 'autosave.confirmed' && e.status === 'failure').length,
+      snapshotRequests: events.filter(e => e.name === 'snapshot.request' && e.status === 'start').length,
+      events
+    };
+  `, [failureSelector, failureTyped]);
+  await writeFile(join(artifactsDir, "typing-autosave-failure.json"), `${JSON.stringify(failureReport, null, 2)}\n`);
+  console.log(JSON.stringify({ ...failureReport, events: undefined }));
+  assertSmoke(reports.length === 2 && reports.every(r => r.textPreserved && r.diskPreserved && !r.conflict && !r.dialogs.length && !r.imports && r.autosaveRequests > 0 && r.autosaveSuccesses > 0 && r.autosaveFailures === 0 && r.snapshotRequests === 0), "Typing caused data loss, a reload, a false conflict, or bypassed runtime autosave. See typing-regression.json.");
+  assertSmoke(failureReport.textPreserved && failureReport.conflict && failureReport.autosaveFailures > 0 && failureReport.snapshotRequests === 0, "A real autosave conditional-write conflict did not preserve the live editor. See typing-autosave-failure.json.");
 }
 
 async function runDesktopSession(options, artifactsDir, projectRoot) {

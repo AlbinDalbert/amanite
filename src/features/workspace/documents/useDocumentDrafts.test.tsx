@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bufferFromLoadedPage, type DocumentBuffers } from "./documentBuffers";
+import { DocumentRegistry } from "./documentRuntime";
 import { AUTOSAVE_IDLE_DELAY_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, useDocumentDrafts } from "./useDocumentDrafts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -176,6 +177,51 @@ describe("autosave deadlines", () => {
       expect(mockedSnapshot).not.toHaveBeenCalled();
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves registry-backed native buffers to the document coordinator", async () => {
+    vi.useFakeTimers();
+    const root = createRoot(document.createElement("div"));
+    const save = vi.fn(async () => true);
+    const native = {
+      ...dirtyBuffer(1),
+      documentId: "native-document",
+      nativeDocumentParts: {
+        title: "Notes",
+        titleHash: "title-hash",
+        contentHtml: "<p>Before</p>",
+        contentHash: "content-hash",
+        styleCss: "",
+        styleHash: "style-hash",
+        metadataHtml: "",
+        metadataHash: "metadata-hash",
+        sourceHash: "source-hash"
+      },
+      path: "native.fractal.html"
+    };
+    const registry = new DocumentRegistry({ projectGeneration: native.projectGeneration });
+    registry.openLoaded(native.path, { bodyHtml: native.bodyHtml, title: native.title });
+    try {
+      function RuntimeHarness() {
+        useDocumentDrafts({
+          autoSave: true,
+          buffers: { [native.path]: native },
+          documentRegistry: registry,
+          projectRoot: "/tmp/runtime-owned-autosave",
+          saveDocument: save,
+          onStorageError: vi.fn()
+        });
+        return null;
+      }
+      await act(async () => root.render(<RuntimeHarness />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS * 2); });
+      expect(save).not.toHaveBeenCalled();
+      expect(mockedSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      registry.dispose();
       vi.useRealTimers();
     }
   });

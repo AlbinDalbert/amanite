@@ -194,7 +194,8 @@ function mergeAcknowledgedNativeParts(
 
 export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: DocumentBuffer, result: NativeSaveResult, savedProject: FractalProject, resultingPath: string, sent: FractalNativeSectionEdits, directCapture = false) {
   const hasNewerEdits = directCapture ? currentBuffer.revision > start.revision : currentBuffer.revision !== start.revision;
-  const remainingEdits = pendingNativeEdits(currentBuffer.nativeEdits, sent, directCapture && !hasNewerEdits);
+  const editsAtCapture = directCapture && !hasNewerEdits ? start.nativeEdits : currentBuffer.nativeEdits;
+  const remainingEdits = pendingNativeEdits(editsAtCapture, sent, directCapture && !hasNewerEdits);
   const hasPendingNativeEdits = Object.keys(remainingEdits).length > 0;
   const failed = result.kind !== "saved";
   const savedPage = pageForProject(savedProject, resultingPath);
@@ -205,11 +206,11 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
     : mergeAcknowledgedNativeParts(currentBuffer.nativeDocumentParts, savedParts, sent);
   return {
     ...currentBuffer,
-    ...(directCapture && fullyAcknowledged ? { bodyHtml: start.bodyHtml, title: start.title } : {}),
+    ...(directCapture && !hasNewerEdits ? { bodyHtml: start.bodyHtml, title: start.title } : {}),
     path: resultingPath,
     revision: directCapture ? Math.max(currentBuffer.revision, start.revision) : currentBuffer.revision,
     source: failed || hasPendingNativeEdits || hasNewerEdits
-      ? currentBuffer.source
+      ? directCapture && !hasNewerEdits ? start.source : currentBuffer.source
       : savedProject.activePageSource ?? currentBuffer.source,
     links: savedProject.activePageLinks,
     backlinks: savedProject.activePageBacklinks,
@@ -297,6 +298,7 @@ function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, forc
       dirty: true,
       nativeEdits,
       revision: capture.revision,
+      source: writeEditablePage(buffer.source, capture.title, encoded.bodyHtml, buffer.hasTitleHeading),
       title: capture.title
     } satisfies DocumentBuffer,
     directCapture: true
@@ -503,6 +505,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, session, targetRevision);
   };
   const recovery = documentRegistry ? new DocumentRecoveryCoordinator({
+    autosave: (session) => saveDocument(session.getSnapshot().path, false, false),
     buffersRef,
     documentRegistry,
     onDraftConfirmed,
@@ -604,5 +607,14 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     documentId,
     targetRevision
   );
-  return { autosaveDocument, dispose: () => recovery?.dispose(), saveAll, saveDocument, savePaths, syncRecovery, writeRecoveryDraft };
+  return {
+    autosaveDocument,
+    dispose: () => recovery?.dispose(),
+    saveAll,
+    saveDocument,
+    savePaths,
+    setAutoSave: (enabled: boolean) => recovery?.setAutoSave(enabled),
+    syncRecovery,
+    writeRecoveryDraft
+  };
 }
