@@ -1057,7 +1057,56 @@ async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) 
   assertSmoke(liveDraftEvents.some((event) => event.name === "document.capture") && liveDraftEvents.some((event) => event.name === "document.encode"), `The recovery draft did not use the session capture path: ${JSON.stringify(liveDraftEvents)}`);
   assertSmoke(!liveDraftEvents.some((event) => event.name === "snapshot.request" && event.status === "start"), "The recovery draft asked a mounted snapshot controller to export the document.");
 
-  await driver.click('[title="index.fractal.html"]');
+  await deleteNativeDraft(driver, activeProjectRoot, "index.fractal.html");
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab button[title="my-file.fractal.html"]');
+  const retryEditor = '.editor-tab-panel.active .rich-content-editable[aria-label="Body for my-file.fractal.html"]';
+  await driver.find(`${retryEditor}[contenteditable="true"]`, 30_000);
+  const retryMarker = "Coordinator retry survives a transient draft failure.";
+  const faultInjection = await driver.executeScript(`
+    const testWindow = window;
+    testWindow.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__ = 1;
+    return {
+      enabled: testWindow.__AMANITE_PAGE_DRAFT_FAULT_INJECTION_ENABLED__ === true,
+      remaining: testWindow.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__
+    };
+  `);
+  assertSmoke(faultInjection?.enabled === true && faultInjection.remaining === 1, `The desktop smoke fault hook is unavailable: ${JSON.stringify(faultInjection)}`);
+  await driver.executeScript("window.__AMANITE_DATAFLOW__.clear();");
+  await driver.setValue(retryEditor, retryMarker);
+  const retryEditState = await driver.executeScript(`return {
+    active: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.getAttribute('aria-label') ?? null,
+    text: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.textContent ?? null,
+    dirty: Boolean(document.querySelector('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.active .editor-group-tab-state.dirty'))
+  };`);
+  assertSmoke(retryEditState.active === "Body for my-file.fractal.html" && retryEditState.text.includes(retryMarker), `Retry edit did not reach the my-file editor: ${JSON.stringify(retryEditState)}`);
+  await driver.find(".save-state.unsaved");
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab button[title="index.fractal.html"]');
+  await driver.find('.editor-tab-panel.active .rich-content-editable[aria-label="Body for index.fractal.html"]', 30_000);
+  try {
+    await waitForScript(driver, `return window.__AMANITE_DATAFLOW__.read().some((event) => event.name === "draft.confirmed" && event.status === "failure");`, [], 10_000);
+  } catch (error) {
+    const state = await driver.executeScript(`return {
+      active: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.getAttribute('aria-label') ?? null,
+      text: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.textContent ?? null,
+      failureBudget: window.__amaniteDraftWriteFailures,
+      events: window.__AMANITE_DATAFLOW__.read()
+    };`);
+    throw new Error(`${error.message}; transient recovery state: ${JSON.stringify(state)}`);
+  }
+  const retryDraft = await waitForNativeDraft(driver, activeProjectRoot, "my-file.fractal.html");
+  const retryEvents = await driver.executeScript(`return window.__AMANITE_DATAFLOW__.read();`);
+  assertSmoke(retryDraft.source.includes(retryMarker), "The coordinator retry draft did not contain the detached document edit.");
+  assertSmoke(retryEvents.some((event) => event.name === "draft.confirmed" && event.status === "failure") && retryEvents.some((event) => event.name === "draft.confirmed" && event.status === "success"), `The coordinator did not retry the failed draft write: ${JSON.stringify(retryEvents)}`);
+  assertSmoke(!retryEvents.some((event) => event.name === "snapshot.request" && event.status === "start"), "The coordinator retry fell back to the mounted snapshot bridge.");
+  await driver.executeScript("delete window.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__;");
+
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab button[title="my-file.fractal.html"]');
+  await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
+  await driver.ctrlS();
+  await driver.find('.workspace-tab-strip[data-group-id="left"] .editor-group-tab.active .editor-group-tab-state[aria-label="Saved"]', 30_000);
+  await deleteNativeDraft(driver, activeProjectRoot, "my-file.fractal.html");
+
+  await driver.click('.workspace-tab-strip[data-group-id="left"] .editor-group-tab button[title="index.fractal.html"]');
   await driver.find('.editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 30_000);
   await driver.ctrlS();
   await driver.find(".save-state.saved", 30_000);
@@ -1346,7 +1395,9 @@ function runDirectories(options, runId) {
 
 async function buildWebDriverApp(options) {
   if (options.skipBuild) return;
-  await runChecked("pnpm", ["exec", "tauri", "build", "--debug", "--no-bundle", "--features", "webdriver"]);
+  await runChecked("pnpm", ["exec", "tauri", "build", "--debug", "--no-bundle", "--features", "webdriver"], {
+    env: { ...process.env, TAURI_DEBUG: "1" }
+  });
 }
 
 async function closeSmokeSession(driver, appProcess, getNativeOutput) {

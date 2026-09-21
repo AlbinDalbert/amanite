@@ -3,18 +3,15 @@ import { writePageDraftSource } from "@/app/pageDrafts";
 import { requestEditorSnapshot } from "@/features/editor/components/editorFlush";
 import { writeEditablePage } from "@/features/editor/components/pageSource";
 import { errorMessage, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
-import type { RecoveryDraftWriter } from "./documentPersistence";
+import { RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
 import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
+
+export { RECOVERY_IDLE_DELAY_MS, RECOVERY_MAX_LAG_MS, RECOVERY_RETRY_DELAYS_MS, RECOVERY_MAX_WAIT_MS } from "./documentRecovery";
 
 // Normal typing often leaves 200–300 ms between characters. Keep full-document
 // recovery exports out of those gaps; the maximum-lag timer still bounds recovery.
-export const RECOVERY_IDLE_DELAY_MS = 500;
-export const RECOVERY_MAX_LAG_MS = 2_000;
-// Leave time for HTML export and the durable draft write before the lag target.
-export const RECOVERY_MAX_WAIT_MS = 1_500;
 export const AUTOSAVE_IDLE_DELAY_MS = 900;
 export const AUTOSAVE_MAX_LAG_MS = 2_000;
-export const RECOVERY_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
 
 type RevisionSchedule = {
   requestedRevision: number;
@@ -34,7 +31,7 @@ type Options = {
   autoSave: boolean;
   buffers: DocumentBuffers;
   projectRoot: string;
-  writeRecoveryDraft?: RecoveryDraftWriter;
+  recoveryBuffers?: DocumentBuffers;
   saveDocument: (path: string) => Promise<boolean>;
   onDraftConfirmed?: (documentId: string, revision: number) => void;
   onDraftError?: (documentId: string, message: string) => void;
@@ -52,8 +49,9 @@ function newSchedule(): RevisionSchedule {
   return { requestedRevision: 0, capturedRevision: 0, queuedRevision: 0, confirmedRevision: 0, failedRevision: null, firstRequestedAt: null, requestId: null, retryCount: 0, idleTimer: null, maxTimer: null, running: null };
 }
 
-export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument, writeRecoveryDraft, onDraftConfirmed, onDraftError, onStorageError }: Options) {
+export function useDocumentDrafts({ autoSave, buffers, projectRoot, recoveryBuffers = buffers, saveDocument, onDraftConfirmed, onDraftError, onStorageError }: Options) {
   const latestBuffersRef = useRef(buffers);
+  const latestRecoveryBuffersRef = useRef(recoveryBuffers);
   const latestProjectRootRef = useRef(projectRoot);
   const draftSchedulesRef = useRef(new Map<string, RevisionSchedule>());
   const saveSchedulesRef = useRef(new Map<string, RevisionSchedule>());
@@ -61,9 +59,11 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
   const scheduleSaveRef = useRef<(buffer: DocumentBuffer) => void>(() => undefined);
 
   latestBuffersRef.current = buffers;
+  latestRecoveryBuffersRef.current = recoveryBuffers;
   latestProjectRootRef.current = projectRoot;
 
   const findBuffer = useCallback((documentId: string) => Object.values(latestBuffersRef.current).find((buffer) => buffer.documentId === documentId), []);
+  const findRecoveryBuffer = useCallback((documentId: string) => Object.values(latestRecoveryBuffersRef.current).find((buffer) => buffer.documentId === documentId), []);
 
   const reportDraftError = useCallback((documentId: string, message: string) => {
     onDraftError?.(documentId, message);
@@ -76,7 +76,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     if (schedule.running) return schedule.running;
     clearSchedule(schedule);
 
-    const buffer = findBuffer(documentId);
+    const buffer = findRecoveryBuffer(documentId);
     if (!buffer || !buffer.dirty || buffer.revision <= Math.max(buffer.draftedRevision, schedule.confirmedRevision)) return Promise.resolve();
     const targetRevision = buffer.revision;
     const requestId = schedule.requestId ?? nextDataflowRequestId("draft");
@@ -84,42 +84,35 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     schedule.capturedRevision = targetRevision;
     const task = (async () => {
       try {
-        let result = await writeRecoveryDraft?.(buffer.documentId, targetRevision);
-        let latest = findBuffer(documentId);
-        if (!result) {
-          const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
-          latest = findBuffer(documentId);
-          if (!latest) return;
-          if (snapshot && (snapshot.documentId !== latest.documentId
-            || snapshot.projectGeneration !== latest.projectGeneration
-            || snapshot.incarnation < latest.incarnation)) {
-            reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
-            schedule.failedRevision = targetRevision;
-            schedule.retryCount += 1;
-            return;
-          }
-          if (snapshot && snapshot.revision < targetRevision) {
-            reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
-            schedule.failedRevision = targetRevision;
-            schedule.retryCount += 1;
-            return;
-          }
-          const revision = snapshot?.revision ?? (latest.snapshotRevision >= targetRevision ? latest.snapshotRevision : 0);
-          if (!revision) {
-            reportDraftError(documentId, `The recovery snapshot for ${latest.path} is not available yet.`);
-            schedule.failedRevision = targetRevision;
-            schedule.retryCount += 1;
-            return;
-          }
-          const source = snapshot
-            ? writeEditablePage(latest.source, latest.title, snapshot.bodyHtml, latest.hasTitleHeading)
-            : latest.source;
-          schedule.queuedRevision = revision;
-          result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
-        }
-        if (!latest) latest = findBuffer(documentId);
+        const snapshot = await requestEditorSnapshot(buffer.documentId, targetRevision);
+        const latest = findRecoveryBuffer(documentId);
         if (!latest) return;
-        schedule.queuedRevision = result.revision;
+        if (snapshot && (snapshot.documentId !== latest.documentId
+          || snapshot.projectGeneration !== latest.projectGeneration
+          || snapshot.incarnation < latest.incarnation)) {
+          reportDraftError(documentId, `The recovery snapshot for ${latest.path} belongs to an obsolete document incarnation.`);
+          schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
+          return;
+        }
+        if (snapshot && snapshot.revision < targetRevision) {
+          reportDraftError(documentId, `The recovery snapshot for ${latest.path} is behind revision ${targetRevision}.`);
+          schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
+          return;
+        }
+        const revision = snapshot?.revision ?? (latest.snapshotRevision >= targetRevision ? latest.snapshotRevision : 0);
+        if (!revision) {
+          reportDraftError(documentId, `The recovery snapshot for ${latest.path} is not available yet.`);
+          schedule.failedRevision = targetRevision;
+          schedule.retryCount += 1;
+          return;
+        }
+        const source = snapshot
+          ? writeEditablePage(latest.source, latest.title, snapshot.bodyHtml, latest.hasTitleHeading)
+          : latest.source;
+        schedule.queuedRevision = revision;
+        const result = await writePageDraftSource(latestProjectRootRef.current, latest.path, source, latest.contentHash ?? "", revision);
         if (result.status === "written") {
           const confirmedLag = performance.now() - started;
           schedule.confirmedRevision = result.revision;
@@ -148,7 +141,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     let settled!: Promise<void>;
     settled = task.finally(() => {
       if (schedule.running === settled) schedule.running = null;
-      const latest = findBuffer(documentId);
+      const latest = findRecoveryBuffer(documentId);
       if (!latest || !latest.dirty || latest.revision <= Math.max(latest.draftedRevision, schedule.confirmedRevision)) {
         schedule.firstRequestedAt = null;
         schedule.requestId = null;
@@ -163,7 +156,7 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
     });
     schedule.running = settled;
     return settled;
-  }, [findBuffer, onDraftConfirmed, onStorageError, reportDraftError, writeRecoveryDraft]);
+  }, [findRecoveryBuffer, onDraftConfirmed, onStorageError, reportDraftError]);
 
   const flushSave = useCallback((documentId: string) => {
     const schedule = saveSchedulesRef.current.get(documentId) ?? newSchedule();
@@ -233,14 +226,16 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
   scheduleSaveRef.current = scheduleSave;
 
   useEffect(() => {
-    const active = new Set<string>();
-    for (const buffer of Object.values(buffers)) {
-      active.add(buffer.documentId);
+    const activeDrafts = new Set<string>();
+    for (const buffer of Object.values(recoveryBuffers)) {
+      activeDrafts.add(buffer.documentId);
       const schedule = draftSchedulesRef.current.get(buffer.documentId);
       if (buffer.dirty && buffer.revision > Math.max(buffer.draftedRevision, schedule?.confirmedRevision ?? 0)) scheduleDraft(buffer);
       else {
         if (schedule && !schedule.running) clearSchedule(schedule);
       }
+    }
+    for (const buffer of Object.values(buffers)) {
       if (autoSave && buffer.dirty && !buffer.conflict && !buffer.operation && buffer.revision > buffer.savedRevision) scheduleSave(buffer);
       else {
         const schedule = saveSchedulesRef.current.get(buffer.documentId);
@@ -248,12 +243,13 @@ export function useDocumentDrafts({ autoSave, buffers, projectRoot, saveDocument
       }
     }
     for (const [documentId, schedule] of draftSchedulesRef.current) {
-      if (!active.has(documentId) && !schedule.running) clearSchedule(schedule);
+      if (!activeDrafts.has(documentId) && !schedule.running) clearSchedule(schedule);
     }
+    const activeSaves = new Set(Object.values(buffers).map((buffer) => buffer.documentId));
     for (const [documentId, schedule] of saveSchedulesRef.current) {
-      if (!active.has(documentId) && !schedule.running) clearSchedule(schedule);
+      if (!activeSaves.has(documentId) && !schedule.running) clearSchedule(schedule);
     }
-  }, [autoSave, buffers, projectRoot, scheduleDraft, scheduleSave]);
+  }, [autoSave, buffers, projectRoot, recoveryBuffers, scheduleDraft, scheduleSave]);
 
   useEffect(() => () => {
     latestProjectRootRef.current = projectRoot;

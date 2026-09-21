@@ -5,6 +5,7 @@ import type { FractalConditionalWriteResult, FractalNativeDocumentParts, Fractal
 import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
 import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { captureAndEncodeDocument } from "./documentEncoding";
+import { RECOVERY_IDLE_DELAY_MS, RECOVERY_RETRY_DELAYS_MS } from "./documentRecovery";
 import { DocumentRegistry } from "./documentRuntime";
 import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
@@ -145,6 +146,94 @@ describe("document persistence", () => {
     expect(mockedInvoke).not.toHaveBeenCalled();
 
     registry.dispose();
+  });
+
+  it("schedules native recovery from the session and never asks a mounted editor for a snapshot", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "scheduled.fractal.html";
+    const projectGeneration = 47;
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const flushDocument = vi.fn(async () => { throw new Error("the mounted snapshot bridge should not run"); });
+    const confirmed = vi.fn();
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      flushDocument,
+      onDraftConfirmed: confirmed,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      session.setTitle("Scheduled title");
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS);
+
+      expect(flushDocument).not.toHaveBeenCalled();
+      expect(mockedInvoke).toHaveBeenCalledWith("fractal_write_draft", {
+        draft: expect.objectContaining({ pagePath: path, revision: 1, source: expect.stringContaining("Scheduled title") })
+      });
+      expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed native recovery write without another edit and stops after session close", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockRejectedValueOnce(new Error("temporary native draft failure")).mockResolvedValue(undefined);
+    const path = "retry-scheduled.fractal.html";
+    const projectGeneration = 48;
+    const initialProject = nativeProject(path);
+    const buffer = bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!;
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const failed = vi.fn();
+    const confirmed = vi.fn();
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDraftConfirmed: confirmed,
+      onDraftError: failed,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      session.setTitle("Retry title");
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS);
+      expect(failed).toHaveBeenCalledWith(buffer.documentId, "temporary native draft failure");
+      expect(mockedInvoke).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(RECOVERY_RETRY_DELAYS_MS[0]);
+      expect(mockedInvoke).toHaveBeenCalledTimes(2);
+      expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
+
+      mockedInvoke.mockRejectedValueOnce(new Error("failure before close"));
+      session.setTitle("Pending title");
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS);
+      expect(mockedInvoke).toHaveBeenCalledTimes(3);
+      registry.close(session.documentId);
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS + RECOVERY_RETRY_DELAYS_MS[0]);
+      expect(mockedInvoke).toHaveBeenCalledTimes(3);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("clears sent edits after a fully saved buffer", () => {

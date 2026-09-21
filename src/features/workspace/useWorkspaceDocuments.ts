@@ -144,16 +144,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     onDocumentPathChange(from, to);
   }, [documentRegistry, onDocumentPathChange, rememberPathChange]);
 
-  const persistence = useMemo(() => createDocumentPersistence({
-    buffersRef,
-    commitBuffers,
-    documentRegistry,
-    onDocumentPathChange: notifyDocumentPathChange,
-    onDraftStorageError: setDraftStorageError,
-    projectRef,
-    publishProject
-  }), [commitBuffers, documentRegistry, notifyDocumentPathChange, publishProject, setDraftStorageError]);
-
   useEffect(() => {
     if (previousRootRef.current !== initialProject.rootPath || previousGenerationRef.current !== projectGeneration) {
       previousRootRef.current = initialProject.rootPath;
@@ -272,6 +262,33 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     });
     setDraftStorageError(message);
   }, [commitBuffers, setDraftStorageError]);
+
+  const persistence = useMemo(() => createDocumentPersistence({
+    buffersRef,
+    commitBuffers,
+    documentRegistry,
+    onDraftConfirmed: confirmDraft,
+    onDraftError: reportDraftError,
+    onDocumentPathChange: notifyDocumentPathChange,
+    onDraftStorageError: setDraftStorageError,
+    projectRef,
+    publishProject
+  }), [commitBuffers, confirmDraft, documentRegistry, notifyDocumentPathChange, publishProject, reportDraftError, setDraftStorageError]);
+  const persistenceLifetime = useMemo(() => ({ cleanupRequested: false }), [persistence]);
+
+  useEffect(() => {
+    // React Strict Mode replays effects by running cleanup and setup without
+    // replacing the memoized persistence object. Defer disposal so that replay
+    // can cancel it, while a real dependency change still tears down the old
+    // recovery coordinator.
+    persistenceLifetime.cleanupRequested = false;
+    return () => {
+      persistenceLifetime.cleanupRequested = true;
+      queueMicrotask(() => {
+        if (persistenceLifetime.cleanupRequested) persistence.dispose();
+      });
+    };
+  }, [persistence, persistenceLifetime]);
 
   const forgetDocument = useCallback((path: string) => {
     for (const [alias, target] of pathAliasesRef.current) {
@@ -417,12 +434,20 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     return () => window.clearTimeout(timeout);
   }, [pollingNotice]);
 
+  const legacyDraftBuffers = useMemo(() => Object.fromEntries(
+    Object.entries(buffers).filter(([, buffer]) => !documentRegistry.getByPath(buffer.path) || !buffer.nativeDocumentParts)
+  ), [buffers, documentRegistry]);
+
+  useEffect(() => {
+    persistence.syncRecovery();
+  }, [buffers, persistence]);
+
   useDocumentDrafts({
     autoSave,
     buffers,
     projectRoot: project.rootPath,
+    recoveryBuffers: legacyDraftBuffers,
     saveDocument: persistence.autosaveDocument,
-    writeRecoveryDraft: persistence.writeRecoveryDraft,
     onDraftConfirmed: confirmDraft,
     onDraftError: reportDraftError,
     onStorageError: setDraftStorageError

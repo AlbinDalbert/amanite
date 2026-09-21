@@ -24,13 +24,12 @@ function snapshot(buffer: ReturnType<typeof dirtyBuffer>, revision: number, body
   return { bodyHtml, documentId: buffer.documentId, incarnation: 1, projectGeneration: buffer.projectGeneration, requestId: `test-${revision}`, revision };
 }
 
-function Harness({ buffers, autoSave = false, onDraftConfirmed, onDraftError, writeRecoveryDraft }: { buffers: DocumentBuffers; autoSave?: boolean; onDraftConfirmed: (documentId: string, revision: number) => void; onDraftError?: (documentId: string, message: string) => void; writeRecoveryDraft?: import("./documentPersistence").RecoveryDraftWriter }) {
+function Harness({ buffers, autoSave = false, onDraftConfirmed, onDraftError }: { buffers: DocumentBuffers; autoSave?: boolean; onDraftConfirmed: (documentId: string, revision: number) => void; onDraftError?: (documentId: string, message: string) => void }) {
   useDocumentDrafts({
     autoSave,
     buffers,
     projectRoot: "/tmp/draft-hook",
     saveDocument: vi.fn(async () => true),
-    writeRecoveryDraft,
     onDraftConfirmed,
     onDraftError,
     onStorageError: vi.fn()
@@ -132,31 +131,55 @@ describe("revision-aware document drafts", () => {
     await act(async () => root.unmount());
   });
 
-  it("uses the coordinator recovery writer without asking a mounted editor for a snapshot", async () => {
+  it("retries the compatibility snapshot bridge without another edit", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     const confirmed = vi.fn();
     const failed = vi.fn();
     const buffer = dirtyBuffer(1);
-    const writeRecoveryDraft = vi.fn<import("./documentPersistence").RecoveryDraftWriter>()
-      .mockRejectedValueOnce(new Error("temporary draft storage failure"))
-      .mockResolvedValue({ revision: 1, status: "written" });
-    await act(async () => root.render(<Harness buffers={{ [buffer.path]: buffer }} onDraftConfirmed={confirmed} onDraftError={failed} writeRecoveryDraft={writeRecoveryDraft} />));
+    mockedSnapshot.mockRejectedValueOnce(new Error("temporary snapshot failure")).mockResolvedValue(snapshot(buffer, 1, "<p>Recovered after retry</p>"));
+    await act(async () => root.render(<Harness buffers={{ [buffer.path]: buffer }} onDraftConfirmed={confirmed} onDraftError={failed} />));
     await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS); });
 
-    expect(writeRecoveryDraft).toHaveBeenCalledWith(buffer.documentId, 1);
-    expect(mockedSnapshot).not.toHaveBeenCalled();
-    expect(failed).toHaveBeenCalledWith(buffer.documentId, "temporary draft storage failure");
+    expect(mockedSnapshot).toHaveBeenCalledWith(buffer.documentId, 1);
+    expect(failed).toHaveBeenCalledWith(buffer.documentId, "temporary snapshot failure");
 
     await act(async () => { await vi.advanceTimersByTimeAsync(RECOVERY_RETRY_DELAYS_MS[0]); });
-    expect(writeRecoveryDraft).toHaveBeenCalledTimes(2);
-    expect(mockedSnapshot).not.toHaveBeenCalled();
+    expect(mockedSnapshot).toHaveBeenCalledTimes(2);
     expect(confirmed).toHaveBeenCalledWith(buffer.documentId, 1);
     await act(async () => root.unmount());
   });
 });
 
 describe("autosave deadlines", () => {
+  it("keeps autosaving native buffers while the legacy recovery scheduler sees only compatibility buffers", async () => {
+    vi.useFakeTimers();
+    mockedSnapshot.mockClear();
+    const root = createRoot(document.createElement("div"));
+    const save = vi.fn(async () => true);
+    const native = { ...dirtyBuffer(1), path: "native.fractal.html", documentId: "native-document" };
+    try {
+      function SplitHarness() {
+        useDocumentDrafts({
+          autoSave: true,
+          buffers: { [native.path]: native },
+          recoveryBuffers: {},
+          projectRoot: "/tmp/split-scheduler",
+          saveDocument: save,
+          onStorageError: vi.fn()
+        });
+        return null;
+      }
+      await act(async () => root.render(<SplitHarness />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS); });
+      expect(save).toHaveBeenCalledWith(native.path);
+      expect(mockedSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+    }
+  });
+
   it("starts a fresh deadline after a save instead of saving each subsequent keystroke", async () => {
     vi.useFakeTimers();
     const root = createRoot(document.createElement("div"));

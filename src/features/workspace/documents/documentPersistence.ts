@@ -12,6 +12,7 @@ import {
   type DocumentBuffers
 } from "./documentBuffers";
 import { captureAndEncodeDocument, captureDocument } from "./documentEncoding";
+import { DocumentRecoveryCoordinator, type RecoveryDraftWriter as SessionRecoveryDraftWriter } from "./documentRecovery";
 import type { DocumentRegistry } from "./documentRuntime";
 
 type MutableValue<T> = { current: T };
@@ -21,6 +22,8 @@ type PersistenceOptions = {
   commitBuffers: (updater: BufferUpdater) => void;
   documentRegistry?: DocumentRegistry;
   flushDocument?: (buffer: DocumentBuffer) => EditorSnapshot | null | void | Promise<EditorSnapshot | null | void>;
+  onDraftConfirmed?: (documentId: string, revision: number) => void;
+  onDraftError?: (documentId: string, message: string) => void;
   onDocumentPathChange: (from: string, to: string) => void;
   onDraftStorageError?: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
@@ -263,6 +266,7 @@ type SaveContext = PersistenceOptions & {
   forceRequests: Set<string>;
   drainRequests: Set<string>;
   registerSavePath: (path: string) => void;
+  syncRecovery: () => void;
 };
 
 function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, force: boolean) {
@@ -303,17 +307,17 @@ function bufferForDocument(buffers: DocumentBuffers, documentId: string) {
   return Object.values(buffers).find((buffer) => buffer.documentId === documentId);
 }
 
-async function writeRecoveryDraftFromSession(
+async function writeRecoveryDraftForSession(
   buffersRef: MutableValue<DocumentBuffers>,
-  documentRegistry: DocumentRegistry | undefined,
+  documentRegistry: DocumentRegistry,
   projectRef: MutableValue<FractalProject>,
-  documentId: string,
+  session: Parameters<SessionRecoveryDraftWriter>[0],
   targetRevision: number
 ): Promise<PageDraftWriteResult | null> {
-  const buffer = bufferForDocument(buffersRef.current, documentId);
-  if (!buffer || !documentRegistry) return null;
-  const session = documentRegistry.getByPath(buffer.path);
-  if (!session || !buffer.nativeDocumentParts) return null;
+  if (documentRegistry.getById(session.documentId) !== session) return null;
+  const sessionSnapshot = session.getSnapshot();
+  const buffer = buffersRef.current[sessionSnapshot.path];
+  if (!buffer || !buffer.nativeDocumentParts) return null;
 
   const encoded = captureAndEncodeDocument(session);
   const capture = encoded.capture;
@@ -333,13 +337,27 @@ async function writeRecoveryDraftFromSession(
     throw new Error(`The recovery capture for ${buffer.path} is behind revision ${targetRevision}.`);
   }
 
-  const latest = bufferForDocument(buffersRef.current, documentId);
+  const latest = buffersRef.current[capture.path];
   if (!latest || latest.path !== capture.path || latest.projectGeneration !== capture.projectGeneration) {
     throw new Error(`The recovery capture for ${buffer.path} became obsolete before it was written.`);
   }
   const source = writeEditablePage(latest.source, capture.title, encoded.bodyHtml, latest.hasTitleHeading);
   const baseSourceHash = latest.contentHash ?? latest.nativeDocumentParts?.sourceHash ?? "";
   return writePageDraftSource(projectRef.current.rootPath, capture.path, source, baseSourceHash, capture.revision);
+}
+
+async function writeRecoveryDraftFromSession(
+  buffersRef: MutableValue<DocumentBuffers>,
+  documentRegistry: DocumentRegistry | undefined,
+  projectRef: MutableValue<FractalProject>,
+  documentId: string,
+  targetRevision: number
+): Promise<PageDraftWriteResult | null> {
+  const buffer = bufferForDocument(buffersRef.current, documentId);
+  if (!buffer || !documentRegistry) return null;
+  const session = documentRegistry.getByPath(buffer.path);
+  if (!session) return null;
+  return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, session, targetRevision);
 }
 
 type SavePassResult = {
@@ -398,6 +416,7 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
     context.documentRegistry?.renameByPath(currentPath, resultingPath);
     context.onDocumentPathChange(currentPath, resultingPath);
   }
+  context.syncRecovery();
   return { nextBufferDirty, resultingPath };
 }
 
@@ -474,10 +493,26 @@ async function runSaveQueue(context: SaveContext, originalPath: string) {
   }
 }
 
-export function createDocumentPersistence({ buffersRef, commitBuffers, documentRegistry, flushDocument, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
+export function createDocumentPersistence({ buffersRef, commitBuffers, documentRegistry, flushDocument, onDraftConfirmed, onDraftError, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
   const drainRequests = new Set<string>();
+
+  const writeRecoveryDraftForOpenSession: SessionRecoveryDraftWriter = (session, targetRevision) => {
+    if (!documentRegistry) return Promise.resolve(null);
+    return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, session, targetRevision);
+  };
+  const recovery = documentRegistry ? new DocumentRecoveryCoordinator({
+    buffersRef,
+    documentRegistry,
+    onDraftConfirmed,
+    onDraftError,
+    onStorageError: (message) => {
+      if (message) onDraftStorageError?.(message);
+    },
+    writeDraft: writeRecoveryDraftForOpenSession
+  }) : null;
+  const syncRecovery = () => recovery?.sync();
 
   function releaseSavePromise(savePromise: Promise<boolean>) {
     for (const [path, queuedPromise] of savePromises) {
@@ -520,7 +555,8 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
       onDraftStorageError,
       projectRef,
       publishProject,
-      registerSavePath
+      registerSavePath,
+      syncRecovery
     }, path);
 
     queue.promise = savePromise;
@@ -568,5 +604,5 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     documentId,
     targetRevision
   );
-  return { autosaveDocument, saveAll, saveDocument, savePaths, writeRecoveryDraft };
+  return { autosaveDocument, dispose: () => recovery?.dispose(), saveAll, saveDocument, savePaths, syncRecovery, writeRecoveryDraft };
 }

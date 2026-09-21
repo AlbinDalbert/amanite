@@ -2,14 +2,35 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FractalPageDraft } from "@/lib/fractal/types";
 import { mapPagePath, type ReceiptMappings } from "@/lib/fractal/reconcile";
 
+declare const __AMANITE_TAURI_DEBUG__: boolean;
+
 export type PageDraft = FractalPageDraft;
 
 const LEGACY_PREFIX = "amanite.page-draft.v1:";
 const generations = new Map<string, number>();
 const queues = new Map<string, Promise<unknown>>();
+const isTauriDebugBuild = typeof __AMANITE_TAURI_DEBUG__ !== "undefined" && __AMANITE_TAURI_DEBUG__;
+
+type PageDraftTestWindow = Window & {
+  __AMANITE_PAGE_DRAFT_FAULT_INJECTION_ENABLED__?: boolean;
+  __AMANITE_PAGE_DRAFT_WRITE_FAILURES__?: number;
+};
+
+function consumeInjectedWriteFailure() {
+  if (!isTauriDebugBuild) return false;
+  const testWindow = window as PageDraftTestWindow;
+  const remaining = testWindow.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__;
+  if (typeof remaining !== "number" || !Number.isInteger(remaining) || remaining <= 0) return false;
+  testWindow.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__ = remaining - 1;
+  return true;
+}
 
 function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
+}
+
+if (typeof window !== "undefined" && isTauriDebugBuild) {
+  (window as PageDraftTestWindow).__AMANITE_PAGE_DRAFT_FAULT_INJECTION_ENABLED__ = true;
 }
 
 function identity(projectRoot: string, pagePath: string) {
@@ -67,6 +88,7 @@ export function writePageDraftSource(projectRoot: string, pagePath: string, sour
   if (!hasTauriRuntime()) return Promise.reject(new Error("Native draft storage requires the desktop app."));
   return enqueueProject(projectRoot, async (): Promise<PageDraftWriteResult> => {
     if (generations.get(key) !== generation) return { revision, status: "superseded" };
+    if (consumeInjectedWriteFailure()) throw new Error("Injected desktop smoke transient draft failure.");
     await invoke("fractal_write_draft", { draft });
     return { revision, status: "written" };
   });

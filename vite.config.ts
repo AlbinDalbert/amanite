@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  define: {
+    __AMANITE_TAURI_DEBUG__: JSON.stringify(Boolean(process.env.TAURI_DEBUG))
+  },
   envPrefix: ["VITE_", "TAURI_"],
   resolve: {
     alias: {

@@ -59,6 +59,13 @@ export type DocumentSessionEvent = Readonly<{
   affectedNodeKeys: readonly string[];
 }>;
 
+export type DocumentRegistryEvent = Readonly<{
+  kind: "opened" | "closed" | "renamed" | "disposed";
+  session?: DocumentSession;
+  from?: string;
+  to?: string;
+}>;
+
 export type DocumentSessionOptions = DocumentSeed & {
   documentId: DocumentId;
   projectGeneration: number;
@@ -312,6 +319,7 @@ export class DocumentRegistry {
   private readonly sessionsById = new Map<DocumentId, DocumentSession>();
   private readonly paths = new Map<string, DocumentId>();
   private readonly opening = new Map<string, Promise<DocumentSession>>();
+  private readonly listeners = new Set<(event: DocumentRegistryEvent) => void>();
   private disposed = false;
 
   constructor(options: DocumentRegistryOptions) {
@@ -336,6 +344,12 @@ export class DocumentRegistry {
     return [...this.sessionsById.values()];
   }
 
+  subscribe(listener: (event: DocumentRegistryEvent) => void) {
+    if (this.disposed) return () => undefined;
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   openLoaded(path: string, seed: DocumentSeed): OpenDocumentResult {
     this.assertOpen();
     const requestedPath = requirePath(path);
@@ -350,6 +364,7 @@ export class DocumentRegistry {
     });
     this.sessionsById.set(session.documentId, session);
     this.paths.set(requestedPath, session.documentId);
+    this.emit({ kind: "opened", session });
     return { session, reused: false };
   }
 
@@ -389,6 +404,7 @@ export class DocumentRegistry {
     this.paths.delete(previousPath);
     this.paths.set(nextPath, documentId);
     session.renamePath(nextPath);
+    this.emit({ kind: "renamed", from: previousPath, session, to: nextPath });
     return session;
   }
 
@@ -403,6 +419,7 @@ export class DocumentRegistry {
     this.sessionsById.delete(documentId);
     const path = session.getSnapshot().path;
     if (this.paths.get(path) === documentId) this.paths.delete(path);
+    this.emit({ kind: "closed", session });
     session.dispose();
     return true;
   }
@@ -415,10 +432,16 @@ export class DocumentRegistry {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.emit({ kind: "disposed" });
     for (const session of this.sessionsById.values()) session.dispose();
     this.sessionsById.clear();
     this.paths.clear();
     this.opening.clear();
+    this.listeners.clear();
+  }
+
+  private emit(event: DocumentRegistryEvent) {
+    for (const listener of this.listeners) listener(event);
   }
 
   private requireSession(documentId: DocumentId) {
