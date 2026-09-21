@@ -12,8 +12,8 @@ sessions.
   draft from the accepted native source, and write through the ordered Fractal
   draft adapter. They do not ask a mounted editor for a snapshot.
 - Protected sessions use the same coordinator. Because Fractal does not expose
-  writable native sections for them, recovery writes the exact workspace source
-  projection. Lexical never serializes protected markup.
+  writable native sections for them, recovery writes the exact protected-source
+  retention field. Lexical never serializes protected markup.
 - The old `useDocumentDrafts` React scheduler and its compatibility-only test
   path are deleted. Native autosave remains limited to buffers with writable
   native sections.
@@ -62,10 +62,11 @@ power loss.
 - The real desktop run used valid native sessions. It did not open a malformed
   or protected fixture. Protected exact-source recovery is covered by focused
   JSDOM persistence tests.
-- The workspace source/body projection and mounted
-  `registerEditorFlush`/`EditorSnapshot` bridge remain. The bridge is still
-  needed by legacy fallback and composition handling, but coordinator recovery
-  no longer depends on it.
+- Registry-backed native documents no longer keep workspace `source`, `bodyHtml`,
+  or `title` fields. The persistence coordinator retains the accepted native
+  source only for reconstruction at a write boundary. The mounted
+  `registerEditorFlush`/`EditorSnapshot` bridge remains for legacy fallback and
+  composition handling, but coordinator recovery no longer depends on it.
 - The required 60-second performance matrix, representative 100k, 1m, and 5m
   fixtures, deliberately slow storage, and capture/encoding cost breakdown
   remain open.

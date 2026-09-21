@@ -68,7 +68,6 @@ it("keeps a real conflict visible while typing and recovery snapshots continue",
     expect(conflicted.error).toContain("changed on disk");
     await act(async () => documents.markRevision(conflicted.path, 1));
     expect(documents.buffers[conflicted.path].error).toBe(conflicted.error);
-    await act(async () => documents.updateSnapshot(conflicted.path, { documentId: conflicted.documentId, projectGeneration: conflicted.projectGeneration, incarnation: conflicted.incarnation, requestId: "conflict-snapshot", revision: 1, bodyHtml: "<p>Typing</p>" }));
     expect(documents.buffers[conflicted.path].error).toBe(conflicted.error);
   } finally {
     await act(async () => root.unmount());

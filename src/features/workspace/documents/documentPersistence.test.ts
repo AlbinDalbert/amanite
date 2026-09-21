@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { fractalClient } from "@/lib/fractal/client";
-import type { FractalConditionalWriteResult, FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
+import type { FractalConditionalWriteResult, FractalLoadedPage, FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
 import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
 import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { captureAndEncodeDocument } from "./documentEncoding";
 import { AUTOSAVE_IDLE_DELAY_MS, AUTOSAVE_MAX_LAG_MS, RECOVERY_IDLE_DELAY_MS, RECOVERY_RETRY_DELAYS_MS } from "./documentRecovery";
 import { DocumentRegistry } from "./documentRuntime";
-import { bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
+import { bufferFromLoadedPage, bufferFromProject, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { createDocumentPersistence, nextDocumentBuffer, type NativeSaveResult } from "./documentPersistence";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -170,6 +170,49 @@ describe("document persistence", () => {
     }
   });
 
+  it("reconstructs a non-active open page from its accepted persistence baseline", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "other.fractal.html";
+    const projectGeneration = 45;
+    const initialProject = nativeProject("index.fractal.html");
+    const loaded: FractalLoadedPage = {
+      path,
+      source: NATIVE_SOURCE,
+      contentHash: "other-source",
+      links: [],
+      backlinks: [],
+      nativeDocumentParts: nativeParts()
+    };
+    const buffer = { ...bufferFromLoadedPage(loaded, loaded.source, false, { projectGeneration }), dirty: true, revision: 1 };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: updater => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      persistence.registerBaseline(path, loaded.source, loaded.nativeDocumentParts!);
+      session.setTitle("Recovered title");
+      await persistence.writeRecoveryDraft(buffer.documentId, 1);
+      expect(mockedInvoke).toHaveBeenCalledWith("fractal_write_draft", {
+        draft: expect.objectContaining({
+          pagePath: path,
+          source: expect.stringContaining("<title>Recovered title</title>")
+        })
+      });
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+    }
+  });
+
   it("rejects a recovery capture from an obsolete session incarnation and leaves local state intact", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     const path = "test.fractal.html";
@@ -322,7 +365,7 @@ describe("document persistence", () => {
 
       expect(flushDocument).not.toHaveBeenCalled();
       expect(setPageContent).toHaveBeenCalledWith(initialProject, bodyHtml, "content-hash");
-      expect(buffersRef.current[path]).toMatchObject({ bodyHtml, dirty: false, nativeEdits: {}, savedRevision: 1 });
+      expect(buffersRef.current[path]).toMatchObject({ dirty: false, nativeEdits: {}, savedRevision: 1 });
       expect(session.getSnapshot()).toMatchObject({ bodyDirty: false, revision: 1 });
       const events = readDataflowEvents();
       expect(events.some((event) => event.name === "autosave.request" && event.status === "start")).toBe(true);
@@ -430,7 +473,7 @@ describe("document persistence", () => {
       await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS);
       const failedBuffer = buffersRef.current[path];
       expect(setPageContent).toHaveBeenCalledTimes(1);
-      expect(failedBuffer).toMatchObject({ bodyHtml, dirty: true, error: "disk full", nativeEdits: { content: bodyHtml } });
+      expect(failedBuffer).toMatchObject({ dirty: true, error: "disk full", nativeEdits: { content: bodyHtml } });
       expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("Keep this after failure");
       expect(readDataflowEvents()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "autosave.confirmed", status: "failure", revision: 1 })]));
 
@@ -447,19 +490,17 @@ describe("document persistence", () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replace("Before", "After");
     buffer.nativeEdits = { content: "<p>After</p>" };
     buffer.dirty = true;
     buffer.revision = 1;
-    const savedProject = nativeProject(path, buffer.source, nativeParts({ contentHtml: "<p>After</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
+    const savedProject = nativeProject(path, NATIVE_SOURCE.replace("Before", "After"), nativeParts({ contentHtml: "<p>After</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
     const result: NativeSaveResult = { kind: "saved", project: savedProject, sent: buffer.nativeEdits, resultingPath: path };
 
     expect(nextDocumentBuffer(buffer, buffer, result, savedProject, path, buffer.nativeEdits)).toMatchObject({
       contentHash: "source-hash-2",
       dirty: false,
       error: null,
-      nativeEdits: {},
-      source: buffer.source
+      nativeEdits: {}
     });
   });
 
@@ -467,7 +508,6 @@ describe("document persistence", () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replace("Before", "Local edit");
     buffer.nativeEdits = { content: "<p>Local edit</p>" };
     buffer.dirty = true;
     const result: NativeSaveResult = { kind: "conflict", message: "page changed", project: initialProject, sent: buffer.nativeEdits, resultingPath: path };
@@ -475,8 +515,7 @@ describe("document persistence", () => {
     expect(nextDocumentBuffer(buffer, buffer, result, initialProject, path, buffer.nativeEdits)).toMatchObject({
       conflict: true,
       dirty: true,
-      error: "This page changed on disk. Reload it or replace the external version.",
-      source: buffer.source
+      error: "This page changed on disk. Reload it or replace the external version."
     });
   });
 
@@ -492,8 +531,7 @@ describe("document persistence", () => {
       dirty: true,
       error: "disk full",
       nativeEdits: { content: "<p>Local edit</p>" },
-      path: "renamed.fractal.html",
-      source: buffer.source
+      path: "renamed.fractal.html"
     });
   });
 
@@ -530,7 +568,6 @@ describe("document persistence", () => {
     const path = "index.fractal.html";
     const firstProject = nativeProject(path);
     const firstBuffer = bufferFromProject(firstProject)!;
-    firstBuffer.source = NATIVE_SOURCE.replace("Before", "Revision one");
     firstBuffer.nativeEdits = { content: "<p>Revision one</p>" };
     firstBuffer.dirty = true;
     firstBuffer.revision = 1;
@@ -551,7 +588,7 @@ describe("document persistence", () => {
 
     commitBuffers((current) => ({
       ...current,
-      [path]: { ...current[path], source: NATIVE_SOURCE.replace("Before", "Revision two"), nativeEdits: { content: "<p>Revision two</p>" }, dirty: true, revision: 2 }
+      [path]: { ...current[path], nativeEdits: { content: "<p>Revision two</p>" }, dirty: true, revision: 2 }
     }));
     firstWrite.resolve(saved(nativeProject(path, NATIVE_SOURCE.replace("Before", "Revision one"), nativeParts({ contentHtml: "<p>Revision one</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }))));
 
@@ -623,7 +660,7 @@ describe("document persistence", () => {
     await vi.waitFor(() => expect(fractalClient.setPageContent).toHaveBeenCalledTimes(1));
     commitBuffers((current) => ({
       ...current,
-      [secondPath]: { ...current[secondPath], source: NATIVE_SOURCE.replace("Before", "Second changed"), nativeEdits: { content: "<p>Second changed</p>" }, dirty: true, revision: 1 }
+      [secondPath]: { ...current[secondPath], nativeEdits: { content: "<p>Second changed</p>" }, dirty: true, revision: 1 }
     }));
     firstWrite.resolve(saved(nativeProject(firstPath, NATIVE_SOURCE.replace("Before", "First changed"), nativeParts({ contentHtml: "<p>First changed</p>", sourceHash: "source-hash-2" }))));
 
@@ -660,7 +697,6 @@ describe("document persistence", () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replace("Before", "Local edit");
     buffer.nativeEdits = { content: "<p>Local edit</p>" };
     buffer.dirty = true;
     buffer.revision = 1;
@@ -730,7 +766,6 @@ describe("document persistence", () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replaceAll("Test", "Renamed").replace("Before", "Local edit");
     buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
     buffer.dirty = true;
     buffer.revision = 1;
@@ -762,11 +797,10 @@ describe("document persistence", () => {
     const nextPath = "renamed.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replaceAll("Test", "Renamed").replace("Before", "Local edit");
     buffer.nativeEdits = { title: "Renamed", content: "<p>Local edit</p>" };
     buffer.dirty = true;
     buffer.revision = 1;
-    const savedProject = nativeProject(nextPath, buffer.source, nativeParts({ title: "Renamed", titleHash: "title-hash-2" }));
+    const savedProject = nativeProject(nextPath, NATIVE_SOURCE.replaceAll("Test", "Renamed").replace("Before", "Local edit"), nativeParts({ title: "Renamed", titleHash: "title-hash-2" }));
     const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
     const projectRef = { current: initialProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
@@ -790,11 +824,10 @@ describe("document persistence", () => {
     const path = "test.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replace("<p>Before</p>", "<p>After</p>");
     buffer.nativeEdits = { content: "<p>After</p>" };
     buffer.dirty = true;
     buffer.revision = 1;
-    const savedProject = nativeProject(path, buffer.source, nativeParts({ contentHtml: "<p>After</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
+    const savedProject = nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", "<p>After</p>"), nativeParts({ contentHtml: "<p>After</p>", contentHash: "content-hash-2", sourceHash: "source-hash-2" }));
     const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
     const projectRef = { current: initialProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
@@ -810,12 +843,11 @@ describe("document persistence", () => {
     const path = "test.fractal.html";
     const initialProject = nativeProject(path);
     const buffer = bufferFromProject(initialProject)!;
-    buffer.source = NATIVE_SOURCE.replaceAll("Test", "Renamed");
     buffer.nativeEdits = { title: "Renamed" };
     buffer.dirty = true;
     buffer.revision = 1;
     const nextPath = "renamed.fractal.html";
-    const savedProject = nativeProject(nextPath, buffer.source, nativeParts({ title: "Renamed", titleHash: "title-hash-2", sourceHash: "source-hash-2" }));
+    const savedProject = nativeProject(nextPath, NATIVE_SOURCE.replaceAll("Test", "Renamed"), nativeParts({ title: "Renamed", titleHash: "title-hash-2", sourceHash: "source-hash-2" }));
     const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
     const projectRef = { current: initialProject };
     const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
@@ -872,7 +904,7 @@ describe("document persistence", () => {
     expect(session.editor.getEditorState()).toBe(stateBeforeSave);
     expect(session.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("After");
     expect(session.getSnapshot()).toMatchObject({ bodyDirty: false, revision: 1, title: "Test" });
-    expect(buffersRef.current[path]).toMatchObject({ bodyHtml: savedBody, dirty: false, nativeEdits: {}, revision: 1, title: "Test" });
+    expect(buffersRef.current[path]).toMatchObject({ dirty: false, nativeEdits: {}, revision: 1 });
 
     registry.dispose();
   });
@@ -935,7 +967,7 @@ describe("document persistence", () => {
       activePagePath: path
     });
     expect(setPageContent).toHaveBeenNthCalledWith(2, expect.anything(), secondBody, "content-hash-1");
-    expect(buffersRef.current[path]).toMatchObject({ bodyHtml: secondBody, dirty: false, nativeEdits: {}, revision: 2, savedRevision: 2 });
+    expect(buffersRef.current[path]).toMatchObject({ dirty: false, nativeEdits: {}, revision: 2, savedRevision: 2 });
     expect(session.getSnapshot().revision).toBe(2);
 
     registry.dispose();

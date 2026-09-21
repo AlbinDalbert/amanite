@@ -1,6 +1,6 @@
 import type { PageDraftWriteResult } from "@/app/pageDrafts";
 import { nextDataflowRequestId, recordDataflowEvent } from "@/lib/dataflowTelemetry";
-import type { DocumentBuffer, DocumentBuffers } from "./documentBuffers";
+import { isProtectedDocument, type DocumentBuffer, type DocumentBuffers } from "./documentBuffers";
 import type { DocumentRegistry, DocumentSession } from "./documentRuntime";
 
 // Keep the recovery target ahead of the normal autosave deadline. These are
@@ -164,7 +164,7 @@ export class DocumentRecoveryCoordinator {
   }
 
   private hasPendingAutosave(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
-    if (!this.autoSaveEnabled || !buffer.nativeDocumentParts || buffer.conflict || buffer.operation) return false;
+    if (!this.autoSaveEnabled || isProtectedDocument(buffer) || buffer.conflict || buffer.operation) return false;
     const revision = Math.max(buffer.revision, session.getSnapshot().revision);
     return (buffer.dirty || revision > buffer.savedRevision)
       && revision > Math.max(buffer.savedRevision, schedule.confirmedRevision);

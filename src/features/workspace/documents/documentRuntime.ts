@@ -245,7 +245,10 @@ export class DocumentSession {
     });
     this.title = title;
     this.replacementGeneration = Math.max(this.replacementGeneration + 1, replacementGeneration ?? 0);
-    this.revision = Math.max(this.revision + 1, initialRevision ?? 0);
+    // Replacements install the caller's known edit checkpoint. They are not
+    // edits themselves, so an initial load or clean reload must not create a
+    // phantom recovery/autosave revision.
+    this.revision = initialRevision ?? this.revision;
     this.bodyDirty = false;
     this.resetHistory();
     this.emit("replacement");

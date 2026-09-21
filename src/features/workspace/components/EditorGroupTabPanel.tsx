@@ -123,7 +123,6 @@ function FolderTabPanel({ active, context, folder, folderPath, groupId }: Folder
         isPageOpen={context.isPageOpen}
         projectName={context.project.name}
         spellCheck={context.settings.spellCheck}
-        onChangeSource={context.onChangeSource}
         onModelChange={context.onModelChange}
         onCreateFolder={context.onCreateFolder}
         onCreatePage={context.onCreatePage}
@@ -153,18 +152,14 @@ function DocumentTabPanel({ active, context, groupId, path }: DocumentTabPanelPr
   if (!tabBuffer || !tabPage) return null;
   return (
     <DocumentOpenErrorBoundary key={path} path={path}>
-      <LoadedDocumentTabPanel active={active} context={context} groupId={groupId} path={path} tabBuffer={tabBuffer} tabPage={tabPage} />
+      <LoadedDocumentTabPanel active={active} context={context} groupId={groupId} path={path} tabBuffer={tabBuffer} />
     </DocumentOpenErrorBoundary>
   );
 }
 
-function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tabPage }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer; tabPage: FractalProject["pages"][number] }) {
-  const session = useDocumentSession(context.documentRegistry, tabBuffer.path, {
-    bodyHtml: tabBuffer.bodyHtml,
-    initialReplacementGeneration: tabBuffer.incarnation,
-    initialRevision: tabBuffer.revision,
-    title: tabBuffer.title
-  });
+function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer }: DocumentTabPanelProps & { tabBuffer: DocumentBuffer }) {
+  const session = useDocumentSession(context.documentRegistry, tabBuffer.path);
+  const sessionSnapshot = session.getSnapshot();
   const editable = active && context.focused;
   return (
     <div className={active ? "editor-tab-panel active" : "editor-tab-panel"} hidden={!active} role="tabpanel">
@@ -172,8 +167,9 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         borealisOpen={context.borealisOpen}
         borealisWorkspace={context.borealisWorkspace}
         backlinks={tabBuffer.backlinks}
-        bodyHtml={tabBuffer.bodyHtml}
-        documentId={tabBuffer.documentId}
+        bodyHtml=""
+        compatibilityIssues={tabBuffer.compatibilityIssues}
+        documentId={session.documentId}
         sourceIncarnation={tabBuffer.incarnation}
         editable={editable}
         focusMode={context.focusMode}
@@ -185,15 +181,14 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer, tab
         pagePath={path}
         projectName={context.project.name}
         documentSession={session}
-        source={tabBuffer.source}
+        protectedSource={tabBuffer.protectedSource}
+        source=""
         spellCheck={context.settings.spellCheck}
-        title={tabBuffer.title}
-        viewId={`${groupId}:${tabBuffer.documentId}`}
+        title={sessionSnapshot.title}
+        viewId={`${groupId}:${session.documentId}`}
         wordGoal={context.settings.wordGoal}
-        onChangeSource={(source, nativeSection) => context.onChangeSource(path, source, nativeSection)}
         onModelChange={(snapshot) => context.onModelChange?.(path, snapshot)}
         onRevision={editable ? (revision) => context.onRevision?.(path, revision) : () => undefined}
-        onSnapshot={(snapshot) => context.onSnapshot?.(path, snapshot)}
         onExport={(includeDerivedLinks) => context.onExport(path, includeDerivedLinks)}
         onNavigatePage={(nextPath) => context.onNavigatePage(groupId, nextPath)}
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}

@@ -1,5 +1,5 @@
 import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
-import { readEditablePage } from "@/features/editor/components/pageSource";
+import { analyzeEditablePage } from "@/features/editor/components/pageSource";
 import { documentIdentity } from "./documentSessions";
 
 export type DocumentBuffer = {
@@ -7,11 +7,13 @@ export type DocumentBuffer = {
   projectGeneration: number;
   incarnation: number;
   path: string;
-  baseSource: string;
-  source: string;
-  title: string;
-  bodyHtml: string;
-  hasTitleHeading: boolean;
+  /**
+   * Protected documents cannot be round-tripped through Lexical. Keep their
+   * exact source available for the guard and recovery path. Editable native
+   * documents do not keep a source or body projection here.
+   */
+  protectedSource?: string;
+  compatibilityIssues: string[];
   links: FractalProject["activePageLinks"];
   backlinks: FractalProject["activePageBacklinks"];
   contentHash: string | null;
@@ -32,6 +34,10 @@ export type DocumentBuffer = {
 
 export type DocumentBuffers = Record<string, DocumentBuffer>;
 export type BufferUpdater = (current: DocumentBuffers) => DocumentBuffers;
+
+export function isProtectedDocument(buffer: Pick<DocumentBuffer, "compatibilityIssues" | "nativeDocumentParts">) {
+  return !buffer.nativeDocumentParts || buffer.compatibilityIssues.length > 0;
+}
 
 export function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -69,8 +75,12 @@ function nativeEditsForSource(source: string, parts: FractalNativeDocumentParts 
   return dirty && parts ? nativeEditsFromSource(source, parts) : {};
 }
 
-function editableFields(source: string) {
-  return readEditablePage(source);
+function sourceProtection(source: string, nativeDocumentParts: FractalNativeDocumentParts | null) {
+  const compatibilityIssues = analyzeEditablePage(source).inspection.compatibilityIssues;
+  return {
+    compatibilityIssues,
+    protectedSource: !nativeDocumentParts || compatibilityIssues.length ? source : undefined
+  };
 }
 
 type BufferIdentityOptions = {
@@ -92,23 +102,20 @@ export function bufferFromProject(
 ): DocumentBuffer | null {
   if (!project.activePagePath || project.activePageSource == null) return null;
   const identity = bufferIdentity(project.activePagePath, options.projectGeneration ?? project.sessionGeneration);
-  const editable = editableFields(source);
+  const nativeDocumentParts = nativePartsForProject(project);
+  const protection = sourceProtection(source, nativeDocumentParts);
   const revision = dirty ? Math.max(1, options.revision ?? 1) : 0;
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
     incarnation: options.incarnation ?? 1,
     path: project.activePagePath,
-    baseSource: project.activePageSource,
-    source,
-    title: editable.title,
-    bodyHtml: editable.bodyHtml,
-    hasTitleHeading: editable.hasTitleHeading,
+    ...protection,
     links: project.activePageLinks,
     backlinks: project.activePageBacklinks,
     contentHash: project.activePageContentHash ?? null,
-    nativeDocumentParts: nativePartsForProject(project),
-    nativeEdits: nativeEditsForSource(source, nativePartsForProject(project), dirty),
+    nativeDocumentParts,
+    nativeEdits: nativeEditsForSource(source, nativeDocumentParts, dirty),
     dirty,
     revision,
     snapshotRevision: 0,
@@ -124,23 +131,20 @@ export function bufferFromProject(
 
 export function bufferFromLoadedPage(loaded: FractalLoadedPage, source = loaded.source, dirty = false, options: BufferIdentityOptions = {}): DocumentBuffer {
   const identity = bufferIdentity(loaded.path, options.projectGeneration);
-  const editable = editableFields(source);
+  const nativeDocumentParts = loaded.nativeDocumentParts ?? null;
+  const protection = sourceProtection(source, nativeDocumentParts);
   const revision = dirty ? Math.max(1, options.revision ?? 1) : 0;
   return {
     documentId: identity.documentId,
     projectGeneration: identity.projectGeneration,
     incarnation: options.incarnation ?? 1,
     path: loaded.path,
-    baseSource: loaded.source,
-    source,
-    title: editable.title,
-    bodyHtml: editable.bodyHtml,
-    hasTitleHeading: editable.hasTitleHeading,
+    ...protection,
     links: loaded.links,
     backlinks: loaded.backlinks,
     contentHash: loaded.contentHash,
-    nativeDocumentParts: loaded.nativeDocumentParts ?? null,
-    nativeEdits: nativeEditsForSource(source, loaded.nativeDocumentParts ?? null, dirty),
+    nativeDocumentParts,
+    nativeEdits: nativeEditsForSource(source, nativeDocumentParts, dirty),
     dirty,
     revision,
     snapshotRevision: 0,

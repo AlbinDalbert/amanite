@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { clearPageDraft } from "@/app/pageDrafts";
+import { readEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalLoadedPage, FractalProject } from "@/lib/fractal/types";
 import { bufferFromLoadedPage, bufferFromProject, errorMessage, type BufferUpdater, type DocumentBuffers } from "./documentBuffers";
 import { resolveDocumentDraft } from "./documentDraftRecovery";
+import type { DocumentRegistry } from "./documentRuntime";
 
 type MutableValue<T> = { current: T };
 
 type Options = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
+  documentRegistry?: DocumentRegistry;
   initialProject: FractalProject;
   projectGeneration: number;
   onRequestConfirmation: (message: string, confirmLabel?: string) => Promise<boolean>;
   projectRef: MutableValue<FractalProject>;
   publishProject: (project: FractalProject) => void;
+  registerBaseline?: (path: string, source: string, nativeDocumentParts: NonNullable<FractalLoadedPage["nativeDocumentParts"]> | null) => void;
   setLoadErrors: Dispatch<SetStateAction<Record<string, string>>>;
   setLoadingPaths: Dispatch<SetStateAction<Set<string>>>;
 };
@@ -23,9 +27,25 @@ function loadingKey(projectRoot: string, pagePath: string) {
   return `${projectRoot}\u0000${pagePath}`;
 }
 
-export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors, setLoadingPaths }: Options) {
+export function useDocumentLoading({ buffersRef, commitBuffers, documentRegistry, initialProject, onRequestConfirmation, projectGeneration, projectRef, publishProject, registerBaseline, setLoadErrors, setLoadingPaths }: Options) {
   const initializedProjectsRef = useRef(new Set<string>());
   const loadingPromisesRef = useRef(new Map<string, Promise<boolean>>());
+
+  const installRuntime = useCallback((path: string, source: string, incarnation: number, revision: number) => {
+    if (!documentRegistry) return;
+    const editable = readEditablePage(source);
+    const existing = documentRegistry.getByPath(path);
+    if (existing) {
+      existing.replaceDocument(editable.bodyHtml, editable.title, incarnation, revision);
+      return;
+    }
+    documentRegistry.openLoaded(path, {
+      bodyHtml: editable.bodyHtml,
+      initialReplacementGeneration: incarnation,
+      initialRevision: revision,
+      title: editable.title
+    });
+  }, [documentRegistry]);
 
   const installLoadedProject = useCallback(async (loaded: FractalProject, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.activePagePath;
@@ -47,6 +67,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const previousIncarnation = buffersRef.current[path]?.incarnation ?? 0;
     const buffer = bufferFromProject(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!buffer || !isCurrent()) return false;
+    installRuntime(path, resolved.source, buffer.incarnation, buffer.revision);
+    registerBaseline?.(path, loaded.activePageSource ?? "", loaded.activePageNativeDocumentParts ?? null);
     commitBuffers((current) => ({ ...current, [path]: buffer }));
     setLoadErrors((current) => {
       const next = { ...current };
@@ -55,7 +77,7 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     });
     publishProject(loaded);
     return true;
-  }, [commitBuffers, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors]);
+  }, [commitBuffers, installRuntime, onRequestConfirmation, projectGeneration, projectRef, publishProject, registerBaseline, setLoadErrors]);
 
   const installLoadedPage = useCallback(async (loaded: FractalLoadedPage, checkDraft: boolean, projectRoot: string) => {
     const path = loaded.path;
@@ -77,6 +99,8 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
     const previousIncarnation = buffersRef.current[path]?.incarnation ?? 0;
     const buffer = bufferFromLoadedPage(loaded, resolved.source, resolved.dirty, { draftedRevision: resolved.draftedRevision, incarnation: previousIncarnation + 1, projectGeneration, revision: resolved.revision });
     if (!isCurrent()) return false;
+    installRuntime(path, resolved.source, buffer.incarnation, buffer.revision);
+    registerBaseline?.(path, loaded.source, loaded.nativeDocumentParts ?? null);
     commitBuffers((current) => ({ ...current, [path]: buffer }));
     setLoadErrors((current) => {
       const next = { ...current };
@@ -96,7 +120,7 @@ export function useDocumentLoading({ buffersRef, commitBuffers, initialProject, 
       } : {})
     });
     return true;
-  }, [commitBuffers, onRequestConfirmation, projectGeneration, projectRef, publishProject, setLoadErrors]);
+  }, [commitBuffers, installRuntime, onRequestConfirmation, projectGeneration, projectRef, publishProject, registerBaseline, setLoadErrors]);
 
   useEffect(() => {
     // Bootstrap recovery belongs to project entry. Later snapshots from saves

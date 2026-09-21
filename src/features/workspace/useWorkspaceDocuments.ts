@@ -1,14 +1,12 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPageDraft } from "@/app/pageDrafts";
-import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
-import { writeEditablePage } from "@/features/editor/components/pageSource";
+import { readEditablePage } from "@/features/editor/components/pageSource";
 import { fractalClient } from "@/lib/fractal/client";
 import { mapPagePath, reconcileMutationResult } from "@/lib/fractal/reconcile";
-import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
+import type { FractalNativeDocumentParts, FractalProject } from "@/lib/fractal/types";
 import {
   bufferFromProject,
   errorMessage,
-  nativeEditsFromSource,
   type BufferUpdater,
   type DocumentBuffers
 } from "./documents/documentBuffers";
@@ -33,10 +31,14 @@ type Options = {
 
 function useWorkspaceDocumentState(initialProject: FractalProject, requestedGeneration?: number) {
   const [projectGeneration] = useState(() => requestedGeneration ?? initialProject.sessionGeneration ?? createProjectGeneration());
-  const [registryLifetime] = useState(() => ({
-    cleanupRequested: false,
-    documentRegistry: new DocumentRegistry({ projectGeneration })
-  }));
+  const [registryLifetime] = useState(() => {
+    const documentRegistry = new DocumentRegistry({ projectGeneration });
+    if (initialProject.activePagePath && initialProject.activePageSource != null) {
+      const editable = readEditablePage(initialProject.activePageSource);
+      documentRegistry.openLoaded(initialProject.activePagePath, { bodyHtml: editable.bodyHtml, title: editable.title });
+    }
+    return { cleanupRequested: false, documentRegistry };
+  });
   const { documentRegistry } = registryLifetime;
   const [project, setProject] = useState(initialProject);
   const [buffers, setBuffers] = useState<DocumentBuffers>(() => {
@@ -110,7 +112,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setPollingNotice,
     setProject
   } = useWorkspaceDocumentState(initialProject, requestedGeneration);
-  const reportedRevisionRef = useRef(new Set<string>());
+  const registerBaselineRef = useRef<(path: string, source: string, nativeDocumentParts: FractalNativeDocumentParts | null) => void>(() => undefined);
   const pathAliasesRef = useRef(new Map<string, string>());
   const [liveModels, setLiveModels] = useState<Record<string, EditorModelSnapshot>>({});
   const liveModelsRef = useRef(liveModels);
@@ -165,79 +167,23 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const { openDocument, reloadDocument } = useDocumentLoading({
     buffersRef,
     commitBuffers,
+    documentRegistry,
     initialProject,
     onRequestConfirmation,
     projectGeneration,
     projectRef,
     publishProject,
+    registerBaseline: (path, source, nativeDocumentParts) => registerBaselineRef.current(path, source, nativeDocumentParts),
     setLoadErrors,
     setLoadingPaths
   });
 
   const markRevision = useCallback((path: string, revision?: number) => {
-    reportedRevisionRef.current.add(path);
     commitBuffers((current) => {
       const buffer = current[path];
       return buffer
         ? { ...current, [path]: { ...buffer, dirty: true, revision: Math.max(buffer.revision + 1, revision ?? 0), draftError: null, error: buffer.conflict ? buffer.error : null } }
         : current;
-    });
-  }, [commitBuffers]);
-
-  const updateSource = useCallback((path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => {
-    commitBuffers((current) => {
-      const buffer = current[path];
-      if (!buffer) return current;
-      let nativeEdits = buffer.nativeEdits;
-      if (buffer.nativeDocumentParts) {
-        nativeEdits = nativeSection
-          ? { ...buffer.nativeEdits, [nativeSection.section]: nativeSection.value }
-          : nativeEditsFromSource(source, buffer.nativeDocumentParts);
-      }
-      const reported = reportedRevisionRef.current.has(path);
-      reportedRevisionRef.current.delete(path);
-      const sectionTitle = nativeSection?.section === "title" ? nativeSection.value : buffer.title;
-      const sectionBody = nativeSection?.section === "content" ? nativeSection.value : buffer.bodyHtml;
-      const shouldKeepCurrentSource = nativeSection?.section === "title" && source === buffer.source;
-      return {
-        ...current,
-        [path]: {
-          ...buffer,
-          source: shouldKeepCurrentSource ? buffer.source : source,
-          title: sectionTitle,
-          bodyHtml: sectionBody,
-          nativeEdits,
-          dirty: true,
-          revision: buffer.revision + (reported ? 0 : 1),
-          draftError: null,
-          error: buffer.conflict ? buffer.error : null
-        }
-      };
-    });
-  }, [commitBuffers]);
-
-  const updateSnapshot = useCallback((path: string, snapshot: EditorSnapshot) => {
-    commitBuffers((current) => {
-      const buffer = current[path];
-      if (!buffer
-        || snapshot.documentId !== buffer.documentId
-        || snapshot.projectGeneration !== buffer.projectGeneration
-        || snapshot.incarnation < buffer.incarnation
-        || snapshot.revision < buffer.snapshotRevision) return current;
-      const source = writeEditablePage(buffer.source, buffer.title, snapshot.bodyHtml, buffer.hasTitleHeading);
-      return {
-        ...current,
-        [path]: {
-          ...buffer,
-          source,
-          bodyHtml: snapshot.bodyHtml,
-          incarnation: Math.max(buffer.incarnation, snapshot.incarnation),
-          nativeEdits: buffer.nativeDocumentParts ? { ...buffer.nativeEdits, content: snapshot.bodyHtml } : buffer.nativeEdits,
-          dirty: true,
-          snapshotRevision: snapshot.revision,
-          error: buffer.conflict ? buffer.error : null
-        }
-      };
     });
   }, [commitBuffers]);
 
@@ -273,6 +219,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     projectRef,
     publishProject
   }), [commitBuffers, confirmDraft, documentRegistry, notifyDocumentPathChange, publishProject, reportDraftError, setDraftStorageError]);
+  registerBaselineRef.current = persistence.registerBaseline;
   const persistenceLifetime = useMemo(() => ({ cleanupRequested: false }), [persistence]);
 
   useEffect(() => {
@@ -298,6 +245,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       if (alias === path || target === path) pathAliasesRef.current.delete(alias);
     }
     const session = documentRegistry.getByPath(path);
+    persistence.forgetBaseline(path);
     commitBuffers((current) => {
       const next = { ...current };
       delete next[path];
@@ -309,11 +257,12 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
         if (!buffersRef.current[path] && documentRegistry.getByPath(path) === session) documentRegistry.close(session.documentId);
       }, 0);
     }
-  }, [buffersRef, commitBuffers, documentRegistry]);
+  }, [buffersRef, commitBuffers, documentRegistry, persistence]);
 
   const renameDocument = useCallback((from: string, to: string) => {
     rememberPathChange(from, to);
     documentRegistry.renameByPath(from, to);
+    persistence.renameBaseline(from, to);
     commitBuffers((current) => {
       const buffer = current[from];
       if (!buffer) return current;
@@ -321,7 +270,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       delete next[from];
       return next;
     });
-  }, [commitBuffers, documentRegistry, rememberPathChange]);
+  }, [commitBuffers, documentRegistry, persistence, rememberPathChange]);
 
   const resolveDocumentPath = useCallback((path: string) => {
     let current = path;
@@ -360,7 +309,9 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     const buffer = buffersRef.current[path];
     if (!buffer?.missing) return false;
     try {
-      const result = await fractalClient.recreatePage(projectRef.current, path, buffer.source);
+      const source = await persistence.captureSource(path);
+      if (source == null) return false;
+      const result = await fractalClient.recreatePage(projectRef.current, path, source);
       const reconciled = reconcileMutationResult(projectRef.current, result);
       const mappedPath = mapPagePath(path, reconciled.scope.mappings);
       const resultingPath = mappedPath === path ? reconciled.result.project.activePagePath ?? path : mappedPath;
@@ -373,7 +324,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
       commitBuffers((current) => current[path] ? { ...current, [path]: { ...current[path], error: errorMessage(error), conflict: true } } : current);
       return false;
     }
-  }, [commitBuffers, notifyDocumentPathChange, publishProject, reloadDocument, renameDocument]);
+  }, [commitBuffers, notifyDocumentPathChange, persistence, publishProject, reloadDocument, renameDocument]);
 
   const refreshChangedDocuments = useCallback(async (snapshot: FractalProject, ignoredPaths: string[] = []) => {
     const ignored = new Set(ignoredPaths);
@@ -441,12 +392,15 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     persistence.syncRecovery();
   }, [buffers, persistence]);
 
-  useProjectFilePolling({ buffersRef, commitBuffers, onError: reportPollingError, projectRef });
+  useProjectFilePolling({ buffersRef, commitBuffers, documentRegistry, onError: reportPollingError, projectRef });
 
   documentQueries.updateCatalog(project.pages, project.catalogVersion, project.sessionGeneration);
   const liveDocuments: LiveDocumentModel[] = Object.values(buffers).flatMap((buffer) => {
     const model = liveModels[buffer.documentId];
-    return model ? [{ documentId: buffer.documentId, dirty: buffer.dirty, links: buffer.links, model, path: buffer.path, title: buffer.title }] : [];
+    const title = documentRegistry.getByPath(buffer.path)?.getSnapshot().title
+      ?? project.pages.find((page) => page.path === buffer.path)?.title?.trim()
+      ?? buffer.path;
+    return model ? [{ documentId: buffer.documentId, dirty: buffer.dirty, links: buffer.links, model, path: buffer.path, title }] : [];
   });
   documentQueries.syncLiveDocuments(liveDocuments);
 
@@ -476,8 +430,6 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     resolveDocumentPath,
     dismissPollingNotice: () => setPollingNotice(null),
     markRevision,
-    updateSnapshot,
-    updateSource,
     updateModel
   };
 }

@@ -1,9 +1,11 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
+import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
 import { fractalClient } from "@/lib/fractal/client";
 import type { FractalPageContentState, FractalProject } from "@/lib/fractal/types";
 import { bufferFromProject, type DocumentBuffers } from "./documentBuffers";
+import { DocumentRegistry } from "./documentRuntime";
 import { useProjectFilePolling } from "./useProjectFilePolling";
 
 it("ignores a poll that overlaps a section save, but still reports a subsequent external edit", async () => {
@@ -36,6 +38,42 @@ it("ignores a poll that overlaps a section save, but still reports a subsequent 
     expect(buffersRef.current[buffer.path].conflict).toBe(true);
   } finally {
     await act(async () => root.unmount());
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  }
+});
+
+it("uses the live session as the pending-edit baseline before native capture", async () => {
+  vi.useFakeTimers();
+  const project: FractalProject = { name: "Test", version: 2, rootPath: "/tmp/poll-live-session", pages: [], folders: [], activePagePath: "notes.fractal.html", activePageSource: '<main data-fractal-document><p>Before</p></main>', activePageContentHash: "base", activePageLinks: [], activePageBacklinks: [], activePageNativeDocumentParts: { title: "Notes", titleHash: "title", contentHtml: "<p>Before</p>", contentHash: "before", styleCss: "", styleHash: "style", metadataHtml: "", metadataHash: "metadata", sourceHash: "base" } };
+  const buffer = { ...bufferFromProject(project)!, dirty: true };
+  const buffersRef = { current: { [buffer.path]: buffer } as DocumentBuffers };
+  const registry = new DocumentRegistry({ projectGeneration: buffer.projectGeneration });
+  const { session } = registry.openLoaded(buffer.path, { bodyHtml: "<p>Before</p>", title: "Notes" });
+  session.update(() => {
+    const paragraph = $createParagraphNode();
+    paragraph.append($createTextNode("Typed body"));
+    $getRoot().clear().append(paragraph);
+  });
+  session.setTitle("Typed title");
+  const poll = vi.spyOn(fractalClient, "pageContentStates").mockResolvedValue([{
+    path: buffer.path,
+    contentHash: "base",
+    nativeDocumentHashes: { ...project.activePageNativeDocumentParts! }
+  }]);
+  function Harness() {
+    useProjectFilePolling({ buffersRef, documentRegistry: registry, projectRef: { current: project }, commitBuffers: updater => { buffersRef.current = updater(buffersRef.current); }, onError: vi.fn() });
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(poll).toHaveBeenCalled();
+    expect(buffersRef.current[buffer.path].conflict).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    registry.dispose();
     vi.restoreAllMocks();
     vi.useRealTimers();
   }

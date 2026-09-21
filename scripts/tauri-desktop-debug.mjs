@@ -1095,7 +1095,18 @@ async function runDraftRecoverySmoke(driver, screenshotsDir, activeProjectRoot) 
   }
   const retryDraft = await waitForNativeDraft(driver, activeProjectRoot, "my-file.fractal.html");
   const retryEvents = await driver.executeScript(`return window.__AMANITE_DATAFLOW__.read();`);
-  assertSmoke(retryDraft.source.includes(retryMarker), "The coordinator retry draft did not contain the detached document edit.");
+  if (!retryDraft.source.includes(retryMarker)) {
+    const retryState = await driver.executeScript(`return {
+      active: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.getAttribute('aria-label') ?? null,
+      text: document.querySelector('.editor-tab-panel.active .rich-content-editable')?.textContent ?? null,
+      tabs: [...document.querySelectorAll('.workspace-tab-strip[data-group-id="left"] .editor-group-tab')].map((tab) => ({
+        active: tab.classList.contains('active'),
+        title: tab.querySelector('[title]')?.getAttribute('title') ?? null,
+        state: tab.textContent?.trim() ?? null
+      })),
+    };`);
+    throw new Error(`The coordinator retry draft did not contain the detached document edit: ${JSON.stringify({ retryState, retryEvents, retryDraft })}`);
+  }
   assertSmoke(retryEvents.some((event) => event.name === "draft.confirmed" && event.status === "failure") && retryEvents.some((event) => event.name === "draft.confirmed" && event.status === "success"), `The coordinator did not retry the failed draft write: ${JSON.stringify(retryEvents)}`);
   assertSmoke(!retryEvents.some((event) => event.name === "snapshot.request" && event.status === "start"), "The coordinator retry fell back to the mounted snapshot bridge.");
   await driver.executeScript("delete window.__AMANITE_PAGE_DRAFT_WRITE_FAILURES__;");

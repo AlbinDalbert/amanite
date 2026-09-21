@@ -1,18 +1,17 @@
-import { useEffect, useMemo } from "react";
-import { DocumentRegistry, type DocumentSeed, type DocumentSession } from "./documentRuntime";
+import { useEffect, useMemo, useState } from "react";
+import { DocumentRegistry, type DocumentSession } from "./documentRuntime";
 
-export function useDocumentSession(registry: DocumentRegistry, path: string, seed: DocumentSeed): DocumentSession {
-  const session = useMemo(
-    () => registry.openLoaded(path, seed).session,
-    [path, registry]
-  );
-
-  const replacementGeneration = seed.initialReplacementGeneration ?? 1;
+export function useDocumentSession(registry: DocumentRegistry, path: string): DocumentSession {
+  const session = useMemo(() => {
+    const existing = registry.getByPath(path);
+    if (!existing) throw new Error(`Document session is not open: ${path}`);
+    return existing;
+  }, [path, registry]);
+  const [, setVersion] = useState(0);
   useEffect(() => {
-    const snapshot = session.getSnapshot();
-    if (replacementGeneration <= snapshot.replacementGeneration) return;
-    session.replaceDocument(seed.bodyHtml, seed.title, replacementGeneration, seed.initialRevision);
-  }, [replacementGeneration, seed.bodyHtml, seed.initialRevision, seed.title, session]);
+    const unsubscribe = session.subscribe(() => setVersion((version) => version + 1));
+    return () => { unsubscribe(); };
+  }, [session]);
 
   return session;
 }

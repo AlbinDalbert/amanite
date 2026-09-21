@@ -11,9 +11,9 @@ sessions.
 - Registry-backed native saves use the existing Fractal persistence path with a
   non-draining request. Explicit saves can still upgrade that work and drain
   newer edits.
-- A failed autosave keeps the captured local source/body in the workspace
-  buffer. The live session stays editable, and the failed revision is not
-  retried forever without a newer edit.
+- A failed autosave keeps the live session editable and retains the pending
+  native section edit in the workspace buffer. No serialized body/source
+  projection is restored or retried forever without a newer edit.
 - Protected sessions are recovery-only. Without writable native sections they
   never enter the autosave path.
 - `useDocumentDrafts` and its compatibility autosave scheduler are deleted.
@@ -48,8 +48,9 @@ requests. Evidence is in
   Fractal path. The recovery retry fault uses Amanite's debug-only page-draft
   adapter. Permissions, disk-full, indeterminate outcomes, and power loss are
   untested.
-- The workspace source/body projection and mounted
-  `registerEditorFlush`/`EditorSnapshot` bridge remain for legacy fallback and
-  composition handling. They are no longer used by coordinator scheduling.
+- The mounted `registerEditorFlush`/`EditorSnapshot` bridge remains for legacy
+  fallback and composition handling. It is no longer used by coordinator
+  scheduling. Protected documents retain exact source separately because they
+  cannot be round-tripped through the rich editor.
 - Only this Linux desktop environment was exercised. Windows, macOS,
   Wayland/X11 separation, and real IME coverage remain unverified.

@@ -3,23 +3,29 @@ import { fractalClient } from "@/lib/fractal/client";
 import type { FractalPageContentState, FractalProject } from "@/lib/fractal/types";
 import type { BufferUpdater, DocumentBuffer, DocumentBuffers } from "./documentBuffers";
 import { errorMessage } from "./documentBuffers";
+import type { DocumentRegistry } from "./documentRuntime";
 
 type MutableValue<T> = { current: T };
 
 type Options = {
   buffersRef: MutableValue<DocumentBuffers>;
   commitBuffers: (updater: BufferUpdater) => void;
+  documentRegistry?: DocumentRegistry;
   onError: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
 };
 
-function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentState) {
+function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentState, documentRegistry?: DocumentRegistry) {
   if (!buffer.nativeDocumentParts || !state.nativeDocumentHashes) {
     return state.contentHash !== buffer.contentHash;
   }
   const hashes = state.nativeDocumentHashes;
   const pendingSections = Object.keys(buffer.nativeEdits) as Array<keyof typeof buffer.nativeEdits>;
-  if (buffer.revision > buffer.snapshotRevision && !pendingSections.includes("content")) pendingSections.push("content");
+  const session = documentRegistry?.getByPath(buffer.path);
+  const sessionSnapshot = session?.getSnapshot();
+  if (sessionSnapshot?.bodyDirty && !pendingSections.includes("content")) pendingSections.push("content");
+  if (sessionSnapshot && sessionSnapshot.title !== buffer.nativeDocumentParts.title && !pendingSections.includes("title")) pendingSections.push("title");
+  if (!session && buffer.revision > buffer.snapshotRevision && !pendingSections.includes("content")) pendingSections.push("content");
   if (pendingSections.length) {
     return pendingSections.some((section) => {
       const hashKey = `${section}Hash` as keyof typeof hashes;
@@ -29,7 +35,7 @@ function hasExternalChange(buffer: DocumentBuffer, state: FractalPageContentStat
   return hashes.sourceHash !== buffer.nativeDocumentParts.sourceHash;
 }
 
-export function useProjectFilePolling({ buffersRef, commitBuffers, onError, projectRef }: Options) {
+export function useProjectFilePolling({ buffersRef, commitBuffers, documentRegistry, onError, projectRef }: Options) {
   useEffect(() => {
     let checking = false;
     let disposed = false;
@@ -54,7 +60,7 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
               || latest.nativeDocumentParts !== checked.nativeDocumentParts
               || latest.documentId !== checked.documentId || latest.incarnation !== checked.incarnation
               || latest.operation) continue;
-            if (!hasExternalChange(latest, state)) continue;
+            if (!hasExternalChange(latest, state, documentRegistry)) continue;
             if (next === current) next = { ...current };
             next[state.path] = {
               ...latest,
@@ -75,5 +81,5 @@ export function useProjectFilePolling({ buffersRef, commitBuffers, onError, proj
       }
     }, 3000);
     return () => { disposed = true; window.clearInterval(interval); };
-  }, [buffersRef, commitBuffers, onError, projectRef]);
+  }, [buffersRef, commitBuffers, documentRegistry, onError, projectRef]);
 }

@@ -1,7 +1,6 @@
 import DocumentLoadingPreview from "@/features/editor/components/DocumentLoadingPreview";
-import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
 import type { AppearanceSettings } from "@/app/useAppearanceSettings";
-import type { FractalNativeSection, FractalProject } from "@/lib/fractal/types";
+import type { FractalProject } from "@/lib/fractal/types";
 import type { FractalFolderHtmlExportOptions, FractalFolderHtmlExportReport, FractalHtmlExportReport } from "@/lib/fractal/types";
 import type { DocumentBuffer } from "../useWorkspaceDocuments";
 import type { DocumentRegistry } from "../documents/documentRuntime";
@@ -31,10 +30,8 @@ type Props = {
   project: FractalProject;
   settings: AppearanceSettings;
   onActivate: () => void;
-  onChangeSource: (path: string, source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onModelChange?: (path: string, snapshot: import("@/features/editor/components/editorModel").EditorModelSnapshot) => void;
   onRevision: (path: string) => void;
-  onSnapshot?: (path: string, snapshot: EditorSnapshot) => void;
   onCreateFolder: (path: string) => void;
   onCreatePage: (title: string, folderPath?: string) => void;
   onCreateFirstPage?: () => void;
@@ -100,10 +97,8 @@ function EditorGroupPane(props: Props) {
     isLoading: props.isLoading,
     loadingPaths: props.loadingPaths,
     loadErrors: props.loadErrors,
-    onChangeSource: props.onChangeSource,
     onModelChange: props.onModelChange,
     onRevision: props.onRevision,
-    onSnapshot: props.onSnapshot,
     onCreateFolder: props.onCreateFolder,
     onCreatePage: props.onCreatePage,
     onEnsurePage: props.onEnsurePage,

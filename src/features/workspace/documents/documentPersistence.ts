@@ -4,9 +4,10 @@ import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSec
 import { mapPagePath, mutationScope, reconcileMutationResult, reconcileProjectSnapshot } from "@/lib/fractal/reconcile";
 import type { FractalMutationReceipt } from "@/lib/fractal/types";
 import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
-import { writeEditablePage } from "@/features/editor/components/pageSource";
+import { readEditablePage, writeEditablePage } from "@/features/editor/components/pageSource";
 import {
   errorMessage,
+  isProtectedDocument,
   type BufferUpdater,
   type DocumentBuffer,
   type DocumentBuffers
@@ -29,6 +30,12 @@ type PersistenceOptions = {
   projectRef: MutableValue<FractalProject>;
   publishProject: (project: FractalProject) => void;
 };
+
+export type DocumentPersistenceBaseline = Readonly<{
+  hasTitleHeading: boolean;
+  nativeDocumentParts: FractalNativeDocumentParts | null;
+  source: string;
+}>;
 
 export type RecoveryDraftWriter = (documentId: string, targetRevision: number) => Promise<PageDraftWriteResult | null>;
 
@@ -137,9 +144,7 @@ function mergeSavedProject(
   currentProject: FractalProject,
   savedProject: FractalProject,
   path: string,
-  resultingPath: string,
-  source: string,
-  useSavedSource: boolean
+  resultingPath: string
 ) {
   const wasActive = currentProject.activePagePath === path;
   const reconciled = reconcileProjectSnapshot(currentProject, savedProject);
@@ -147,7 +152,7 @@ function mergeSavedProject(
     ...reconciled,
     ...(wasActive ? {
       activePagePath: resultingPath,
-      activePageSource: useSavedSource ? savedProject.activePageSource : source,
+      activePageSource: savedProject.activePageSource ?? currentProject.activePageSource,
       activePageLinks: savedProject.activePageLinks,
       activePageBacklinks: savedProject.activePageBacklinks,
       activePageContentHash: savedProject.activePageContentHash,
@@ -206,18 +211,13 @@ export function nextDocumentBuffer(currentBuffer: DocumentBuffer, start: Documen
     : mergeAcknowledgedNativeParts(currentBuffer.nativeDocumentParts, savedParts, sent);
   return {
     ...currentBuffer,
-    ...(directCapture && !hasNewerEdits ? { bodyHtml: start.bodyHtml, title: start.title } : {}),
     path: resultingPath,
     revision: directCapture ? Math.max(currentBuffer.revision, start.revision) : currentBuffer.revision,
-    source: failed || hasPendingNativeEdits || hasNewerEdits
-      ? directCapture && !hasNewerEdits ? start.source : currentBuffer.source
-      : savedProject.activePageSource ?? currentBuffer.source,
     links: savedProject.activePageLinks,
     backlinks: savedProject.activePageBacklinks,
     contentHash: fullyAcknowledged
       ? savedPage?.contentHash ?? savedProject.activePageContentHash ?? currentBuffer.contentHash
       : currentBuffer.contentHash,
-    baseSource: fullyAcknowledged ? savedProject.activePageSource ?? currentBuffer.baseSource : currentBuffer.baseSource,
     nativeDocumentParts: acknowledgedParts,
     nativeEdits: remainingEdits,
     conflict: result.kind === "conflict",
@@ -268,38 +268,41 @@ type SaveContext = PersistenceOptions & {
   drainRequests: Set<string>;
   registerSavePath: (path: string) => void;
   syncRecovery: () => void;
+  baselineFor: (path: string) => DocumentPersistenceBaseline | undefined;
+  updateBaseline: (path: string, baseline: DocumentPersistenceBaseline) => void;
+  renameBaseline: (from: string, to: string) => void;
 };
 
 function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, force: boolean) {
   const session = context.documentRegistry?.getByPath(buffer.path);
-  if (!session || !buffer.nativeDocumentParts) return null;
+  const nativeDocumentParts = buffer.nativeDocumentParts;
+  if (!session || isProtectedDocument(buffer) || !nativeDocumentParts) return null;
 
   const sessionSnapshot = session.getSnapshot();
   if (!force && !buffer.dirty && sessionSnapshot.revision <= buffer.savedRevision) return null;
 
   const shouldEncodeBody = force || sessionSnapshot.bodyDirty || buffer.nativeEdits.content != null;
-  const encoded = shouldEncodeBody ? captureAndEncodeDocument(session) : { bodyHtml: buffer.bodyHtml, capture: captureDocument(session) };
-  const { capture } = encoded;
+  const encoded = shouldEncodeBody ? captureAndEncodeDocument(session) : null;
+  const capture = encoded?.capture ?? captureDocument(session);
   if (capture.path !== buffer.path) throw new Error(`The captured document path changed while saving ${buffer.path}.`);
   if (capture.projectGeneration !== buffer.projectGeneration) throw new Error(`The captured document for ${buffer.path} belongs to another project session.`);
   if (capture.replacementGeneration < buffer.incarnation) throw new Error(`The captured document for ${buffer.path} belongs to an obsolete document incarnation.`);
   if (capture.revision < buffer.revision) throw new Error(`The captured document for ${buffer.path} is behind revision ${buffer.revision}.`);
 
   const nativeEdits = { ...buffer.nativeEdits };
-  if (capture.title === buffer.nativeDocumentParts.title) delete nativeEdits.title;
+  if (capture.title === nativeDocumentParts.title) delete nativeEdits.title;
   else nativeEdits.title = capture.title;
-  if (encoded.bodyHtml === buffer.nativeDocumentParts.contentHtml) delete nativeEdits.content;
-  else if (sessionSnapshot.bodyDirty) nativeEdits.content = encoded.bodyHtml;
+  if (encoded) {
+    if (encoded.bodyHtml === nativeDocumentParts.contentHtml) delete nativeEdits.content;
+    else nativeEdits.content = encoded.bodyHtml;
+  }
 
   return {
     buffer: {
       ...buffer,
-      bodyHtml: encoded.bodyHtml,
       dirty: true,
       nativeEdits,
-      revision: capture.revision,
-      source: writeEditablePage(buffer.source, capture.title, encoded.bodyHtml, buffer.hasTitleHeading),
-      title: capture.title
+      revision: capture.revision
     } satisfies DocumentBuffer,
     directCapture: true
   };
@@ -313,6 +316,7 @@ async function writeRecoveryDraftForSession(
   buffersRef: MutableValue<DocumentBuffers>,
   documentRegistry: DocumentRegistry,
   projectRef: MutableValue<FractalProject>,
+  baselineFor: (path: string) => DocumentPersistenceBaseline | undefined,
   session: Parameters<SessionRecoveryDraftWriter>[0],
   targetRevision: number
 ): Promise<PageDraftWriteResult | null> {
@@ -327,16 +331,21 @@ async function writeRecoveryDraftForSession(
   }
 
   // Fractal-protected documents cannot be safely round-tripped through the
-  // rich editor. Their recovery record keeps the exact source projection.
+  // rich editor. Their recovery record keeps the exact retained source.
   // The session still supplies the identity and revision barrier, but it must
   // not normalize markup that Amanite has promised to leave untouched.
-  if (!buffer.nativeDocumentParts) {
+  if (isProtectedDocument(buffer)) {
     if (sessionSnapshot.revision < targetRevision) {
       throw new Error(`The recovery capture for ${buffer.path} is behind revision ${targetRevision}.`);
     }
+    const source = latest.protectedSource ?? baselineFor(latest.path)?.source;
+    if (source == null) throw new Error(`The protected recovery source for ${latest.path} is unavailable.`);
     const baseSourceHash = latest.contentHash ?? "";
-    return writePageDraftSource(projectRef.current.rootPath, latest.path, latest.source, baseSourceHash, sessionSnapshot.revision);
+    return writePageDraftSource(projectRef.current.rootPath, latest.path, source, baseSourceHash, sessionSnapshot.revision);
   }
+
+  const baseline = baselineFor(buffer.path);
+  if (!baseline) throw new Error(`The accepted native source for ${buffer.path} is unavailable.`);
 
   const encoded = captureAndEncodeDocument(session);
   const capture = encoded.capture;
@@ -360,7 +369,7 @@ async function writeRecoveryDraftForSession(
   if (!current || current.path !== capture.path || current.projectGeneration !== capture.projectGeneration) {
     throw new Error(`The recovery capture for ${buffer.path} became obsolete before it was written.`);
   }
-  const source = writeEditablePage(current.source, capture.title, encoded.bodyHtml, current.hasTitleHeading);
+  const source = writeEditablePage(baseline.source, capture.title, encoded.bodyHtml, baseline.hasTitleHeading);
   const baseSourceHash = current.contentHash ?? current.nativeDocumentParts?.sourceHash ?? "";
   return writePageDraftSource(projectRef.current.rootPath, capture.path, source, baseSourceHash, capture.revision);
 }
@@ -369,6 +378,7 @@ async function writeRecoveryDraftFromSession(
   buffersRef: MutableValue<DocumentBuffers>,
   documentRegistry: DocumentRegistry | undefined,
   projectRef: MutableValue<FractalProject>,
+  baselineFor: (path: string) => DocumentPersistenceBaseline | undefined,
   documentId: string,
   targetRevision: number
 ): Promise<PageDraftWriteResult | null> {
@@ -376,7 +386,7 @@ async function writeRecoveryDraftFromSession(
   if (!buffer || !documentRegistry) return null;
   const session = documentRegistry.getByPath(buffer.path);
   if (!session) return null;
-  return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, session, targetRevision);
+  return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, baselineFor, session, targetRevision);
 }
 
 type SavePassResult = {
@@ -420,15 +430,22 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
     context.documentRegistry?.getByPath(currentPath)?.acknowledgeBody(start.revision, start.incarnation);
   }
 
-  const currentBuffer = context.buffersRef.current[currentPath] ?? context.buffersRef.current[resultingPath];
   const nextProject = mergeSavedProject(
     context.projectRef.current,
     savedProject,
     currentPath,
-    resultingPath,
-    currentBuffer?.source ?? start.source,
-    result.kind === "saved" && !currentBuffer?.dirty
+    resultingPath
   );
+  if (resultingPath !== currentPath) context.renameBaseline(currentPath, resultingPath);
+  if (savedProject.activePageSource != null && Object.keys(sent).length) {
+    const acceptedSource = savedProject.activePageSource;
+    const acceptedParts = savedProject.activePageNativeDocumentParts ?? start.nativeDocumentParts;
+    context.updateBaseline(resultingPath, {
+      hasTitleHeading: readEditablePage(acceptedSource).hasTitleHeading,
+      nativeDocumentParts: acceptedParts,
+      source: acceptedSource
+    });
+  }
   context.projectRef.current = nextProject;
   context.publishProject(nextProject);
   if (resultingPath !== currentPath) {
@@ -516,10 +533,45 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
   const drainRequests = new Set<string>();
+  const baselines = new Map<string, DocumentPersistenceBaseline>();
+
+  function baselineFor(path: string) {
+    return baselines.get(path);
+  }
+
+  function registerBaseline(path: string, source: string, nativeDocumentParts: FractalNativeDocumentParts | null) {
+    const editable = readEditablePage(source);
+    baselines.set(path, {
+      hasTitleHeading: editable.hasTitleHeading,
+      nativeDocumentParts,
+      source
+    });
+  }
+
+  function updateBaseline(path: string, baseline: DocumentPersistenceBaseline) {
+    baselines.set(path, baseline);
+  }
+
+  function renameBaseline(from: string, to: string) {
+    const baseline = baselines.get(from);
+    if (!baseline) return;
+    baselines.delete(from);
+    baselines.set(to, baseline);
+  }
+
+  function forgetBaseline(path: string) {
+    baselines.delete(path);
+  }
+
+  for (const buffer of Object.values(buffersRef.current)) {
+    const source = buffer.protectedSource
+      ?? (projectRef.current.activePagePath === buffer.path ? projectRef.current.activePageSource : null);
+    if (source != null) registerBaseline(buffer.path, source, buffer.nativeDocumentParts);
+  }
 
   const writeRecoveryDraftForOpenSession: SessionRecoveryDraftWriter = (session, targetRevision) => {
     if (!documentRegistry) return Promise.resolve(null);
-    return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, session, targetRevision);
+    return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, baselineFor, session, targetRevision);
   };
   const recovery = documentRegistry ? new DocumentRecoveryCoordinator({
     autosave: (session) => saveDocument(session.getSnapshot().path, false, false),
@@ -576,7 +628,10 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
       projectRef,
       publishProject,
       registerSavePath,
-      syncRecovery
+      syncRecovery,
+      baselineFor,
+      updateBaseline,
+      renameBaseline
     }, path);
 
     queue.promise = savePromise;
@@ -621,6 +676,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     buffersRef,
     documentRegistry,
     projectRef,
+    baselineFor,
     documentId,
     targetRevision
   );
@@ -632,6 +688,19 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     savePaths,
     setAutoSave: (enabled: boolean) => recovery?.setAutoSave(enabled),
     syncRecovery,
-    writeRecoveryDraft
+    writeRecoveryDraft,
+    registerBaseline,
+    renameBaseline,
+    forgetBaseline,
+    captureSource: async (path: string) => {
+      const buffer = buffersRef.current[path];
+      const baseline = baselineFor(path);
+      if (!buffer || !baseline) return null;
+      if (isProtectedDocument(buffer)) return buffer.protectedSource ?? baseline.source;
+      const session = documentRegistry?.getByPath(path);
+      if (!session) return null;
+      const encoded = captureAndEncodeDocument(session);
+      return writeEditablePage(baseline.source, encoded.capture.title, encoded.bodyHtml, baseline.hasTitleHeading);
+    }
   };
 }

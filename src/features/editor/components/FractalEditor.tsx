@@ -32,9 +32,11 @@ type FractalEditorProps = {
   pagePath: string;
   projectName: string;
   source: string;
+  protectedSource?: string;
   bodyHtml?: string;
   hasTitleHeading?: boolean;
   title?: string;
+  compatibilityIssues?: string[];
   documentId?: string;
   sourceIncarnation?: number;
   editable?: boolean;
@@ -43,7 +45,7 @@ type FractalEditorProps = {
   viewId?: string;
   spellCheck: boolean;
   wordGoal: number;
-  onChangeSource: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
+  onChangeSource?: (source: string, nativeSection?: { section: FractalNativeSection; value: string }) => void;
   onModelChange?: (snapshot: EditorModelSnapshot) => void;
   onRevision: (revision?: number) => void;
   onSnapshot?: (snapshot: EditorSnapshot) => void;
@@ -84,7 +86,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, documentId, documentSession, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, compatibilityIssues = [], documentId, documentSession, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, protectedSource, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -97,11 +99,18 @@ function FractalEditor(props: FractalEditorProps) {
   // Local snapshots come from the already validated rich editor. Inspect native
   // markup again only when a new disk source is installed.
   const inspectionVersion = sourceIncarnation ?? source;
-  const nativeAnalysis = useMemo(() => analyzeEditablePage(source), [documentId, inspectionVersion]);
+  const nativeAnalysis = useMemo(() => source
+    ? analyzeEditablePage(source)
+    : {
+      counts: { characters: 0, paragraphs: 0, readingMinutes: 0, words: 0 },
+      inspection: { compatibilityIssues },
+      outline: [],
+      page: { bodyHtml: bufferBodyHtml ?? "<p></p>", hasTitleHeading: bufferHasTitleHeading ?? false, title: bufferTitle ?? documentSession?.getSnapshot().title ?? "" }
+    }, [bufferBodyHtml, bufferHasTitleHeading, bufferTitle, compatibilityIssues, documentId, documentSession, inspectionVersion, source]);
   const matchCount = useMemo(() => !findQuery ? 0 : liveModel ? countTextMatchesInText(liveModel.text, findQuery) : countTextMatches(source, findQuery, true), [findQuery, liveModel, source]);
   const page = nativeAnalysis.page;
   const displayedBodyHtml = bufferBodyHtml ?? page.bodyHtml;
-  const displayedTitle = bufferTitle ?? page.title;
+  const displayedTitle = bufferTitle ?? documentSession?.getSnapshot().title ?? page.title;
   const hasTitleHeading = bufferHasTitleHeading ?? page.hasTitleHeading;
   const counts = liveModel?.counts ?? nativeAnalysis.counts;
   const outline = liveModel?.outline ?? nativeAnalysis.outline;
@@ -129,7 +138,7 @@ function FractalEditor(props: FractalEditorProps) {
     if (editor) {
       replaceEditorText(editor, findQuery, replacement);
     } else {
-      onChangeSource(replaceDocumentText(source, findQuery, replacement, true));
+      onChangeSource?.(replaceDocumentText(source, findQuery, replacement, true));
     }
     setCurrentMatch(0);
   }
@@ -137,7 +146,7 @@ function FractalEditor(props: FractalEditorProps) {
   function changeTitle(title: string) {
     const revision = documentSession?.setTitle(title) ?? sharedSession?.nextRevision();
     onRevision(revision);
-    onChangeSource(source, { section: "title", value: title });
+    onChangeSource?.(source, { section: "title", value: title });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -195,7 +204,7 @@ function FractalEditor(props: FractalEditorProps) {
 
   const protection = !isFractalValid
     ? { title: "This Fractal document is invalid", copy: "Amanite opened the page without changing it. Rich editing stays disabled until Fractal can read its native sections.", issues: [] }
-    : nativeAnalysis.inspection.compatibilityIssues.length
+    : (compatibilityIssues.length || nativeAnalysis.inspection.compatibilityIssues.length)
       ? { title: "This document needs protection", copy: "The page uses markup the rich editor cannot preserve. Amanite has left the file untouched and disabled rich editing.", issues: nativeAnalysis.inspection.compatibilityIssues.map((issue) => `Rich editing cannot preserve ${issue}.`) }
       : null;
 
@@ -211,7 +220,7 @@ function FractalEditor(props: FractalEditorProps) {
               {protection.issues.length ? <ul>{protection.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}
               <small>{pagePath}</small>
               {!isFractalValid ? <button className="primary-action" disabled={isBusy} onClick={onRepair} type="button">Repair document structure</button> : null}
-              <details><summary>View exact source</summary><pre>{source}</pre></details>
+              <details><summary>View exact source</summary><pre>{protectedSource ?? source}</pre></details>
             </div>
           </section>
         ) : (

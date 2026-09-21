@@ -9,9 +9,10 @@ it("keeps a document session alive across view unmounts and reuses it on remount
   const registry = new DocumentRegistry({ projectGeneration: 12 });
   const container = document.createElement("div");
   let captured: DocumentSession | undefined;
+  registry.openLoaded("notes.fractal.html", { bodyHtml: "<p>Initial</p>", title: "Notes" });
 
   function Harness({ path }: { path: string }) {
-    const session = useDocumentSession(registry, path, { bodyHtml: "<p>Initial</p>", title: "Notes" });
+    const session = useDocumentSession(registry, path);
     useEffect(() => { captured = session; }, [session]);
     return null;
   }
@@ -36,24 +37,26 @@ it("keeps a document session alive across view unmounts and reuses it on remount
   }
 });
 
-it("installs a newer buffer incarnation into the existing session", async () => {
+it("lets an explicit reload replace the existing session", async () => {
   const registry = new DocumentRegistry({ projectGeneration: 13 });
   const container = document.createElement("div");
   let captured: DocumentSession | undefined;
+  registry.openLoaded("notes.fractal.html", { bodyHtml: "<p>Initial</p>", initialReplacementGeneration: 1, title: "Notes" });
 
-  function Harness({ generation, title, bodyHtml }: { generation: number; title: string; bodyHtml: string }) {
-    const session = useDocumentSession(registry, "notes.fractal.html", { bodyHtml, initialReplacementGeneration: generation, title });
+  function Harness() {
+    const session = useDocumentSession(registry, "notes.fractal.html");
     useEffect(() => { captured = session; }, [session]);
     return null;
   }
 
   const root = createRoot(container);
   try {
-    await act(async () => root.render(<Harness bodyHtml="<p>Initial</p>" generation={1} title="Notes" />));
+    await act(async () => root.render(<Harness />));
     const first = captured;
     expect(first).toBeDefined();
 
-    await act(async () => root.render(<Harness bodyHtml="<p>Reloaded</p>" generation={2} title="Reloaded notes" />));
+    first?.replaceDocument("<p>Reloaded</p>", "Reloaded notes", 2);
+    await act(async () => root.render(<Harness />));
 
     expect(captured).toBe(first);
     expect(captured?.getSnapshot()).toMatchObject({ bodyDirty: false, replacementGeneration: 2, title: "Reloaded notes" });

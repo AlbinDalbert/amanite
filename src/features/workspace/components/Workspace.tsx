@@ -727,10 +727,8 @@ function Workspace(props: WorkspaceProps) {
     project: documents.project,
     settings: props.settings,
     workspaceBusy: props.isBusy,
-    onChangeSource: documents.updateSource,
     onModelChange: documents.updateModel,
     onRevision: documents.markRevision,
-    onSnapshot: documents.updateSnapshot,
     onCreateFolder: (path: string) => { void createFolder(path); },
     onCreatePage: (title: string, folderPath?: string) => { void createPage(title, folderPath); },
     onCloseTab: (groupId: EditorGroupId, path: string) => { void closeTab(groupId, path); },
@@ -757,7 +755,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.documentRegistry, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateModel, documents.updateSnapshot, documents.updateSource, draggedTab, exportFolder, exportPage, focusMode, groupsRef, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.documentRegistry, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.saveDocument, documents.updateModel, draggedTab, exportFolder, exportPage, focusMode, groupsRef, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   const view: WorkspaceViewProps = {
     activeFolderPath,
