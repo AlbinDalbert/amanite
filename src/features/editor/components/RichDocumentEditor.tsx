@@ -44,6 +44,7 @@ type Props = {
   onChangeBody: (html: string) => void;
   onModelChange?: (snapshot: EditorModelSnapshot) => void;
   onChangeTitle: (title: string) => void;
+  onCommitTitle?: () => void;
   onSnapshot?: (snapshot: EditorSnapshot) => void;
   onRevision?: (revision: number) => void;
   onOpenFolder?: (folderPath: string) => void;
@@ -54,6 +55,7 @@ type WritingAreaProps = Pick<Props, "bodyHtml" | "sourceIncarnation" | "document
   onContentLoaded: () => void;
   onContentLoading: () => void;
   onRevision?: (revision: number) => void;
+  onCommitTitle?: () => void;
   documentId?: string;
   sharedSession?: SharedDocumentEditorSession;
   viewId?: string;
@@ -108,7 +110,7 @@ export function resolveEditorLinkTarget(href: string, links: FractalLink[], page
 
 export { displayPagePath };
 
-function WritingArea({ bodyHtml, documentSession, sourceIncarnation, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
+function WritingArea({ bodyHtml, documentSession, sourceIncarnation, documentId, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onCommitTitle, onContentLoaded, onContentLoading, onOpenFolder, onRevision, onSnapshot }: WritingAreaProps) {
   const [editor] = useLexicalComposerContext();
   const parentFolder = pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : "";
 
@@ -141,7 +143,7 @@ function WritingArea({ bodyHtml, documentSession, sourceIncarnation, documentId,
             />
           ) : null}
           <label className="document-title-field">
-            <input aria-label="Document title" disabled={isBusy} onChange={(event) => onChangeTitle(event.currentTarget.value)} placeholder="Untitled" value={title} />
+            <input aria-label="Document title" disabled={isBusy} onBlur={() => { documentSession?.endTitleEdit(); onCommitTitle?.(); }} onChange={(event) => onChangeTitle(event.currentTarget.value)} onFocus={() => documentSession?.beginTitleEdit()} placeholder="Untitled" value={title} />
           </label>
         </div>
         <div className="rich-body-frame">
@@ -166,7 +168,7 @@ function WritingArea({ bodyHtml, documentSession, sourceIncarnation, documentId,
   );
 }
 
-function RichDocumentEditor({ bodyHtml, documentSession, sourceIncarnation, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
+function RichDocumentEditor({ bodyHtml, documentSession, sourceIncarnation, documentId, embedded = false, historyOwner = true, isBusy, pagePath, pageTitleIndex, pages, projectName, sharedSession, spellCheck, title, viewId, onChangeBody, onChangeTitle, onModelChange, onCommitTitle, onOpenFolder, onRevision, onSnapshot, onToggleInspector }: Props) {
   const [isContentReady, setIsContentReady] = useState(false);
   const editorBusy = isBusy || !isContentReady;
   const config = useMemo(() => editorConfig(`amanite-${documentId ?? pagePath}`), [documentId, pagePath]);
@@ -193,6 +195,7 @@ function RichDocumentEditor({ bodyHtml, documentSession, sourceIncarnation, docu
         viewId={viewId}
         onChangeBody={onChangeBody}
         onChangeTitle={onChangeTitle}
+        onCommitTitle={onCommitTitle}
         onModelChange={onModelChange}
         onContentLoaded={() => setIsContentReady(true)}
         onContentLoading={() => setIsContentReady(false)}

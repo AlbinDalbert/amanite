@@ -166,7 +166,14 @@ export class DocumentRecoveryCoordinator {
 
   private hasPendingAutosave(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
     if (!this.autoSaveEnabled || isProtectedDocument(buffer) || buffer.conflict || buffer.operation) return false;
-    const revision = Math.max(buffer.revision, session.getSnapshot().revision);
+    const snapshot = session.getSnapshot();
+    const titleOnlyWhileEditing = snapshot.titleEditing
+      && !snapshot.bodyDirty
+      && buffer.nativeEdits.content == null
+      && buffer.nativeEdits.style == null
+      && buffer.nativeEdits.metadata == null;
+    if (titleOnlyWhileEditing) return false;
+    const revision = Math.max(buffer.revision, snapshot.revision);
     return (buffer.dirty || revision > buffer.savedRevision)
       && revision > Math.max(buffer.savedRevision, schedule.confirmedRevision);
   }

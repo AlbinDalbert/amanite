@@ -1,7 +1,8 @@
 import { createLexicalComposerContext, type LexicalComposerContextType } from "@lexical/react/LexicalComposerContext";
 import { createEmptyHistoryState, registerHistory, type HistoryState } from "@lexical/history";
 import { $generateNodesFromDOM } from "@lexical/html";
-import { $createParagraphNode, $getRoot, type EditorState, type EditorUpdateOptions, type LexicalEditor } from "lexical";
+import { $isLinkNode } from "@lexical/link";
+import { $addUpdateTag, $createParagraphNode, $getRoot, $isElementNode, HISTORIC_TAG, type EditorState, type EditorUpdateOptions, type LexicalEditor, type LexicalNode } from "lexical";
 import { createAmaniteEditor } from "@/features/editor/components/editorConfig";
 import { AMANITE_DERIVED_LINK_TAG, AMANITE_HTML_LOAD_TAG } from "@/features/editor/components/editorHtml";
 import { editorLexicalTheme } from "@/features/editor/components/editorLexicalTheme";
@@ -17,6 +18,11 @@ export type DocumentSeed = {
   initialReplacementGeneration?: number;
 };
 
+export type ExternalLinkRewrite = Readonly<{
+  from: string;
+  to: string;
+}>;
+
 export type DocumentSessionSnapshot = Readonly<{
   documentId: DocumentId;
   projectGeneration: number;
@@ -25,6 +31,7 @@ export type DocumentSessionSnapshot = Readonly<{
   revision: number;
   replacementGeneration: number;
   bodyDirty: boolean;
+  titleEditing: boolean;
   initialized: boolean;
   editable: boolean;
   disposed: boolean;
@@ -49,7 +56,7 @@ export type EncodedDocumentState = Readonly<{
 }>;
 
 export type DocumentSessionEvent = Readonly<{
-  kind: "body" | "title" | "replacement" | "path" | "editable";
+  kind: "body" | "title" | "title-editing" | "replacement" | "external" | "path" | "editable";
   documentId: DocumentId;
   projectGeneration: number;
   path: string;
@@ -108,6 +115,7 @@ export class DocumentSession {
   private revision: number;
   private replacementGeneration: number;
   private bodyDirty = false;
+  private titleEditing = false;
   private encodedState: EncodedDocumentState | null = null;
   private initialized = false;
   private editable = true;
@@ -155,6 +163,7 @@ export class DocumentSession {
       revision: this.revision,
       replacementGeneration: this.replacementGeneration,
       bodyDirty: this.bodyDirty,
+      titleEditing: this.titleEditing,
       initialized: this.initialized,
       editable: this.editable,
       disposed: this.disposed
@@ -219,6 +228,50 @@ export class DocumentSession {
     return this.revision;
   }
 
+  beginTitleEdit() {
+    this.assertOpen();
+    if (this.titleEditing) return;
+    this.titleEditing = true;
+    this.emit("title-editing");
+  }
+
+  endTitleEdit() {
+    this.assertOpen();
+    if (!this.titleEditing) return;
+    this.titleEditing = false;
+    this.emit("title-editing");
+  }
+
+  applyExternalLinkRewrites(rewrites: readonly ExternalLinkRewrite[]) {
+    this.assertOpen();
+    if (!rewrites.length) return true;
+
+    const currentUrls: string[] = [];
+    const visit = (node: LexicalNode) => {
+      if ($isLinkNode(node)) currentUrls.push(node.getURL());
+      if ($isElementNode(node)) node.getChildren().forEach(visit);
+    };
+    this.editor.getEditorState().read(() => visit($getRoot()));
+    const equivalentUrl = (current: string, expected: string) => current === expected
+      || current === expected.replace(/^https?:\/\//i, "")
+      || expected === `https://${current}`;
+    if (currentUrls.length !== rewrites.length || rewrites.some((rewrite, index) => !equivalentUrl(currentUrls[index], rewrite.from))) return false;
+
+    this.encodedState = null;
+    this.editor.update(() => {
+      $addUpdateTag(AMANITE_DERIVED_LINK_TAG);
+      $addUpdateTag(HISTORIC_TAG);
+      let index = 0;
+      const apply = (node: LexicalNode) => {
+        if ($isLinkNode(node)) node.setURL(rewrites[index++].to);
+        if ($isElementNode(node)) node.getChildren().forEach(apply);
+      };
+      apply($getRoot());
+    }, { discrete: true });
+    this.emit("external");
+    return true;
+  }
+
   setEditable(editable: boolean) {
     this.assertOpen();
     if (this.editable === editable) return;
@@ -244,6 +297,7 @@ export class DocumentSession {
       tag: AMANITE_HTML_LOAD_TAG
     });
     this.title = title;
+    this.titleEditing = false;
     this.replacementGeneration = Math.max(this.replacementGeneration + 1, replacementGeneration ?? 0);
     // Replacements install the caller's known edit checkpoint. They are not
     // edits themselves, so an initial load or clean reload must not create a

@@ -851,6 +851,67 @@ async function runEditorBasicsSmoke(driver, screenshotsDir) {
   await runInlinePageLinkSmoke(driver, screenshotsDir);
 }
 
+async function runTitleBarrierSmoke(driver, screenshotsDir, activeProjectRoot) {
+  const tab = (path) => `.workspace-tab-strip[data-group-id="left"] .editor-group-tab button[title="${path}"]`;
+  const oldTargetPath = "index.fractal.html";
+  const renamedTargetPath = "runtime-barrier-target.fractal.html";
+  const linkedPath = "my-file.fractal.html";
+
+  await driver.click(tab(linkedPath));
+  await driver.find(`[aria-label="Body for ${linkedPath}"]`, 30_000);
+  const originalLink = await driver.executeScript(`
+    const anchor = document.querySelector('.editor-tab-panel.active .rich-content-editable a[href]');
+    return anchor?.getAttribute('href') ?? null;
+  `);
+  assertSmoke(originalLink?.includes(oldTargetPath), `The desktop fixture did not contain an explicit link to ${oldTargetPath}: ${originalLink}`);
+  await driver.ctrlS();
+  await driver.find('.save-state.saved', 30_000);
+
+  await driver.click(tab(oldTargetPath));
+  await driver.find(`[aria-label="Body for ${oldTargetPath}"]`, 30_000);
+  const titleInput = '.editor-tab-panel.active .document-title-field input';
+  await driver.click(titleInput);
+  await driver.setValue(titleInput, "Runtime Barrier Target");
+  await driver.ctrlS();
+  await driver.find(tab(renamedTargetPath), 30_000);
+  await driver.find('.save-state.saved', 30_000);
+
+  await driver.click(tab(linkedPath));
+  await driver.find(`[aria-label="Body for ${linkedPath}"]`, 30_000);
+  const rewrittenLink = await waitForScript(driver, `
+    const anchor = document.querySelector('.editor-tab-panel.active .rich-content-editable a[href]');
+    return anchor?.getAttribute('href')?.includes(arguments[0]) ? anchor.getAttribute('href') : null;
+  `, [renamedTargetPath], 30_000);
+  assertSmoke(rewrittenLink?.includes(renamedTargetPath), `The open linked editor did not receive the title rewrite: ${rewrittenLink}`);
+  await takeScreenshot(driver, screenshotsDir, "04d-title-barrier-rewrite");
+
+  await driver.click(tab(renamedTargetPath));
+  await driver.find(`[aria-label="Body for ${renamedTargetPath}"]`, 30_000);
+  await driver.click(titleInput);
+  await driver.setValue(titleInput, "Runtime Barrier Conflict");
+  const targetFile = join(activeProjectRoot, "pages", renamedTargetPath);
+  const diskSource = await readFile(targetFile, "utf8");
+  await writeFile(targetFile, diskSource.replaceAll("Runtime Barrier Target", "External Target"));
+  await driver.ctrlS();
+  const conflict = await waitForScript(driver, `
+    const alert = document.querySelector('.document-buffer-alert.conflict[role="alert"]');
+    return alert?.textContent?.includes('Changed on disk') ? alert.textContent.trim() : null;
+  `, [], 30_000);
+  assertSmoke(conflict?.includes("Reload disk"), `The external title race did not remain an explicit conflict: ${conflict}`);
+  const retainedPath = await driver.executeScript(`return Boolean(document.querySelector(${JSON.stringify(tab(renamedTargetPath))}));`);
+  assertSmoke(retainedPath, "The failed title barrier silently changed the local tab path.");
+  await takeScreenshot(driver, screenshotsDir, "04e-title-barrier-conflict");
+
+  // Leave the shared smoke project in its original shape for later phases.
+  await driver.click('.document-buffer-actions button:first-child');
+  await driver.find(tab(renamedTargetPath), 30_000);
+  await driver.click(titleInput);
+  await driver.setValue(titleInput, "Index");
+  await driver.ctrlS();
+  await driver.find(tab(oldTargetPath), 30_000);
+  await driver.find('.save-state.saved', 30_000);
+}
+
 async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) {
     await openRootExplorerMenu(driver);
@@ -1280,6 +1341,7 @@ async function runSmoke(driver, screenshotsDir, projectRoot) {
   await runFolderSmoke(driver, screenshotsDir, projectName);
 
   await runEditorBasicsSmoke(driver, screenshotsDir);
+  await runTitleBarrierSmoke(driver, screenshotsDir, activeProjectRoot);
   await runSplitSmoke(driver, screenshotsDir, activeProjectRoot);
   await runSettingsSmoke(driver, screenshotsDir);
   await runBufferSwitchSmoke(driver, screenshotsDir);

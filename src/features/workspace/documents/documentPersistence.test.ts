@@ -63,6 +63,24 @@ function nativeProject(path: string, source = NATIVE_SOURCE, parts = nativeParts
   };
 }
 
+function nativeSource(title: string, body: string) {
+  return NATIVE_SOURCE
+    .replace("<title>Test</title>", `<title>${title}</title>`)
+    .replace("<h1 data-fractal-title>Test</h1>", `<h1 data-fractal-title>${title}</h1>`)
+    .replace("<p>Before</p>", body);
+}
+
+function projectWithPages(activePath: string, activeSource: string, activeParts: FractalNativeDocumentParts, otherPath: string, otherParts: FractalNativeDocumentParts, otherTitle: string): FractalProject {
+  const project = nativeProject(activePath, activeSource, activeParts);
+  return {
+    ...project,
+    pages: [
+      { path: activePath, contentHash: activeParts.sourceHash, title: activeParts.title },
+      { path: otherPath, contentHash: otherParts.sourceHash, title: otherTitle }
+    ]
+  };
+}
+
 describe("document persistence", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -370,6 +388,47 @@ describe("document persistence", () => {
       const events = readDataflowEvents();
       expect(events.some((event) => event.name === "autosave.request" && event.status === "start")).toBe(true);
       expect(events.some((event) => event.name === "autosave.confirmed" && event.status === "success")).toBe(true);
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not turn title keystrokes into repeated rename barriers before title commit", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockResolvedValue(undefined);
+    const path = "title-editing.fractal.html";
+    const projectGeneration = 50;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, dirty: true, revision: 1, nativeEdits: { title: "Pending title" } };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue({
+      status: "saved",
+      result: { project: nativeProject("pending-title.fractal.html", nativeSource("Pending title", "<p>Before</p>"), nativeParts({ title: "Pending title", titleHash: "title-hash-2", sourceHash: "source-hash-2" })), receipt: { operation: "set_page_title", changes: [{ change: "moved", from: `pages/${path}`, to: "pages/pending-title.fractal.html", entry: "file" }], warnings: [] } }
+    });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      persistence.setAutoSave(true);
+      session.beginTitleEdit();
+      session.setTitle("Pending title");
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_IDLE_DELAY_MS);
+      expect(setPageTitle).not.toHaveBeenCalled();
+
+      session.endTitleEdit();
+      await expect(persistence.saveDocument(path)).resolves.toBe(true);
+      expect(setPageTitle).toHaveBeenCalledOnce();
     } finally {
       persistence.dispose();
       registry.dispose();
@@ -1099,6 +1158,147 @@ describe("document persistence", () => {
     expect(registry.getByPath(nextPath)).toBe(session);
     expect(session.getSnapshot().path).toBe(nextPath);
 
+    registry.dispose();
+  });
+
+  it("serializes a title barrier and applies Fractal link rewrites to every open page", async () => {
+    const targetPath = "target.fractal.html";
+    const nextTargetPath = "renamed-target.fractal.html";
+    const linkedPath = "linked.fractal.html";
+    const targetParts = nativeParts({ title: "Target", titleHash: "target-title", contentHtml: "<p>Target</p>", sourceHash: "target-source" });
+    const linkedParts = nativeParts({ title: "Linked", titleHash: "linked-title", contentHtml: '<p><a href="target.fractal.html">Target</a></p>', contentHash: "linked-content", sourceHash: "linked-source" });
+    const targetSource = nativeSource("Target", "<p>Target</p>");
+    const linkedSource = nativeSource("Linked", linkedParts.contentHtml);
+    const initialProject = projectWithPages(targetPath, targetSource, targetParts, linkedPath, linkedParts, "Linked");
+    const savedTargetParts = { ...targetParts, title: "Renamed Target", titleHash: "target-title-2", sourceHash: "target-source-2" };
+    const savedLinkedParts = { ...linkedParts, contentHtml: '<p><a href="renamed-target.fractal.html">Target</a></p>', contentHash: "linked-content-2", sourceHash: "linked-source-2" };
+    const savedTargetSource = nativeSource("Renamed Target", "<p>Target</p>");
+    const savedLinkedSource = nativeSource("Linked", savedLinkedParts.contentHtml);
+    const savedProject = projectWithPages(nextTargetPath, savedTargetSource, savedTargetParts, linkedPath, savedLinkedParts, "Linked");
+    const loadedLinked: FractalLoadedPage = {
+      path: linkedPath,
+      source: savedLinkedSource,
+      links: [],
+      backlinks: [],
+      contentHash: savedLinkedParts.sourceHash,
+      nativeDocumentParts: savedLinkedParts
+    };
+    const projectRef = { current: initialProject };
+    const targetBuffer = { ...bufferFromProject(initialProject, targetSource, false, { projectGeneration: 51 })!, dirty: true, revision: 1, nativeEdits: { title: "Renamed Target" } };
+    const linkedBuffer = bufferFromLoadedPage({ ...loadedLinked, source: linkedSource, contentHash: linkedParts.sourceHash, nativeDocumentParts: linkedParts }, linkedSource, false, { projectGeneration: 51 });
+    const buffersRef = { current: { [targetPath]: targetBuffer, [linkedPath]: linkedBuffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration: 51 });
+    const { session: targetSession } = registry.openLoaded(targetPath, { title: "Target", bodyHtml: "<p>Target</p>" });
+    const { session: linkedSession } = registry.openLoaded(linkedPath, { title: "Linked", bodyHtml: linkedParts.contentHtml });
+    targetSession.setTitle("Renamed Target");
+    const write = deferred<FractalConditionalWriteResult>();
+    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockReturnValue(write.promise);
+    vi.spyOn(fractalClient, "readPage").mockResolvedValue(loadedLinked);
+    const operations: Array<"title" | null> = [];
+    const invalidated: string[] = [];
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      onLiveDocumentInvalidated: (documentId) => invalidated.push(documentId),
+      onStructuralOperationChange: (operation) => operations.push(operation),
+      projectRef,
+      publishProject: (next) => { projectRef.current = next; }
+    });
+
+    const saving = persistence.saveDocument(targetPath);
+    await vi.waitFor(() => expect(setPageTitle).toHaveBeenCalledOnce());
+    expect(targetSession.getSnapshot().editable).toBe(false);
+    expect(linkedSession.getSnapshot().editable).toBe(false);
+    write.resolve({
+      status: "saved",
+      result: {
+        project: savedProject,
+        receipt: {
+          operation: "set_page_title",
+          warnings: [],
+          changes: [
+            { change: "moved", from: `pages/${targetPath}`, to: `pages/${nextTargetPath}`, entry: "file" },
+            { change: "updated", path: `pages/${linkedPath}`, before_hash: "linked-source", after_hash: "linked-source-2" }
+          ]
+        }
+      }
+    });
+
+    await expect(saving).resolves.toBe(true);
+    expect(operations).toEqual(["title", null]);
+    expect(targetSession.getSnapshot().editable).toBe(true);
+    expect(linkedSession.getSnapshot().editable).toBe(true);
+    expect(registry.getByPath(nextTargetPath)).toBe(targetSession);
+    expect(registry.getByPath(targetPath)).toBeUndefined();
+    expect(captureAndEncodeDocument(linkedSession).bodyHtml).toContain("renamed-target.fractal.html");
+    expect(buffersRef.current[linkedPath]).toMatchObject({ dirty: false, conflict: false, contentHash: "linked-source-2" });
+    expect(invalidated).toContain(linkedSession.documentId);
+
+    persistence.dispose();
+    registry.dispose();
+  });
+
+  it("keeps an unsafe title rewrite explicit as a conflict instead of replacing the open source", async () => {
+    const targetPath = "target.fractal.html";
+    const nextTargetPath = "renamed-target.fractal.html";
+    const linkedPath = "linked.fractal.html";
+    const targetParts = nativeParts({ title: "Target", titleHash: "target-title", contentHtml: "<p>Target</p>", sourceHash: "target-source" });
+    const linkedParts = nativeParts({ title: "Linked", titleHash: "linked-title", contentHtml: '<p><a href="target.fractal.html">Target</a></p>', contentHash: "linked-content", sourceHash: "linked-source" });
+    const targetSource = nativeSource("Target", "<p>Target</p>");
+    const linkedSource = nativeSource("Linked", linkedParts.contentHtml);
+    const initialProject = projectWithPages(targetPath, targetSource, targetParts, linkedPath, linkedParts, "Linked");
+    const savedTargetParts = { ...targetParts, title: "Renamed Target", titleHash: "target-title-2", sourceHash: "target-source-2" };
+    const unsafeLinkedParts = { ...linkedParts, contentHtml: '<p><a href="renamed-target.fractal.html">Changed</a></p>', contentHash: "linked-content-2", sourceHash: "linked-source-2" };
+    const savedProject = projectWithPages(nextTargetPath, nativeSource("Renamed Target", "<p>Target</p>"), savedTargetParts, linkedPath, unsafeLinkedParts, "Linked");
+    const projectRef = { current: initialProject };
+    const targetBuffer = { ...bufferFromProject(initialProject, targetSource, false, { projectGeneration: 52 })!, dirty: true, revision: 1, nativeEdits: { title: "Renamed Target" } };
+    const linkedBuffer = bufferFromLoadedPage({ path: linkedPath, source: linkedSource, links: [], backlinks: [], contentHash: linkedParts.sourceHash, nativeDocumentParts: linkedParts }, linkedSource, false, { projectGeneration: 52 });
+    const buffersRef = { current: { [targetPath]: targetBuffer, [linkedPath]: linkedBuffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration: 52 });
+    const { session: targetSession } = registry.openLoaded(targetPath, { title: "Target", bodyHtml: "<p>Target</p>" });
+    const { session: linkedSession } = registry.openLoaded(linkedPath, { title: "Linked", bodyHtml: linkedParts.contentHtml });
+    targetSession.setTitle("Renamed Target");
+    vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue({
+      status: "saved",
+      result: {
+        project: savedProject,
+        receipt: {
+          operation: "set_page_title",
+          warnings: [],
+          changes: [
+            { change: "moved", from: `pages/${targetPath}`, to: `pages/${nextTargetPath}`, entry: "file" },
+            { change: "updated", path: `pages/${linkedPath}`, before_hash: "linked-source", after_hash: "linked-source-2" }
+          ]
+        }
+      }
+    });
+    vi.spyOn(fractalClient, "readPage").mockResolvedValue({
+      path: linkedPath,
+      source: nativeSource("Linked", unsafeLinkedParts.contentHtml),
+      links: [],
+      backlinks: [],
+      contentHash: unsafeLinkedParts.sourceHash,
+      nativeDocumentParts: unsafeLinkedParts
+    });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef,
+      publishProject: (next) => { projectRef.current = next; }
+    });
+
+    await expect(persistence.saveDocument(targetPath)).resolves.toBe(false);
+    expect(captureAndEncodeDocument(linkedSession).bodyHtml).toContain("Target");
+    expect(captureAndEncodeDocument(linkedSession).bodyHtml).not.toContain("Changed");
+    expect(buffersRef.current[linkedPath]).toMatchObject({ conflict: true, dirty: true, contentHash: "linked-source-2" });
+    expect(buffersRef.current[linkedPath].error).toContain("Reload disk");
+    expect(buffersRef.current[linkedPath].error).toContain("reset its undo history");
+
+    persistence.dispose();
     registry.dispose();
   });
 });

@@ -146,11 +146,12 @@ function EmptyFolderControl({ isBusy, open, onOpen, onCreate }: {
   );
 }
 
-function InlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onModelChange, onRevision }: {
+function InlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, onSavePage, pageTitleIndex, pages, spellCheck, viewId, onModelChange, onRevision }: {
   buffer: DocumentBuffer;
   documentRegistry: DocumentRegistry;
   editorOwner: boolean;
   isBusy: boolean;
+  onSavePage: Props["onSavePage"];
   pageTitleIndex?: PageTitleIndex;
   pages: FractalPage[];
   spellCheck: boolean;
@@ -163,14 +164,15 @@ function InlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, pag
     return <p className="folder-inline-protected">This page contains HTML the rich editor cannot preserve. Open it in its own tab to inspect it.</p>;
   }
 
-  return <LoadedInlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onModelChange={onModelChange} onRevision={onRevision} />;
+  return <LoadedInlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} onSavePage={onSavePage} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={viewId} onModelChange={onModelChange} onRevision={onRevision} />;
 }
 
-function LoadedInlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, pageTitleIndex, pages, spellCheck, viewId, onModelChange, onRevision }: {
+function LoadedInlineFolderEditor({ buffer, documentRegistry, editorOwner, isBusy, onSavePage, pageTitleIndex, pages, spellCheck, viewId, onModelChange, onRevision }: {
   buffer: DocumentBuffer;
   documentRegistry: DocumentRegistry;
   editorOwner: boolean;
   isBusy: boolean;
+  onSavePage: Props["onSavePage"];
   pageTitleIndex?: PageTitleIndex;
   pages: FractalPage[];
   spellCheck: boolean;
@@ -202,6 +204,7 @@ function LoadedInlineFolderEditor({ buffer, documentRegistry, editorOwner, isBus
       viewId={viewId}
       onChangeBody={() => undefined}
       onChangeTitle={changeTitle}
+      onCommitTitle={() => onSavePage(buffer.path)}
       onModelChange={(snapshot) => onModelChange?.(buffer.path, snapshot)}
       onRevision={(revision) => onRevision?.(buffer.path, revision)}
     />
@@ -288,7 +291,7 @@ function FolderSequenceHeader({ child, documentQueries, folders, isEditing, onBe
   );
 }
 
-function FolderSequenceBody({ buffer, child, documentQueries, documentRegistry, editorOwner, isBusy, isEditing, loadErrors, loadingPaths, onModelChange, onRevision, page, pageTitleIndex, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "documentRegistry" | "editorOwner" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onModelChange" | "onRevision" | "page" | "pageTitleIndex" | "pages" | "path" | "spellCheck">) {
+function FolderSequenceBody({ buffer, child, documentQueries, documentRegistry, editorOwner, isBusy, isEditing, loadErrors, loadingPaths, onModelChange, onRevision, onSavePage, page, pageTitleIndex, pages, path, spellCheck }: Pick<FolderSequenceCardProps, "buffer" | "child" | "documentQueries" | "documentRegistry" | "editorOwner" | "isBusy" | "isEditing" | "loadErrors" | "loadingPaths" | "onModelChange" | "onRevision" | "onSavePage" | "page" | "pageTitleIndex" | "pages" | "path" | "spellCheck">) {
   const document = documentQueries.getDocument(path);
   return (
     <>
@@ -298,7 +301,7 @@ function FolderSequenceBody({ buffer, child, documentQueries, documentRegistry, 
       {isEditing && loadErrors[path] ? <p className="folder-inline-state error">{loadErrors[path]}</p> : null}
       {isEditing && buffer ? (
         <div className="folder-document-editor">
-          <InlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={`folder:${path}`} onModelChange={onModelChange} onRevision={onRevision} />
+          <InlineFolderEditor buffer={buffer} documentRegistry={documentRegistry} editorOwner={editorOwner} isBusy={isBusy} onSavePage={onSavePage} pageTitleIndex={pageTitleIndex} pages={pages} spellCheck={spellCheck} viewId={`folder:${path}`} onModelChange={onModelChange} onRevision={onRevision} />
           {buffer.error ? <p className="folder-inline-state error">{buffer.error}</p> : null}
         </div>
       ) : null}
@@ -310,7 +313,7 @@ function FolderSequenceCard(props: FolderSequenceCardProps) {
   return (
     <article className="folder-sequence-card" onDoubleClick={(event) => props.onOpenChild(event, props.child.kind, props.path, props.child.status === "missing", props.isEditing)} title={props.child.status !== "missing" && !props.isEditing ? "Double-click to open" : undefined}>
       <FolderSequenceHeader buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} folders={props.folders} isEditing={props.isEditing} onBeginEditing={props.onBeginEditing} onOpenFolder={props.onOpenFolder} onOpenPage={props.onOpenPage} onRemoveMissing={props.onRemoveMissing} onSavePage={props.onSavePage} page={props.page} path={props.path} />
-      <FolderSequenceBody buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} documentRegistry={props.documentRegistry} editorOwner={props.editorOwner} isBusy={props.isBusy} isEditing={props.isEditing} loadErrors={props.loadErrors} loadingPaths={props.loadingPaths} onModelChange={props.onModelChange} onRevision={props.onRevision} page={props.page} pageTitleIndex={props.pageTitleIndex} pages={props.pages} path={props.path} spellCheck={props.spellCheck} />
+      <FolderSequenceBody buffer={props.buffer} child={props.child} documentQueries={props.documentQueries} documentRegistry={props.documentRegistry} editorOwner={props.editorOwner} isBusy={props.isBusy} isEditing={props.isEditing} loadErrors={props.loadErrors} loadingPaths={props.loadingPaths} onModelChange={props.onModelChange} onRevision={props.onRevision} onSavePage={props.onSavePage} page={props.page} pageTitleIndex={props.pageTitleIndex} pages={props.pages} path={props.path} spellCheck={props.spellCheck} />
     </article>
   );
 }

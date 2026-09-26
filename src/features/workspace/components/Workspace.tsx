@@ -288,6 +288,7 @@ function WorkspaceStatus({ view }: { view: WorkspaceViewProps }) {
           <small>{documents.pollingNotice.message}</small>
         </button>
       ) : null}
+      {documents.structuralOperation === "title" ? <div className="status-message" role="status">Updating linked pages…</div> : null}
     </div>
   );
 }
@@ -670,7 +671,7 @@ function Workspace(props: WorkspaceProps) {
   const activeFolderPath = activeGroup.activePath ? folderPathFromTabId(activeGroup.activePath) : null;
   const borealisTabGroup = groupForPath(groups, BOREALIS_TAB_ID);
   const borealisVisible = borealisOpen || borealisTabGroup !== null;
-  const anySaving = Object.values(documents.buffers).some((buffer) => buffer.operation === "save");
+  const anySaving = documents.structuralOperation !== null || Object.values(documents.buffers).some((buffer) => buffer.operation === "save");
   const aiWorkspace = useMemo(() => ({
     buffers: documents.buffers,
     documentQueries: documents.documentQueries,
@@ -726,7 +727,7 @@ function Workspace(props: WorkspaceProps) {
     isPageOpen: (path: string) => Boolean(groupForPath(groupsRef.current, path)),
     project: documents.project,
     settings: props.settings,
-    workspaceBusy: props.isBusy,
+    workspaceBusy: props.isBusy || documents.structuralOperation !== null,
     onModelChange: documents.updateModel,
     onRevision: documents.markRevision,
     onCreateFolder: (path: string) => { void createFolder(path); },
@@ -755,7 +756,7 @@ function Workspace(props: WorkspaceProps) {
     onSetFolderTitle: (path: string, title: string) => { void setFolderTitle(path, title); },
     onToggleFocus: () => setFocusMode((focus) => !focus),
     onToggleBorealis: toggleBorealis
-  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.documentRegistry, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.replaceExternal, documents.saveDocument, documents.updateModel, draggedTab, exportFolder, exportPage, focusMode, groupsRef, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
+  }), [borealisTabGroup, borealisVisible, closeTab, createFolder, createPage, deleteFolder, deletePage, documents.buffers, documents.documentQueries, documents.documentRegistry, documents.loadErrors, documents.loadingPaths, documents.openDocument, documents.project, documents.recreateDocument, documents.reloadDocument, documents.replaceExternal, documents.saveDocument, documents.structuralOperation, documents.updateModel, draggedTab, exportFolder, exportPage, focusMode, groupsRef, moveWorkspaceTab, openFolderInGroup, openInGroup, props.isBusy, props.settings, repairPage, reorderFolder, setFolderTitle, splitWorkspaceTab, toggleBorealis]);
 
   const view: WorkspaceViewProps = {
     activeFolderPath,

@@ -1,9 +1,9 @@
 import { clearPageDraft, reconcilePageDrafts, writePageDraftSource, type PageDraftWriteResult } from "@/app/pageDrafts";
 import { fractalClient, isFractalCommandError } from "@/lib/fractal/client";
-import type { FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
+import type { FractalLoadedPage, FractalNativeDocumentParts, FractalNativeSection, FractalNativeSectionEdits, FractalProject } from "@/lib/fractal/types";
 import { mapPagePath, mutationScope, reconcileMutationResult, reconcileProjectSnapshot } from "@/lib/fractal/reconcile";
 import type { FractalMutationReceipt } from "@/lib/fractal/types";
-import type { EditorSnapshot } from "@/features/editor/components/editorFlush";
+import { settleEditorComposition, type EditorSnapshot } from "@/features/editor/components/editorFlush";
 import { readEditablePage, writeEditablePage } from "@/features/editor/components/pageSource";
 import {
   errorMessage,
@@ -14,6 +14,7 @@ import {
 } from "./documentBuffers";
 import { captureAndEncodeDocument, captureDocument } from "./documentEncoding";
 import { DocumentRecoveryCoordinator, type RecoveryDraftWriter as SessionRecoveryDraftWriter } from "./documentRecovery";
+import { compareEditableLinkRewrites } from "./documentStructuralCommands";
 import type { DocumentRegistry } from "./documentRuntime";
 
 type MutableValue<T> = { current: T };
@@ -29,6 +30,8 @@ type PersistenceOptions = {
   onDraftStorageError?: (message: string) => void;
   projectRef: MutableValue<FractalProject>;
   publishProject: (project: FractalProject) => void;
+  onStructuralOperationChange?: (operation: "title" | null) => void;
+  onLiveDocumentInvalidated?: (documentId: string) => void;
 };
 
 export type DocumentPersistenceBaseline = Readonly<{
@@ -89,7 +92,8 @@ export type NativeSaveResult =
 async function saveNativeDocument(
   project: FractalProject,
   buffer: DocumentBuffer,
-  force: boolean
+  force: boolean,
+  skipTitle = false
 ): Promise<NativeSaveResult> {
   let workingProject = projectForBuffer(project, buffer);
   let parts = buffer.nativeDocumentParts;
@@ -128,6 +132,7 @@ async function saveNativeDocument(
   let resultingPath = buffer.path;
   const projectAfterCommittedSections = () => Object.keys(sent).length || hasFreshProject ? workingProject : project;
   for (const section of nativeSectionOrder) {
+    if (skipTitle && section === "title") continue;
     const value = buffer.nativeEdits[section];
     if (value == null) continue;
     try {
@@ -285,11 +290,19 @@ type SaveContext = PersistenceOptions & {
   clearDraft: (projectRoot: string, pagePath: string) => void;
   forceRequests: Set<string>;
   drainRequests: Set<string>;
+  titleRequests: Set<string>;
   registerSavePath: (path: string) => void;
   syncRecovery: () => void;
   baselineFor: (path: string) => DocumentPersistenceBaseline | undefined;
   updateBaseline: (path: string, baseline: DocumentPersistenceBaseline) => void;
   renameBaseline: (from: string, to: string) => void;
+  waitForStructuralOperation: () => Promise<void>;
+  runStructuralTitle?: (path: string, force: boolean, registerSavePath?: (path: string) => void) => Promise<boolean>;
+  reconcileStructuralReceipt?: (args: {
+    resultingPath: string;
+    savedProject: FractalProject;
+    receipts: readonly FractalMutationReceipt[];
+  }) => Promise<boolean>;
 };
 
 function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, force: boolean) {
@@ -326,7 +339,6 @@ function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, forc
       else nativeEdits.content = encoded.bodyHtml;
     }
   }
-
   return {
     buffer: {
       ...buffer,
@@ -483,11 +495,24 @@ async function publishSaveResult(context: SaveContext, currentPath: string, star
     context.documentRegistry?.renameByPath(currentPath, resultingPath);
     context.onDocumentPathChange(currentPath, resultingPath);
   }
+  const structuralSuccess = context.reconcileStructuralReceipt && receipts.some((receipt) => receipt.operation === "set_page_title")
+    ? await context.reconcileStructuralReceipt({ resultingPath, savedProject, receipts })
+    : true;
   context.syncRecovery();
-  return { nextBufferDirty, resultingPath };
+  return { nextBufferDirty, resultingPath, structuralSuccess };
 }
 
-async function savePass(context: SaveContext, path: string, force: boolean): Promise<SavePassResult> {
+async function savePass(context: SaveContext, path: string, force: boolean, skipTitle = false, barrierContext = false): Promise<SavePassResult> {
+  if (!barrierContext) {
+    await context.waitForStructuralOperation();
+    const preflightBuffer = context.buffersRef.current[path];
+    const session = context.documentRegistry?.getByPath(path);
+    const titlePending = Boolean(session && preflightBuffer?.nativeDocumentParts
+      && session.getSnapshot().title !== preflightBuffer.nativeDocumentParts.title);
+    if (!skipTitle && titlePending && context.runStructuralTitle) {
+      return { kind: "finished", path, success: await context.runStructuralTitle(path, force, context.registerSavePath) };
+    }
+  }
   const beforeFlush = context.buffersRef.current[path];
   if (!beforeFlush) return { kind: "finished", path, success: true };
   let start = beforeFlush;
@@ -513,6 +538,9 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
     });
     return { kind: "finished", path, success: false };
   }
+  if (skipTitle && !Object.keys(start.nativeEdits).some((section) => section !== "title")) {
+    return { kind: "finished", path, success: true };
+  }
   if (!start.dirty && !force) return { kind: "finished", path, success: true };
   context.commitBuffers((current) => {
     const buffer = current[path];
@@ -522,15 +550,15 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
   });
 
   try {
-    const result = await saveNativeDocument(context.projectRef.current, start, force);
+    const result = await saveNativeDocument(context.projectRef.current, start, force, skipTitle);
     const update = await publishSaveResult(context, path, start, result, directCapture);
     if (result.kind !== "saved") {
       return { kind: "finished", path: update.resultingPath, success: false };
     }
     return {
-      kind: update.nextBufferDirty ? "retry" : "finished",
+      kind: update.structuralSuccess === false ? "finished" : update.nextBufferDirty ? "retry" : "finished",
       path: update.resultingPath,
-      success: true
+      success: update.structuralSuccess
     };
   } catch (error) {
     context.commitBuffers((current) => {
@@ -543,13 +571,18 @@ async function savePass(context: SaveContext, path: string, force: boolean): Pro
   }
 }
 
-async function runSaveQueue(context: SaveContext, originalPath: string) {
+async function runSaveQueue(context: SaveContext, originalPath: string, skipTitle = false, barrierContext = false) {
   let currentPath = originalPath;
+  let saveTitle = !skipTitle;
   while (true) {
     const force = context.forceRequests.delete(currentPath)
       || (currentPath !== originalPath && context.forceRequests.delete(originalPath));
-    const pass = await savePass(context, currentPath, force);
+    const pass = await savePass(context, currentPath, force, !saveTitle, barrierContext);
     currentPath = pass.path;
+    if (pass.success && !saveTitle && context.titleRequests.delete(currentPath)) {
+      saveTitle = true;
+      continue;
+    }
     if (pass.kind === "retry" && (context.drainRequests.has(originalPath) || context.drainRequests.has(currentPath))) continue;
     if (pass.success) {
       context.forceRequests.delete(currentPath);
@@ -560,11 +593,14 @@ async function runSaveQueue(context: SaveContext, originalPath: string) {
   }
 }
 
-export function createDocumentPersistence({ buffersRef, commitBuffers, documentRegistry, flushDocument, onDraftConfirmed, onDraftError, onDocumentPathChange, onDraftStorageError, projectRef, publishProject }: PersistenceOptions) {
+export function createDocumentPersistence({ buffersRef, commitBuffers, documentRegistry, flushDocument, onDraftConfirmed, onDraftError, onDocumentPathChange, onDraftStorageError, onLiveDocumentInvalidated, onStructuralOperationChange, projectRef, publishProject }: PersistenceOptions) {
   const savePromises = new Map<string, Promise<boolean>>();
   const forceRequests = new Set<string>();
   const drainRequests = new Set<string>();
   const baselines = new Map<string, DocumentPersistenceBaseline>();
+  let structuralQueue = Promise.resolve();
+  let activeStructuralOperation: Promise<boolean> | null = null;
+  const titleRequests = new Set<string>();
 
   function baselineFor(path: string) {
     return baselines.get(path);
@@ -594,6 +630,123 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     baselines.delete(path);
   }
 
+  function loadedPageFromProject(project: FractalProject, path: string): FractalLoadedPage | null {
+    if (project.activePagePath !== path || project.activePageSource == null || project.activePageContentHash == null) return null;
+    return {
+      path,
+      source: project.activePageSource,
+      links: project.activePageLinks,
+      backlinks: project.activePageBacklinks,
+      contentHash: project.activePageContentHash,
+      nativeDocumentParts: project.activePageNativeDocumentParts ?? null
+    };
+  }
+
+  async function reconcileStructuralReceipt({ resultingPath, savedProject, receipts }: {
+    resultingPath: string;
+    savedProject: FractalProject;
+    receipts: readonly FractalMutationReceipt[];
+  }) {
+    if (!documentRegistry) return true;
+    const scope = mutationScope(receipts);
+    const checkedPaths = new Set<string>();
+    let success = true;
+
+    for (const affectedPath of scope.affectedPages) {
+      const mappedPath = mapPagePath(affectedPath, scope.mappings);
+      const session = documentRegistry.getByPath(mappedPath) ?? documentRegistry.getByPath(affectedPath);
+      if (!session) continue;
+      const actualPath = session.getSnapshot().path;
+      if (checkedPaths.has(actualPath)) continue;
+      checkedPaths.add(actualPath);
+
+      const buffer = buffersRef.current[actualPath];
+      if (!buffer) continue;
+
+      let loaded: FractalLoadedPage | null = actualPath === resultingPath
+        ? loadedPageFromProject(savedProject, resultingPath)
+        : null;
+      try {
+        loaded ??= await fractalClient.readPage(savedProject, actualPath);
+      } catch (error) {
+        success = false;
+        const message = `A title move changed ${actualPath}, but Amanite could not inspect the new native source. Reload it or explicitly replace the local source. (${errorMessage(error)})`;
+        commitBuffers((current) => current[actualPath]
+          ? { ...current, [actualPath]: { ...current[actualPath], conflict: true, dirty: true, error: message, operation: null } }
+          : current);
+        continue;
+      }
+
+      if (!loaded?.nativeDocumentParts) {
+        success = false;
+        const message = `A title move changed ${actualPath}, but its native sections are unavailable. Reload it or explicitly replace the local source.`;
+        commitBuffers((current) => current[actualPath]
+          ? { ...current, [actualPath]: { ...current[actualPath], conflict: true, dirty: true, error: message, operation: null } }
+          : current);
+        continue;
+      }
+      const loadedParts = loaded.nativeDocumentParts;
+
+      const beforeBody = captureAndEncodeDocument(session).bodyHtml;
+      const afterBody = readEditablePage(loaded.source).bodyHtml;
+      const comparison = compareEditableLinkRewrites(beforeBody, afterBody);
+      let applied = comparison.kind !== "unsafe";
+      let error: string | null = null;
+      if (comparison.kind === "safe") {
+        applied = session.applyExternalLinkRewrites(comparison.rewrites);
+        if (applied) onLiveDocumentInvalidated?.(session.documentId);
+        else error = "A title move changed an open document's link structure unexpectedly. Reload disk to accept the native source and reset its undo history, or use Replace disk to keep the local source.";
+      } else if (comparison.kind === "unsafe") {
+        error = `${comparison.reason} Reload disk to accept the native source and reset its undo history, or use Replace disk to keep the local source.`;
+      }
+
+      if (!applied) {
+        success = false;
+        error ??= "A title move could not be applied safely to this open document. Reload disk to accept the native source and reset its undo history, or use Replace disk to keep the local source.";
+      }
+
+      const nextNativeEdits = { ...buffer.nativeEdits };
+      if (applied) {
+        if (nextNativeEdits.content === beforeBody) delete nextNativeEdits.content;
+      } else if (beforeBody !== afterBody) {
+        nextNativeEdits.content = beforeBody;
+      }
+      if (session.getSnapshot().title !== loadedParts.title) nextNativeEdits.title = session.getSnapshot().title;
+      else if (nextNativeEdits.title === loadedParts.title) delete nextNativeEdits.title;
+      const hasPendingEdits = Object.keys(nextNativeEdits).length > 0;
+      const nextRevision = session.getSnapshot().revision;
+      const dirty = !applied || hasPendingEdits || nextRevision > buffer.savedRevision;
+      commitBuffers((current) => {
+        const currentBuffer = current[actualPath];
+        if (!currentBuffer) return current;
+        return {
+          ...current,
+          [actualPath]: {
+            ...currentBuffer,
+            contentHash: loaded!.contentHash,
+            links: loaded!.links,
+            backlinks: loaded!.backlinks,
+            nativeDocumentParts: loadedParts,
+            nativeEdits: nextNativeEdits,
+            dirty,
+            conflict: !applied,
+            savedRevision: !dirty ? nextRevision : currentBuffer.savedRevision,
+            operation: null,
+            operationOutcome: applied ? "saved" : "conflict",
+            error
+          }
+        };
+      });
+      updateBaseline(actualPath, {
+        hasTitleHeading: readEditablePage(loaded.source).hasTitleHeading,
+        nativeDocumentParts: loadedParts,
+        source: loaded.source
+      });
+    }
+
+    return success;
+  }
+
   for (const buffer of Object.values(buffersRef.current)) {
     const source = buffer.protectedSource
       ?? (projectRef.current.activePagePath === buffer.path ? projectRef.current.activePageSource : null);
@@ -605,7 +758,10 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     return writeRecoveryDraftForSession(buffersRef, documentRegistry, projectRef, baselineFor, session, targetRevision);
   };
   const recovery = documentRegistry ? new DocumentRecoveryCoordinator({
-    autosave: (session) => saveDocument(session.getSnapshot().path, false, false),
+    autosave: (session) => {
+      const snapshot = session.getSnapshot();
+      return saveDocument(snapshot.path, false, false, snapshot.titleEditing);
+    },
     buffersRef,
     documentRegistry,
     onDraftConfirmed,
@@ -622,6 +778,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
       if (queuedPromise === savePromise) {
         savePromises.delete(path);
         drainRequests.delete(path);
+        titleRequests.delete(path);
       }
     }
   }
@@ -632,11 +789,106 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
     });
   }
 
-  function saveDocument(path: string, force = false, drain = true): Promise<boolean> {
+  const waitForStructuralOperation = () => activeStructuralOperation?.then(() => undefined) ?? Promise.resolve();
+
+  function makeContext(registerSavePath: (path: string) => void): SaveContext {
+    return {
+      buffersRef,
+      clearDraft,
+      commitBuffers,
+      documentRegistry,
+      flushDocument,
+      forceRequests,
+      drainRequests,
+      titleRequests,
+      onDocumentPathChange,
+      onDraftStorageError,
+      onLiveDocumentInvalidated,
+      projectRef,
+      publishProject,
+      registerSavePath,
+      syncRecovery,
+      baselineFor,
+      updateBaseline,
+      renameBaseline,
+      waitForStructuralOperation,
+      runStructuralTitle: enqueueStructuralTitle,
+      reconcileStructuralReceipt
+    };
+  }
+
+  async function runBarrierPass(context: SaveContext, path: string, force: boolean, skipTitle: boolean) {
+    let pass = await savePass(context, path, force, skipTitle, true);
+    while (pass.kind === "retry") pass = await savePass(context, pass.path, false, skipTitle, true);
+    return pass;
+  }
+
+  async function performStructuralTitle(path: string, force: boolean, registerSavePath?: (path: string) => void) {
+    if (!documentRegistry) return false;
+    const context = makeContext(registerSavePath ?? (() => undefined));
+    const sessions = documentRegistry.sessions();
+    const previousEditable = new Map(sessions.map((session) => [session.documentId, session.getSnapshot().editable]));
+    try {
+      await Promise.all(sessions
+        .filter((session) => session.editor.isComposing())
+        .map((session) => settleEditorComposition(session.editor.getRootElement())));
+      for (const session of sessions) session.setEditable(false);
+
+      const paths = [...new Set(sessions
+        .map((session) => session.getSnapshot().path)
+        .filter((sessionPath) => Boolean(buffersRef.current[sessionPath])))]
+        .sort((left, right) => left.localeCompare(right));
+      for (const sessionPath of paths) {
+        const pass = await runBarrierPass(context, sessionPath, sessionPath === path ? force : false, true);
+        if (!pass.success) return false;
+      }
+
+      const target = await runBarrierPass(context, path, false, false);
+      return target.success;
+    } catch (error) {
+      commitBuffers((current) => {
+        const buffer = current[path];
+        return buffer ? { ...current, [path]: { ...buffer, operation: null, operationOutcome: "failed", error: errorMessage(error) } } : current;
+      });
+      return false;
+    } finally {
+      for (const session of sessions) {
+        const editable = previousEditable.get(session.documentId);
+        if (editable != null && documentRegistry.getById(session.documentId) === session) session.setEditable(editable);
+      }
+    }
+  }
+
+  function enqueueStructuralTitle(path: string, force: boolean, registerSavePath?: (path: string) => void) {
+    onStructuralOperationChange?.("title");
+    const run = structuralQueue.then(
+      () => performStructuralTitle(path, force, registerSavePath),
+      () => performStructuralTitle(path, force, registerSavePath)
+    );
+    structuralQueue = run.then(() => undefined, () => undefined);
+    activeStructuralOperation = run;
+    void run.then(() => {
+      if (activeStructuralOperation === run) {
+        activeStructuralOperation = null;
+        onStructuralOperationChange?.(null);
+      }
+    }, () => {
+      if (activeStructuralOperation === run) {
+        activeStructuralOperation = null;
+        onStructuralOperationChange?.(null);
+      }
+    });
+    return run;
+  }
+
+  function saveDocument(path: string, force = false, drain = true, skipTitle = false): Promise<boolean> {
     if (drain) drainRequests.add(path);
     if (force) forceRequests.add(path);
     const inFlight = savePromises.get(path);
-    if (inFlight) return inFlight;
+    if (inFlight) {
+      if (!skipTitle) titleRequests.add(path);
+      return inFlight;
+    }
 
     const queue = { promise: null as Promise<boolean> | null };
     const registerSavePath = (queuedPath: string) => {
@@ -646,24 +898,9 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
       savePromises.set(queuedPath, queue.promise);
     };
 
-    const savePromise = runSaveQueue({
-      buffersRef,
-      clearDraft,
-      commitBuffers,
-      documentRegistry,
-      flushDocument,
-      forceRequests,
-      drainRequests,
-      onDocumentPathChange,
-      onDraftStorageError,
-      projectRef,
-      publishProject,
-      registerSavePath,
-      syncRecovery,
-      baselineFor,
-      updateBaseline,
-      renameBaseline
-    }, path);
+    const context = makeContext(registerSavePath);
+    context.titleRequests = titleRequests;
+    const savePromise = runSaveQueue(context, path, skipTitle);
 
     queue.promise = savePromise;
     registerSavePath(path);

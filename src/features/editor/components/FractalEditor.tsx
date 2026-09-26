@@ -55,6 +55,7 @@ type FractalEditorProps = {
   onOpenFolder: (folderPath: string) => void;
   onRepair: () => void;
   onSave: () => void;
+  onCommitTitle?: () => void;
   onToggleFocus: () => void;
   onToggleBorealis: () => void;
 };
@@ -86,7 +87,7 @@ function findInElement(root: Element | null, query: string, matchIndex: number) 
 }
 
 function FractalEditor(props: FractalEditorProps) {
-  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, compatibilityIssues = [], documentId, documentSession, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, protectedSource, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
+  const { backlinks, bodyHtml: bufferBodyHtml, borealisOpen, borealisWorkspace, compatibilityIssues = [], documentId, documentSession, editable = true, focusMode, hasTitleHeading: bufferHasTitleHeading, isBusy, isFractalValid, links, pages, pagePath, pageTitleIndex, projectName, protectedSource, sharedSession, source, sourceIncarnation, spellCheck, title: bufferTitle, viewId, wordGoal, onChangeSource, onCommitTitle, onExport, onModelChange, onNavigatePage, onOpenFolder, onRepair, onRevision, onSave, onSnapshot, onToggleBorealis, onToggleFocus } = props;
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -159,7 +160,7 @@ function FractalEditor(props: FractalEditorProps) {
     }
     if (!event.metaKey && !event.ctrlKey) return;
     const key = event.key.toLowerCase();
-    if (key === "s") { event.preventDefault(); onSave(); }
+    if (key === "s") { event.preventDefault(); documentSession?.endTitleEdit(); onSave(); }
     else if (key === "f" || key === "h") { event.preventDefault(); setIsFindOpen(true); }
     else if (key === "l" && event.shiftKey) { event.preventDefault(); setIsInspectorOpen((open) => !open); }
     else if (key === "\\") { event.preventDefault(); onToggleFocus(); }
@@ -241,6 +242,7 @@ function FractalEditor(props: FractalEditorProps) {
               viewId={viewId}
               onChangeBody={() => undefined}
               onChangeTitle={changeTitle}
+              onCommitTitle={onCommitTitle}
               onModelChange={editable ? (snapshot) => { setLiveModel(snapshot); onModelChange?.(snapshot); } : undefined}
               onRevision={editable ? onRevision : undefined}
               onSnapshot={onSnapshot}

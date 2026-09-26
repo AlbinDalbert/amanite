@@ -116,6 +116,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
   const pathAliasesRef = useRef(new Map<string, string>());
   const [liveModels, setLiveModels] = useState<Record<string, EditorModelSnapshot>>({});
   const liveModelsRef = useRef(liveModels);
+  const [structuralOperation, setStructuralOperation] = useState<"title" | null>(null);
   const [documentQueries] = useState(() => new DocumentQueryIndex(initialProject.pages, (query, limit) =>
     fractalClient.searchProject(projectRef.current, query, limit)));
 
@@ -208,6 +209,14 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     setDraftStorageError(message);
   }, [commitBuffers, setDraftStorageError]);
 
+  const invalidateLiveModel = useCallback((documentId: string) => {
+    if (!liveModelsRef.current[documentId]) return;
+    const next = { ...liveModelsRef.current };
+    delete next[documentId];
+    liveModelsRef.current = next;
+    setLiveModels(next);
+  }, []);
+
   const persistence = useMemo(() => createDocumentPersistence({
     buffersRef,
     commitBuffers,
@@ -216,9 +225,11 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     onDraftError: reportDraftError,
     onDocumentPathChange: notifyDocumentPathChange,
     onDraftStorageError: setDraftStorageError,
+    onLiveDocumentInvalidated: invalidateLiveModel,
+    onStructuralOperationChange: setStructuralOperation,
     projectRef,
     publishProject
-  }), [commitBuffers, confirmDraft, documentRegistry, notifyDocumentPathChange, publishProject, reportDraftError, setDraftStorageError]);
+  }), [commitBuffers, confirmDraft, documentRegistry, invalidateLiveModel, notifyDocumentPathChange, publishProject, reportDraftError, setDraftStorageError]);
   registerBaselineRef.current = persistence.registerBaseline;
   const persistenceLifetime = useMemo(() => ({ cleanupRequested: false }), [persistence]);
 
@@ -418,6 +429,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     project,
     pollingNotice,
     publishProject,
+    structuralOperation,
     pagePathsInFolder,
     refreshChangedDocuments,
     renameDocument,

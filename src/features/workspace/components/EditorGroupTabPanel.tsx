@@ -194,6 +194,7 @@ function LoadedDocumentTabPanel({ active, context, groupId, path, tabBuffer }: D
         onOpenFolder={(folderPath) => context.onOpenFolder(groupId, folderPath)}
         onRepair={() => context.onRepair(path)}
         onSave={() => context.onSave(path)}
+        onCommitTitle={() => context.onSave(path)}
         onToggleFocus={context.onToggleFocus}
         onToggleBorealis={context.onToggleBorealis}
       />

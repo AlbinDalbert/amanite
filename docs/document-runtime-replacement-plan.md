@@ -358,7 +358,7 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 | P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
 | P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs and folder-inline editors now attach to registry sessions; duplicate page opens focus the existing group; external reload replaces content in the existing session without changing its opaque identity. The real desktop smoke covers warm switching, closed-page inline editing, page handoff, split-group close, restart recovery, and reopen. Native workspace buffers now retain metadata and pending native edits only; protected documents retain an exact-source field for the guard and recovery. |
 | P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves and recovery drafts; accepted native source/baselines stay inside persistence, while the workspace has no live source/body/title projection. Unchanged revisions reuse encoded HTML; direct saves acknowledge only committed sections, retain newer edits, and update the registry on title-driven path moves. `DocumentRecoveryCoordinator` owns recovery and autosave scheduling for live registry sessions. Protected or compatibility-incompatible documents write exact-source recovery drafts and remain excluded from native autosave. The old `useDocumentDrafts` scheduler is deleted. Eleven focused files passed 57 tests, the full frontend suite passed, Rust tests passed, and rebuilt real WebDriver smoke evidence covers save, recovery, retry, conflict, termination, and reopen. The broad serialization and performance gate remains open. Detailed evidence: [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md), [`document-runtime-p2-autosave.md`](measurements/document-runtime-p2-autosave.md), and [`document-runtime-p2-workspace-cutover.md`](measurements/document-runtime-p2-workspace-cutover.md). |
-| P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | in progress | The explicit reload and native conflict-resolution slice is verified in [`document-runtime-p3-conflict-resolution.md`](measurements/document-runtime-p3-conflict-resolution.md). Title-driven structural barriers, affected-document rewrites, export/delete policy, and undo decisions remain. |
+| P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | in progress | The explicit reload and native conflict-resolution slice is verified in [`document-runtime-p3-conflict-resolution.md`](measurements/document-runtime-p3-conflict-resolution.md). The title-driven structural barrier, affected-document href-only rewrites, and unsafe-receipt conflict path are verified in [`document-runtime-p3-title-barrier.md`](measurements/document-runtime-p3-title-barrier.md). Folder/page moves, export, delete/recreation policy, and broader undo decisions remain. |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
 | P5 | Complete correctness/performance/fault evidence, audit deletion and dependencies, rewrite architecture docs, and record remaining platform limits honestly. | not started | — |
 
@@ -480,23 +480,34 @@ coordinator still owns their recovery deadline and retry behavior.
 The latest recovery/coordinator verification is recorded in
 [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md).
 The focused cutover suite previously passed 11 files and 57 tests. The current
-frontend suite passes 42 files and 164 tests, `pnpm run build` passes, and the
+frontend suite passes 43 files and 172 tests, `pnpm run build` passes, and the
 Rust suite passes 25 tests. `pnpm run tauri:webdriver:doctor` passes. The
 current conflict-resolution evidence is recorded in
 [`document-runtime-p3-conflict-resolution.md`](measurements/document-runtime-p3-conflict-resolution.md).
+The title-barrier focused tests, fresh Tauri build, and full desktop smoke are
+recorded in [`document-runtime-p3-title-barrier.md`](measurements/document-runtime-p3-title-barrier.md),
+with the smoke artifact under
+[`artifacts/tauri-webdriver/2026-09-26T10-53-26-671Z/`](../artifacts/tauri-webdriver/2026-09-26T10-53-26-671Z/).
 
 This remains a bounded P1/P2/P3 slice, not completion of the replacement. The
-next bounded task is the title-driven structural command barrier, including
-affected open documents and explicit undo handling. Retiring the mounted
-bridges follows that work.
+title-driven structural command barrier is complete for title renames, open
+document href-only rewrites, composition settling, serialized execution, and
+unsafe-receipt conflict handling. The next bounded task is folder/page moves,
+delete/recreate/repair policy, and export, with affected open documents and
+undo behavior defined per command. Retiring the mounted bridges follows that
+work.
 
 Verification gaps for the current slice: the precise change-during-force race
 uses deterministic persistence tests, while the desktop run covers external
 conflict, successful replacement, reload, and the real autosave conditional
-write failure. Permissions, disk-full, indeterminate Fractal outcomes, and
-power loss remain untested. The real desktop run exercised native sessions, not
-a malformed/protected fixture; protected exact-source behavior is covered by
-focused JSDOM persistence tests. The large typing fixture recorded a 630 ms
+write failure. The title barrier has focused coverage for safe href-only
+rewrites and unsafe body changes, plus real desktop coverage for linked rename
+rewrites and an external edit race. It does not yet cover every malformed or
+protected structural fixture, uncertain Fractal receipt, permission failure,
+disk-full failure, or power loss. The real desktop run exercised native
+sessions, not a malformed/protected fixture; protected exact-source behavior
+is covered by focused JSDOM persistence tests. The large typing fixture recorded
+a 630 ms
 maximum frame, so the declared 100 ms maximum-stall target remains open. The
 required 60-second performance matrix, deliberately slow storage, and
 capture/encoding cost breakdown remain open. The latest app logs contain only

@@ -1,4 +1,5 @@
 import { $createParagraphNode, $createTextNode, $getRoot, UNDO_COMMAND } from "lexical";
+import { $createLinkNode } from "@lexical/link";
 import { clearDataflowEvents, readDataflowEvents } from "@/lib/dataflowTelemetry";
 import { describe, expect, it, vi } from "vitest";
 import { captureAndEncodeDocument } from "./documentEncoding";
@@ -109,6 +110,29 @@ describe("document runtime", () => {
     expect(session.historyState.undoStack).toEqual([]);
     expect(session.historyState.redoStack).toEqual([]);
     expect(session.getSnapshot().replacementGeneration).toBe(2);
+
+    registry.dispose();
+  });
+
+  it("rewrites a derived link without creating a revision or undo entry", async () => {
+    const registry = new DocumentRegistry({ projectGeneration: 14 });
+    const { session } = await registry.open("linked.fractal.html", async () => ({ title: "Linked", bodyHtml: "<p>Linked</p>" }));
+    session.update(() => {
+      const paragraph = $createParagraphNode();
+      const link = $createLinkNode("old.fractal.html");
+      link.append($createTextNode("Target"));
+      paragraph.append(link);
+      $getRoot().clear().append(paragraph);
+    }, { discrete: true, tag: "history-push" });
+    await vi.waitFor(() => expect(session.getSnapshot().revision).toBe(1));
+    const revision = session.getSnapshot().revision;
+    const undoCount = session.historyState.undoStack.length;
+
+    expect(session.applyExternalLinkRewrites([{ from: "old.fractal.html", to: "new.fractal.html" }])).toBe(true);
+    await vi.waitFor(() => expect(captureAndEncodeDocument(session).bodyHtml).toContain("new.fractal.html"));
+    expect(session.getSnapshot()).toMatchObject({ revision, bodyDirty: true });
+    expect(session.historyState.undoStack).toHaveLength(undoCount);
+    expect(captureAndEncodeDocument(session).bodyHtml).toContain('href="https://new.fractal.html"');
 
     registry.dispose();
   });
