@@ -1,7 +1,7 @@
 # Document runtime replacement plan
 
 Created: 2026-09-16.
-Status: P0 verified; P1/P2 in progress.
+Status: P0 verified; P1/P2/P3 in progress.
 Baseline reviewed: `4dc2ba2`. No final implementation or performance acceptance is claimed by this document.
 
 ## Read this first
@@ -358,7 +358,7 @@ written, type-check success, or a happy-path smoke pass are insufficient.
 | P0 | Audit actual Fractal commands, structural rewrite scope, title semantics, editor mounting and current feature callers. Record operation contracts and fixture baseline; no unresolved ownership decision hidden as an implementation detail. | verified | [`document-runtime-p0.md`](measurements/document-runtime-p0.md); `pnpm run dataflow:benchmark`; frontend and Rust baseline suites green |
 | P1 | Implement standalone registry/session and one-editor lifetime. Edit, title, undo, switch, close/dispose and reopen work without persistence. No workspace body/source authority. | in progress | `documentRuntime.ts`, `useDocumentSession.ts`, `DocumentSessionComposer.tsx`, and focused runtime tests; normal document tabs and folder-inline editors now attach to registry sessions; duplicate page opens focus the existing group; external reload replaces content in the existing session without changing its opaque identity. The real desktop smoke covers warm switching, closed-page inline editing, page handoff, split-group close, restart recovery, and reopen. Native workspace buffers now retain metadata and pending native edits only; protected documents retain an exact-source field for the guard and recovery. |
 | P2 | Implement read-only capture, native encoding, coordinator, save/recovery and storage adapter. Slow/failing writes preserve editing; partial and uncertain results are handled; serialization meets budget. | in progress | `documentEncoding.ts` and `documentPersistence.ts` capture open registry sessions directly for native saves and recovery drafts; accepted native source/baselines stay inside persistence, while the workspace has no live source/body/title projection. Unchanged revisions reuse encoded HTML; direct saves acknowledge only committed sections, retain newer edits, and update the registry on title-driven path moves. `DocumentRecoveryCoordinator` owns recovery and autosave scheduling for live registry sessions. Protected or compatibility-incompatible documents write exact-source recovery drafts and remain excluded from native autosave. The old `useDocumentDrafts` scheduler is deleted. Eleven focused files passed 57 tests, the full frontend suite passed, Rust tests passed, and rebuilt real WebDriver smoke evidence covers save, recovery, retry, conflict, termination, and reopen. The broad serialization and performance gate remains open. Detailed evidence: [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md), [`document-runtime-p2-autosave.md`](measurements/document-runtime-p2-autosave.md), and [`document-runtime-p2-workspace-cutover.md`](measurements/document-runtime-p2-workspace-cutover.md). |
-| P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | not started | — |
+| P3 | Implement explicit reload/conflict handling and project command policies, including title renames, rewrites, export, delete and recreation. Verify affected open documents and undo decisions. | in progress | The explicit reload and native conflict-resolution slice is verified in [`document-runtime-p3-conflict-resolution.md`](measurements/document-runtime-p3-conflict-resolution.md). Title-driven structural barriers, affected-document rewrites, export/delete policy, and undo decisions remain. |
 | P4 | Cut workspace, folder editing, derived features and AI/tool consumers over to the runtime. Both groups support different documents; duplicate opening focuses the owner. Remove old runtime and all temporary adapters. | not started | — |
 | P5 | Complete correctness/performance/fault evidence, audit deletion and dependencies, rewrite architecture docs, and record remaining platform limits honestly. | not started | — |
 
@@ -479,43 +479,32 @@ coordinator still owns their recovery deadline and retry behavior.
 
 The latest recovery/coordinator verification is recorded in
 [`document-runtime-p2-recovery.md`](measurements/document-runtime-p2-recovery.md).
-The focused cutover suite passed 11 files and 57 tests. The full frontend
-suite passed 42 files and 160 tests, `pnpm run build` passed, and the Rust
-suite passed 25 tests. `pnpm run tauri:webdriver:doctor` passed. The rebuilt
-full real-Tauri smoke passed through native save/recovery, transient draft
-failure and retry, external conflict, split-group close/reopen, forced
-termination recovery, and project reopen. Its artifact is
-[`artifacts/tauri-webdriver/2026-09-21T17-58-10-074Z`](../artifacts/tauri-webdriver/2026-09-21T17-58-10-074Z/).
-A current typing/autosave run passed for five-paragraph and 1,500-paragraph
-native fixtures. Each produced seven autosave requests and successes, zero
-imports and snapshot requests, and preserved live and disk text. The injected
-external edit produced one autosave failure while preserving live text. Its
-artifact is
-[`artifacts/tauri-webdriver/2026-09-21T18-00-38-244Z`](../artifacts/tauri-webdriver/2026-09-21T18-00-38-244Z/).
+The focused cutover suite previously passed 11 files and 57 tests. The current
+frontend suite passes 42 files and 164 tests, `pnpm run build` passes, and the
+Rust suite passes 25 tests. `pnpm run tauri:webdriver:doctor` passes. The
+current conflict-resolution evidence is recorded in
+[`document-runtime-p3-conflict-resolution.md`](measurements/document-runtime-p3-conflict-resolution.md).
 
-This remains a bounded P1/P2 slice, not completion of the replacement. The
-remaining temporary bridges are the mounted
-`registerEditorFlush`/`EditorSnapshot` contract for legacy fallback and
-composition handling, the optional persistence `flushDocument` path and
-`snapshotRevision` field, and the legacy `sharedDocumentEditor` fallback. The
-next bounded task is explicit reload/conflict and structural command policy;
-retiring these mounted bridges follows that work.
+This remains a bounded P1/P2/P3 slice, not completion of the replacement. The
+next bounded task is the title-driven structural command barrier, including
+affected open documents and explicit undo handling. Retiring the mounted
+bridges follows that work.
 
-Verification gaps for this slice: the autosave conditional-write failure uses
-an external file edit through the real Fractal path, but the recovery retry
-fault is injected at the debug-only Amanite page-draft adapter. Permissions,
-disk-full, indeterminate Fractal outcomes, and power loss remain untested. The
-real desktop run exercised native sessions, not a malformed/protected fixture;
-protected exact-source behavior is covered by focused JSDOM persistence tests.
-The latest large desktop fixture measured p95 34 ms but a 652 ms maximum frame,
-so the declared 100 ms maximum-stall target remains open. The required 60-second
-performance matrix, deliberately slow storage, and capture/encoding cost
-breakdown remain open. The latest app logs contain only the known GTK theme
-warnings, but launcher stderr is not persisted, so allocator cleanup warnings
-seen in earlier typing runs remain unexplained. Only this Linux desktop
-environment was exercised; Windows, macOS, Wayland/X11 separation, and real
-IME coverage remain unverified. The broader P1-P5 acceptance checklist
-remains open.
+Verification gaps for the current slice: the precise change-during-force race
+uses deterministic persistence tests, while the desktop run covers external
+conflict, successful replacement, reload, and the real autosave conditional
+write failure. Permissions, disk-full, indeterminate Fractal outcomes, and
+power loss remain untested. The real desktop run exercised native sessions, not
+a malformed/protected fixture; protected exact-source behavior is covered by
+focused JSDOM persistence tests. The large typing fixture recorded a 630 ms
+maximum frame, so the declared 100 ms maximum-stall target remains open. The
+required 60-second performance matrix, deliberately slow storage, and
+capture/encoding cost breakdown remain open. The latest app logs contain only
+the known GTK theme warnings, but launcher stderr is not persisted, so allocator
+cleanup warnings seen in earlier typing runs remain unexplained. Only this
+Linux desktop environment was exercised; Windows, macOS, Wayland/X11
+separation, and real IME coverage remain unverified. The broader P1-P5
+acceptance checklist remains open.
 
 ## Acceptance: correctness and architecture
 

@@ -908,9 +908,31 @@ async function runSplitSmoke(driver, screenshotsDir, activeProjectRoot) {
   const externalPagePath = join(activeProjectRoot, "pages", "my-file.fractal.html");
   const externalSource = await readFile(externalPagePath, "utf8");
   await writeFile(externalPagePath, externalSource.replace("</main>", "<p>External edit detected.</p></main>"));
-  await driver.find('.editor-group[data-group-id="right"] .document-buffer-alert.conflict', 10_000);
+  const rightConflictAlert = '.editor-group[data-group-id="right"] .document-buffer-alert.conflict';
+  await driver.find(rightConflictAlert, 10_000);
+  await driver.click('.editor-group[data-group-id="right"] .document-buffer-actions button:last-child');
+  await waitForScript(driver, `return !document.querySelector(arguments[0]);`, [rightConflictAlert], 30_000);
+  const replacedSource = await readFile(externalPagePath, "utf8");
+  const replacedState = await driver.executeScript(`
+    const group = document.querySelector('.editor-group[data-group-id="right"]');
+    return {
+      text: group?.querySelector('.editor-tab-panel.active .rich-content-editable')?.textContent ?? null,
+      events: window.__AMANITE_DATAFLOW__?.read?.().slice(-20) ?? []
+    };
+  `);
+  assertSmoke(replacedSource.includes("Local edit before an external change."), `Replace disk did not write the captured local document: ${JSON.stringify({ source: replacedSource, state: replacedState })}`);
+  assertSmoke(!replacedSource.includes("External edit detected."), `Replace disk left the external content on disk: ${JSON.stringify({ source: replacedSource, state: replacedState })}`);
+
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 750));
+  const reloadSource = await readFile(externalPagePath, "utf8");
+  await writeFile(externalPagePath, reloadSource.replace("</main>", "<p>Reload external edit.</p></main>"));
+  await driver.find(rightConflictAlert, 10_000);
   await driver.click('.editor-group[data-group-id="right"] .document-buffer-actions button:first-child');
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  await waitForScript(driver, `
+    const group = document.querySelector('.editor-group[data-group-id="right"]');
+    return !group?.querySelector('.document-buffer-alert.conflict')
+      && group?.querySelector('.editor-tab-panel.active .rich-content-editable')?.textContent?.includes("Reload external edit.");
+  `, [], 30_000);
   await driver.click('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable');
   try {
     await driver.find('.editor-group[data-group-id="right"] .editor-tab-panel.active .rich-content-editable[contenteditable="true"]', 5_000);

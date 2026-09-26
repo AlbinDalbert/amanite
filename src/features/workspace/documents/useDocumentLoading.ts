@@ -180,11 +180,19 @@ export function useDocumentLoading({ buffersRef, commitBuffers, documentRegistry
     const projectRoot = projectAtStart.rootPath;
     const backendGeneration = projectAtStart.sessionGeneration;
     const isCurrent = () => projectRef.current.rootPath === projectRoot && projectRef.current.sessionGeneration === backendGeneration;
+    const expectedBuffer = buffersRef.current[path];
+    if (!expectedBuffer) return false;
+    commitBuffers((current) => {
+      const buffer = current[path];
+      return buffer && buffer === expectedBuffer
+        ? { ...current, [path]: { ...buffer, operation: "load", error: null } }
+        : current;
+    });
     setLoadingPaths((current) => new Set(current).add(path));
     try {
       const loaded = await fractalClient.readPage(projectAtStart, path);
       if (!isCurrent()) return false;
-      void clearPageDraft(projectRoot, path);
+      await clearPageDraft(projectRoot, path);
       if (!isCurrent()) return false;
       return await installLoadedPage(loaded, false, projectRoot);
     } catch (error) {
@@ -192,11 +200,17 @@ export function useDocumentLoading({ buffersRef, commitBuffers, documentRegistry
       commitBuffers((current) => {
         const buffer = current[path];
         if (!buffer) return current;
-        return { ...current, [path]: { ...buffer, error: errorMessage(error) } };
+        return { ...current, [path]: { ...buffer, operation: null, error: errorMessage(error), conflict: true } };
       });
       return false;
     } finally {
       if (isCurrent()) {
+        commitBuffers((current) => {
+          const buffer = current[path];
+          return buffer?.operation === "load"
+            ? { ...current, [path]: { ...buffer, operation: null } }
+            : current;
+        });
         setLoadingPaths((current) => {
           const next = new Set(current);
           next.delete(path);

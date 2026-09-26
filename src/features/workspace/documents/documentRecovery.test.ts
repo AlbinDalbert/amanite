@@ -101,4 +101,28 @@ describe("document recovery coordinator", () => {
       registry.dispose();
     }
   });
+
+  it("does not resurrect a recovery draft while disk reload is resolving", async () => {
+    vi.useFakeTimers();
+    const projectGeneration = 63;
+    const buffer = { ...protectedBuffer(projectGeneration)!, operation: "load" as const };
+    const buffersRef = { current: { [buffer.path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(buffer.path, {
+      bodyHtml: "<p class=\"keep-me\">Before</p>",
+      initialRevision: 1,
+      title: "Protected"
+    });
+    const writeDraft = vi.fn(async () => ({ revision: 1, status: "written" as const }));
+    const coordinator = new DocumentRecoveryCoordinator({ buffersRef, documentRegistry: registry, writeDraft });
+
+    try {
+      await vi.advanceTimersByTimeAsync(RECOVERY_IDLE_DELAY_MS + RECOVERY_RETRY_DELAYS_MS[0]);
+      expect(writeDraft).not.toHaveBeenCalled();
+      expect(session.getSnapshot().revision).toBe(1);
+    } finally {
+      coordinator.dispose();
+      registry.dispose();
+    }
+  });
 });

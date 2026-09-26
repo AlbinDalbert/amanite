@@ -93,9 +93,28 @@ async function saveNativeDocument(
 ): Promise<NativeSaveResult> {
   let workingProject = projectForBuffer(project, buffer);
   let parts = buffer.nativeDocumentParts;
+  let hasFreshProject = false;
   if (force) {
     const latest = await fractalClient.readPage(workingProject, buffer.path);
     parts = latest.nativeDocumentParts ?? null;
+    if (parts) {
+      hasFreshProject = true;
+      const page = workingProject.pages.find((candidate) => candidate.path === buffer.path);
+      workingProject = {
+        ...workingProject,
+        activePagePath: latest.path,
+        activePageSource: latest.source,
+        activePageLinks: latest.links,
+        activePageBacklinks: latest.backlinks,
+        activePageContentHash: latest.contentHash,
+        activePageNativeDocumentParts: parts,
+        pages: page
+          ? workingProject.pages.map((candidate) => candidate.path === buffer.path
+            ? { ...candidate, contentHash: latest.contentHash, title: parts?.title ?? candidate.title }
+            : candidate)
+          : workingProject.pages
+      };
+    }
   }
   if (!parts) throw new Error(`Fractal did not provide native document sections for ${buffer.path}.`);
 
@@ -107,7 +126,7 @@ async function saveNativeDocument(
   const sent: FractalNativeSectionEdits = {};
   const receipts: FractalMutationReceipt[] = [];
   let resultingPath = buffer.path;
-  const projectAfterCommittedSections = () => Object.keys(sent).length ? workingProject : project;
+  const projectAfterCommittedSections = () => Object.keys(sent).length || hasFreshProject ? workingProject : project;
   for (const section of nativeSectionOrder) {
     const value = buffer.nativeEdits[section];
     if (value == null) continue;
@@ -290,11 +309,22 @@ function captureSessionBuffer(context: SaveContext, buffer: DocumentBuffer, forc
   if (capture.revision < buffer.revision) throw new Error(`The captured document for ${buffer.path} is behind revision ${buffer.revision}.`);
 
   const nativeEdits = { ...buffer.nativeEdits };
-  if (capture.title === nativeDocumentParts.title) delete nativeEdits.title;
-  else nativeEdits.title = capture.title;
-  if (encoded) {
-    if (encoded.bodyHtml === nativeDocumentParts.contentHtml) delete nativeEdits.content;
-    else nativeEdits.content = encoded.bodyHtml;
+  if (force) {
+    // Replace-disk is an explicit local-wins command. Rebuild every native
+    // section from the accepted local baseline, not only the sections that
+    // differed before an external edit was observed. Otherwise a clean local
+    // document can "replace" the disk and leave the external content there.
+    nativeEdits.title = capture.title;
+    nativeEdits.content = encoded?.bodyHtml ?? nativeDocumentParts.contentHtml;
+    nativeEdits.style ??= nativeDocumentParts.styleCss;
+    nativeEdits.metadata ??= nativeDocumentParts.metadataHtml;
+  } else {
+    if (capture.title === nativeDocumentParts.title) delete nativeEdits.title;
+    else nativeEdits.title = capture.title;
+    if (encoded) {
+      if (encoded.bodyHtml === nativeDocumentParts.contentHtml) delete nativeEdits.content;
+      else nativeEdits.content = encoded.bodyHtml;
+    }
   }
 
   return {
@@ -324,6 +354,7 @@ async function writeRecoveryDraftForSession(
   const sessionSnapshot = session.getSnapshot();
   const buffer = buffersRef.current[sessionSnapshot.path];
   if (!buffer) return null;
+  if (buffer.operation === "load") return null;
 
   const latest = buffersRef.current[sessionSnapshot.path];
   if (!latest || latest.path !== sessionSnapshot.path || latest.projectGeneration !== sessionSnapshot.projectGeneration) {
@@ -672,6 +703,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
   // Autosave commits one captured revision. Newer typing is scheduled by the
   // idle/max-lag timers, while explicit saves and close barriers drain the queue.
   const autosaveDocument = (path: string) => saveDocument(path, false, false);
+  const replaceExternal = (path: string) => saveDocument(path, true);
   const writeRecoveryDraft: RecoveryDraftWriter = (documentId, targetRevision) => writeRecoveryDraftFromSession(
     buffersRef,
     documentRegistry,
@@ -683,6 +715,7 @@ export function createDocumentPersistence({ buffersRef, commitBuffers, documentR
   return {
     autosaveDocument,
     dispose: () => recovery?.dispose(),
+    replaceExternal,
     saveAll,
     saveDocument,
     savePaths,

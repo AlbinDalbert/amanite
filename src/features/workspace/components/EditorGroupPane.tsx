@@ -72,12 +72,18 @@ function EditorGroupEmptyState({ buffer, draggedTab, group, isWaiting, loadError
   );
 }
 
-function DocumentBufferAlert({ buffer, onRecreate, onReload, onReplace }: { buffer?: DocumentBuffer; onRecreate: Props["onRecreate"]; onReload: Props["onReload"]; onReplace: Props["onReplace"] }) {
-  if (!buffer?.error) return null;
+function DocumentBufferAlert({ buffer, isLoading, onRecreate, onReload, onReplace }: { buffer?: DocumentBuffer; isLoading: boolean; onRecreate: Props["onRecreate"]; onReload: Props["onReload"]; onReplace: Props["onReplace"] }) {
+  if (!buffer || (!buffer.error && !buffer.conflict)) return null;
+  const canReplaceExternal = Boolean(buffer.nativeDocumentParts);
+  const status = buffer.operation === "load"
+    ? "Reloading the disk version…"
+    : buffer.operation === "save"
+      ? "Replacing the disk version with the local document…"
+      : buffer.error;
   return (
     <div className={`document-buffer-alert${buffer.conflict ? " conflict" : ""}`} role="alert">
-      <div><strong>{buffer.conflict ? "Changed on disk" : "Save failed"}</strong><span>{buffer.error}</span></div>
-      {buffer.conflict ? <div className="document-buffer-actions">{buffer.missing ? <button onClick={() => onRecreate(buffer.path)} type="button">Recreate page</button> : <><button onClick={() => onReload(buffer.path)} type="button">Reload disk</button><button className="danger" onClick={() => onReplace(buffer.path)} type="button">Replace disk</button></>}</div> : null}
+      <div><strong>{buffer.conflict ? "Changed on disk" : "Save failed"}</strong>{status ? <span>{status}</span> : null}</div>
+      {buffer.conflict ? <div className="document-buffer-actions">{buffer.missing ? <button disabled={isLoading || Boolean(buffer.operation)} onClick={() => onRecreate(buffer.path)} type="button">Recreate page</button> : <><button disabled={isLoading || Boolean(buffer.operation)} onClick={() => onReload(buffer.path)} type="button">Reload disk</button>{canReplaceExternal ? <button className="danger" disabled={isLoading || Boolean(buffer.operation)} onClick={() => onReplace(buffer.path)} type="button">Replace disk</button> : null}</>}</div> : null}
     </div>
   );
 }
@@ -136,7 +142,7 @@ function EditorGroupPane(props: Props) {
         {group.tabs.map((path) => path === group.activePath ? <EditorGroupTabPanel active context={tabPanelContext} groupId={group.id} key={path} path={path} /> : null)}
         {group.activePath && isWaitingForBuffer ? <DocumentLoadingPreview title={props.project.pages.find((page) => page.path === group.activePath)?.title?.trim() || group.activePath} /> : null}
         <EditorGroupEmptyState buffer={buffer} draggedTab={props.draggedTab} group={group} isWaiting={isWaitingForBuffer} loadError={props.loadError} onCreateFirstPage={props.onCreateFirstPage} project={props.project} />
-        <DocumentBufferAlert buffer={buffer} onRecreate={props.onRecreate} onReload={props.onReload} onReplace={props.onReplace} />
+        <DocumentBufferAlert buffer={buffer} isLoading={props.isLoading} onRecreate={props.onRecreate} onReload={props.onReload} onReplace={props.onReplace} />
         {props.draggedTab ? <div className="editor-group-drop-cue"><span>Move to {group.id}</span></div> : null}
       </div>
     </section>

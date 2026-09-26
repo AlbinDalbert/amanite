@@ -158,6 +158,7 @@ export class DocumentRecoveryCoordinator {
   }
 
   private hasPendingRecovery(session: DocumentSession, buffer: DocumentBuffer, schedule: RecoverySchedule) {
+    if (buffer.operation === "load") return false;
     const revision = session.getSnapshot().revision;
     return (buffer.dirty || revision > buffer.savedRevision)
       && Math.max(buffer.revision, revision) > Math.max(buffer.draftedRevision, schedule.confirmedRevision);

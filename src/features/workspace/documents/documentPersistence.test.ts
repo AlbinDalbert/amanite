@@ -722,6 +722,97 @@ describe("document persistence", () => {
     expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
   });
 
+  it("replaces every local native section from a fresh baseline", async () => {
+    const path = "index.fractal.html";
+    const projectGeneration = 52;
+    const initialProject = nativeProject(path);
+    const buffer = {
+      ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!,
+      conflict: true,
+      nativeEdits: { style: "body { color: red; }", metadata: "<meta name=\"local\">" }
+    };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    const { session } = registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const localBody = captureAndEncodeDocument(session).bodyHtml;
+    const externalBody = "<p>External edit</p>";
+    const externalParts = nativeParts({ contentHtml: externalBody, contentHash: "external-content", styleCss: "body { color: blue; }", metadataHtml: "<meta name=\"external\">", sourceHash: "external-source" });
+    const externalSource = NATIVE_SOURCE.replace("<p>Before</p>", externalBody);
+    const savedParts = nativeParts({ contentHtml: localBody, contentHash: "local-content", sourceHash: "local-source" });
+    const savedProject = nativeProject(path, NATIVE_SOURCE.replace("<p>Before</p>", localBody), savedParts);
+    const readPage = vi.spyOn(fractalClient, "readPage").mockResolvedValue({ path, source: externalSource, contentHash: "external-source", links: [], backlinks: [], nativeDocumentParts: externalParts });
+    const setPageTitle = vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue(saved(savedProject));
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockResolvedValue(saved(savedProject));
+    const setPageStyle = vi.spyOn(fractalClient, "setPageStyle").mockResolvedValue(saved(savedProject));
+    const setPageMetadata = vi.spyOn(fractalClient, "setPageMetadata").mockResolvedValue(saved(savedProject));
+    const buffersProject = { current: initialProject };
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: buffersProject,
+      publishProject: (next) => { buffersProject.current = next; }
+    });
+
+    try {
+      await expect(persistence.replaceExternal(path)).resolves.toBe(true);
+
+      expect(readPage).toHaveBeenCalledWith(expect.objectContaining({ rootPath: initialProject.rootPath, activePagePath: path }), path);
+      expect(setPageTitle).toHaveBeenCalledWith(expect.anything(), "Test", "title-hash");
+      expect(setPageContent).toHaveBeenCalledWith(expect.anything(), localBody, "external-content");
+      expect(setPageStyle).toHaveBeenCalledWith(expect.anything(), "body { color: red; }", "style-hash");
+      expect(setPageMetadata).toHaveBeenCalledWith(expect.anything(), "<meta name=\"local\">", "metadata-hash");
+      expect(buffersRef.current[path]).toMatchObject({ conflict: false, dirty: false, nativeEdits: {}, savedRevision: 0 });
+      expect(session.getSnapshot()).toMatchObject({ bodyDirty: false, revision: 0 });
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+    }
+  });
+
+  it("keeps local sections and the conflict visible when replace-disk races a new write", async () => {
+    const path = "index.fractal.html";
+    const projectGeneration = 53;
+    const initialProject = nativeProject(path);
+    const buffer = { ...bufferFromProject(initialProject, NATIVE_SOURCE, false, { projectGeneration })!, conflict: true };
+    const buffersRef = { current: { [path]: buffer } as DocumentBuffers };
+    const registry = new DocumentRegistry({ projectGeneration });
+    registry.openLoaded(path, { bodyHtml: "<p>Before</p>", title: "Test" });
+    const externalBody = "<p>External edit</p>";
+    const externalParts = nativeParts({ contentHtml: externalBody, contentHash: "external-content", sourceHash: "external-source" });
+    const readPage = vi.spyOn(fractalClient, "readPage").mockResolvedValue({
+      path,
+      source: NATIVE_SOURCE.replace("<p>Before</p>", externalBody),
+      contentHash: "external-source",
+      links: [],
+      backlinks: [],
+      nativeDocumentParts: externalParts
+    });
+    vi.spyOn(fractalClient, "setPageTitle").mockResolvedValue(saved(initialProject));
+    const setPageContent = vi.spyOn(fractalClient, "setPageContent").mockResolvedValue({ status: "conflict", error: { code: "conflict", message: "changed again" } });
+    const persistence = createDocumentPersistence({
+      buffersRef,
+      commitBuffers: (updater) => { buffersRef.current = updater(buffersRef.current); },
+      documentRegistry: registry,
+      onDocumentPathChange: vi.fn(),
+      projectRef: { current: initialProject },
+      publishProject: vi.fn()
+    });
+
+    try {
+      await expect(persistence.replaceExternal(path)).resolves.toBe(false);
+
+      expect(readPage).toHaveBeenCalledTimes(1);
+      expect(setPageContent).toHaveBeenCalledWith(expect.anything(), "<p><span>Before</span></p>", "external-content");
+      expect(buffersRef.current[path]).toMatchObject({ conflict: true, dirty: true, operation: null });
+      expect(buffersRef.current[path].nativeEdits).toMatchObject({ content: "<p><span>Before</span></p>", style: "body { color: black; }", metadata: "" });
+    } finally {
+      persistence.dispose();
+      registry.dispose();
+    }
+  });
+
   it("refreshes an uncertain Fractal outcome without dropping the local buffer", async () => {
     const path = "index.fractal.html";
     const initialProject = nativeProject(path);

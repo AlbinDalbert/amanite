@@ -101,3 +101,42 @@ it("installs loaded content into the registry and replaces it in place on reload
     registry.dispose();
   }
 });
+
+it("marks an explicit reload as a barrier and keeps the conflict after a read failure", async () => {
+  const firstLoaded = { path: "notes.fractal.html", source, contentHash: "base", links: [], backlinks: [] };
+  const nextSource = source.replace("Before", "From disk");
+  let resolveRead!: (value: typeof firstLoaded) => void;
+  const readPage = vi.spyOn(fractalClient, "readPage")
+    .mockResolvedValueOnce(firstLoaded)
+    .mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }))
+    .mockRejectedValueOnce(new Error("disk read failed"));
+  const buffersRef = { current: {} as DocumentBuffers };
+  const projectRef = { current: project };
+  const registry = new DocumentRegistry({ projectGeneration: 1 });
+  const commitBuffers = (updater: BufferUpdater) => { buffersRef.current = updater(buffersRef.current); };
+  let loading!: ReturnType<typeof useDocumentLoading>;
+  function Harness() {
+    loading = useDocumentLoading({ buffersRef, commitBuffers, documentRegistry: registry, initialProject: project, projectGeneration: 1, projectRef, publishProject: next => { projectRef.current = next; }, onRequestConfirmation: vi.fn(), setLoadErrors: vi.fn(), setLoadingPaths: vi.fn() });
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => { await loading.openDocument("notes.fractal.html"); });
+
+    const reload = loading.reloadDocument("notes.fractal.html");
+    expect(buffersRef.current["notes.fractal.html"].operation).toBe("load");
+    resolveRead({ ...firstLoaded, source: nextSource, contentHash: "next" });
+    await act(async () => { await expect(reload).resolves.toBe(true); });
+    expect(buffersRef.current["notes.fractal.html"]).toMatchObject({ operation: null, conflict: false });
+    expect(registry.getByPath("notes.fractal.html")?.editor.getEditorState().read(() => $getRoot().getTextContent())).toContain("From disk");
+
+    buffersRef.current = { "notes.fractal.html": { ...buffersRef.current["notes.fractal.html"], conflict: true, error: "Changed on disk" } };
+    await act(async () => { await expect(loading.reloadDocument("notes.fractal.html")).resolves.toBe(false); });
+    expect(buffersRef.current["notes.fractal.html"]).toMatchObject({ operation: null, conflict: true, error: "disk read failed" });
+    expect(readPage).toHaveBeenCalledTimes(3);
+  } finally {
+    await act(async () => root.unmount());
+    registry.dispose();
+  }
+});

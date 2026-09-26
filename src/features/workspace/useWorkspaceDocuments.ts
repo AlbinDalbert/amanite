@@ -427,6 +427,7 @@ export function useWorkspaceDocuments({ autoSave, initialProject, onDocumentPath
     saveFolder,
     savePaths: persistence.savePaths,
     saveDocument: persistence.saveDocument,
+    replaceExternal: persistence.replaceExternal,
     resolveDocumentPath,
     dismissPollingNotice: () => setPollingNotice(null),
     markRevision,
